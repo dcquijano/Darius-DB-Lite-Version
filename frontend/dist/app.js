@@ -176,21 +176,20 @@
         const verControl = installed
           ? `<select class="select sm svc-ver" data-engine="${s.engine}" ${busy ? "disabled" : ""} title="Active version">
               ${s.installations
-                .map(
-                  (inst) =>
-                    `<option value="${esc(inst.name)}" ${inst.name === s.active ? "selected" : ""}>${esc(inst.name)}</option>`
-                )
-                .join("")}
+            .map(
+              (inst) =>
+                `<option value="${esc(inst.name)}" ${inst.name === s.active ? "selected" : ""}>${esc(inst.name)}</option>`
+            )
+            .join("")}
             </select>`
           : `<span class="muted">No version installed</span>`;
 
         const primaryBtn = !installed
           ? `<button class="btn sm primary" data-act="install" data-engine="${s.engine}">Install</button>`
           : running
-          ? `<button class="btn sm danger" data-act="stop" data-engine="${s.engine}">Stop</button>
+            ? `<button class="btn sm danger" data-act="stop" data-engine="${s.engine}">Stop</button>
              <button class="btn sm" data-act="restart" data-engine="${s.engine}">Restart</button>`
-          : `<button class="btn sm primary" data-act="start" data-engine="${s.engine}" ${busy ? "disabled" : ""}>${
-              busy ? stateLabel + "..." : "Start"
+            : `<button class="btn sm primary" data-act="start" data-engine="${s.engine}" ${busy ? "disabled" : ""}>${busy ? stateLabel + "..." : "Start"
             }</button>`;
 
         const isApache = s.engine === "apache";
@@ -203,16 +202,16 @@
                <button class="btn sm" data-act="deploysite" data-engine="${s.engine}" title="Deploy a .zip or .html website into www/">Deploy .zip</button>
                <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy http://localhost:${s.port}/">URL</button>`
             : isPhp
-            ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}" title="Open PHP Server at http://localhost:${s.port}/">Open PHP</button>
+              ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}" title="Open PHP Server at http://localhost:${s.port}/">Open PHP</button>
                <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy http://localhost:${s.port}/">URL</button>`
-            : isMailpit
-            ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}" title="Open Mailpit Web Inbox at http://localhost:${s.port}/">Open Inbox</button>
+              : isMailpit
+                ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}" title="Open Mailpit Web Inbox at http://localhost:${s.port}/">Open Inbox</button>
                <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy Mailpit SMTP &amp; Web Inbox URL">SMTP</button>`
-            : `<button class="btn sm accent" data-act="browse" data-engine="${s.engine}">Browse</button>
+                : `<button class="btn sm accent" data-act="browse" data-engine="${s.engine}">Browse</button>
                <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy connection URI">URI</button>`
           : isApache && installed
-          ? `<button class="btn sm" data-act="deploysite" data-engine="${s.engine}" title="Deploy a .zip or .html website into www/">Deploy .zip</button>`
-          : "";
+            ? `<button class="btn sm" data-act="deploysite" data-engine="${s.engine}" title="Deploy a .zip or .html website into www/">Deploy .zip</button>`
+            : "";
 
         return `
         <article class="svc-card ${s.state}">
@@ -240,16 +239,14 @@
             ${extraRunning}
             ${s.state === "error" ? `<button class="btn sm accent" data-act="repair" data-engine="${s.engine}" title="Auto-repair ${esc(s.name)}">🔧 Repair</button>` : ""}
             <div class="spacer"></div>
-            ${
-              installed
-                ? `<button class="btn xs ghost" data-act="repair" data-engine="${s.engine}" title="Diagnose &amp; repair ${esc(s.name)}">Repair</button>
+            ${installed
+            ? `<button class="btn xs ghost" data-act="repair" data-engine="${s.engine}" title="Diagnose &amp; repair ${esc(s.name)}">Repair</button>
                    <button class="btn xs ghost" data-act="config" data-engine="${s.engine}">Config</button>
                    <button class="btn xs ghost" data-act="logs" data-engine="${s.engine}">Logs</button>
-                   <button class="btn xs ghost" data-act="data" data-engine="${s.engine}" title="${
-                     isWebRoot ? "Open www/ website folder" : "Open data folder"
-                   }">${isWebRoot ? "www/" : "Data"}</button>`
-                : ""
-            }
+                   <button class="btn xs ghost" data-act="data" data-engine="${s.engine}" title="${isWebRoot ? "Open www/ website folder" : "Open data folder"
+            }">${isWebRoot ? "www/" : "Data"}</button>`
+            : ""
+          }
           </div>
         </article>`;
       })
@@ -535,7 +532,7 @@
       if (val.type === "string" && (display.startsWith("{") || display.startsWith("["))) {
         try {
           display = JSON.stringify(JSON.parse(display), null, 2);
-        } catch {}
+        } catch { }
       }
       const ttlStr = val.ttl < 0 ? "no expiry" : `${val.ttl}s`;
       box.innerHTML = `
@@ -650,20 +647,18 @@
               <div class="ver-sub">${esc(inst.dir)}</div>
             </div>
             <div class="ver-actions">
-              ${
-                canUpdate
-                  ? `<button class="btn sm primary" data-dl-ver="${esc(newestEntry.version)}" data-dl-url="${esc(
-                      newestEntry.url
-                    )}" title="Download and install newest version ${esc(newestEntry.version)}">↑ Update to ${esc(
-                      newestEntry.version
-                    )}</button>`
-                  : ""
-              }
-              ${
-                isActive
-                  ? ""
-                  : `<button class="btn sm accent" data-use-ver="${esc(inst.name)}">Use Version</button>`
-              }
+              ${canUpdate
+              ? `<button class="btn sm primary" data-dl-ver="${esc(newestEntry.version)}" data-dl-url="${esc(
+                newestEntry.url
+              )}" title="Download and install newest version ${esc(newestEntry.version)}">↑ Update to ${esc(
+                newestEntry.version
+              )}</button>`
+              : ""
+            }
+              ${isActive
+              ? ""
+              : `<button class="btn sm accent" data-use-ver="${esc(inst.name)}">Use Version</button>`
+            }
               <button class="btn sm danger-ghost" data-del-ver="${esc(inst.name)}">Remove</button>
             </div>
           </div>`;
@@ -684,7 +679,7 @@
         let host = "";
         try {
           host = new URL(entry.url).host;
-        } catch {}
+        } catch { }
 
         if (inProgress) {
           const pct = dl.total > 0 ? Math.min(100, Math.round((dl.received / dl.total) * 100)) : 0;
@@ -716,12 +711,11 @@
             <div class="ver-sub" title="${esc(entry.url)}">${esc(host)}</div>
           </div>
           <div class="ver-actions">
-            ${
-              isInstalled
-                ? `<button class="btn sm ghost" disabled title="Already installed — remove first if you want to reinstall">✓ Installed</button>`
-                : `<button class="btn sm ghost" data-manual-url="${esc(entry.url)}" title="Download .zip manually in your web browser">Manual (.zip)</button>
+            ${isInstalled
+            ? `<button class="btn sm ghost" disabled title="Already installed — remove first if you want to reinstall">✓ Installed</button>`
+            : `<button class="btn sm ghost" data-manual-url="${esc(entry.url)}" title="Download .zip manually in your web browser">Manual (.zip)</button>
                    <button class="btn sm primary" data-dl-ver="${esc(entry.version)}" data-dl-url="${esc(entry.url)}">Download</button>`
-            }
+          }
           </div>
         </div>`;
       })
@@ -814,7 +808,7 @@
       const atBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 40;
       area.textContent = text || "(log is empty)";
       if (atBottom) area.scrollTop = area.scrollHeight;
-    } catch {}
+    } catch { }
   }
 
   // ---- Built-in Terminal ----
@@ -841,7 +835,7 @@
     } else {
       try {
         state.termState = await api().TerminalState();
-      } catch {}
+      } catch { }
     }
     updateTermUI();
     $("termInput").focus();
@@ -947,19 +941,15 @@
           <td><strong>${labels[id]}</strong></td>
           <td><input type="checkbox" class="eng-enabled" ${es.enabled ? "checked" : ""} /></td>
           <td><input type="number" class="input sm port-input eng-port" min="1" max="65535" value="${es.port || ""}" /></td>
-          <td>${
-            noAuth
-              ? `<span class="muted">${isWebRoot ? "www/ (DocumentRoot)" : isMailpit ? "SMTP :1025 / Web UI" : "—"}</span>`
-              : `<input type="text" class="input sm eng-user" value="${esc(es.user || "")}" placeholder="${
-                  isMSSQL ? "blank = Windows Auth / LocalDB" : ""
-                }" />`
+          <td>${noAuth
+            ? `<span class="muted">${isWebRoot ? "www/ (DocumentRoot)" : isMailpit ? "SMTP :1025 / Web UI" : "—"}</span>`
+            : `<input type="text" class="input sm eng-user" value="${esc(es.user || "")}" placeholder="${isMSSQL ? "blank = Windows Auth / LocalDB" : ""
+            }" />`
           }</td>
-          <td>${
-            isWebRoot || isMailpit
-              ? `<span class="muted">—</span>`
-              : `<input type="password" class="input sm eng-pass" value="${esc(es.password || "")}" placeholder="${
-                  id === "redis" ? "optional" : isMSSQL ? "blank = Windows Auth" : "blank = no password"
-                }" />`
+          <td>${isWebRoot || isMailpit
+            ? `<span class="muted">—</span>`
+            : `<input type="password" class="input sm eng-pass" value="${esc(es.password || "")}" placeholder="${id === "redis" ? "optional" : isMSSQL ? "blank = Windows Auth" : "blank = no password"
+            }" />`
           }</td>
         </tr>`;
       })
@@ -1014,8 +1004,8 @@
         .map(([k, v, link]) =>
           link
             ? `<div class="about-item"><span>${esc(k)}</span><strong><a href="#" data-ext-url="${esc(
-                link
-              )}" style="color:var(--accent);text-decoration:underline">${esc(v)}</a></strong></div>`
+              link
+            )}" style="color:var(--accent);text-decoration:underline">${esc(v)}</a></strong></div>`
             : `<div class="about-item"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`
         )
         .join("");

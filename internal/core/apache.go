@@ -152,6 +152,17 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
     .status-msg { margin-top:12px; padding:10px 14px; border-radius:8px; font-size:13px; display:none; align-items:center; justify-content:space-between; gap:10px; text-align:left; }
     .status-msg.ok { display:flex; background:rgba(34,197,94,0.14); border:1px solid rgba(34,197,94,0.35); color:#86efac; }
     .status-msg.err { display:flex; background:rgba(239,68,68,0.14); border:1px solid rgba(239,68,68,0.35); color:#fca5a5; }
+    .trust-badge { display:inline-flex; align-items:center; gap:6px; background:rgba(20,184,166,0.15); border:1px solid rgba(20,184,166,0.35); color:#5eead4; padding:4px 10px; border-radius:99px; font-size:12px; font-weight:600; cursor:pointer; }
+    .trust-modal-bg { position:fixed; inset:0; background:rgba(4,9,20,0.78); display:none; align-items:center; justify-content:center; z-index:999; padding:20px; }
+    .trust-modal-bg.open { display:flex; }
+    .trust-modal { background:var(--card); border:1px solid rgba(20,184,166,0.45); border-radius:14px; max-width:520px; width:100%; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.6); text-align:left; }
+    .trust-modal h3 { margin:0 0 8px; font-size:18px; color:var(--text); display:flex; align-items:center; gap:8px; }
+    .trust-modal p { margin:0 0 12px; font-size:13px; color:var(--muted); }
+    .trust-box { background:var(--subtle); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:12.5px; line-height:1.7; }
+    .trust-chk { display:flex; align-items:flex-start; gap:8px; margin:8px 0; font-size:12.5px; color:var(--text); cursor:pointer; }
+    .trust-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:16px; }
+    .prog-wrap { width:100%; background:#0b1322; height:7px; border-radius:99px; overflow:hidden; margin-top:6px; }
+    .prog-bar { height:100%; background:var(--accent); width:0%; transition:width 0.15s; }
     .sites-panel { background:var(--subtle); border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin-top:16px; }
     .sites-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
     .sites-head h3 { margin:0; font-size:13.5px; color:var(--accent); text-transform:uppercase; letter-spacing:0.04em; }
@@ -171,11 +182,39 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
 <body>
   <div class="box">
     <div class="top-bar">
-      <span class="badge"><span class="dot"></span> Apache Web Server is Running</span>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="badge"><span class="dot"></span> Apache Web Server is Running</span>
+        <span class="trust-badge" id="trustStatusBadge" title="Click to toggle Auto-Trust Author &amp; Full Folder Permissions">🛡 Trust Author: Enabled (Full Permissions)</span>
+      </div>
       <code id="wwwPathBadge">www/</code>
     </div>
     <h1>Darius DB (Lite Version 0.1.2)</h1>
     <p>Your local web server is active and serving websites directly from your portable <code>www/</code> directory.</p>
+
+    <!-- Trust Author & Folder Permissions Modal -->
+    <div class="trust-modal-bg" id="trustModal">
+      <div class="trust-modal">
+        <h3>🛡 Do you trust the authors of the files in this folder?</h3>
+        <p>Darius DB Apache Web Server is about to grant local hosting permissions and deploy these files into <code>C:\DariusDB\www\</code>.</p>
+        <div class="trust-box" id="trustSummaryBox"></div>
+        <label class="trust-chk">
+          <input type="checkbox" id="chkGrantPerms" checked />
+          <span><strong>Trust Author &amp; Grant Full Permissions</strong> (Read, Write &amp; Script Execution in <code>www/</code>)</span>
+        </label>
+        <label class="trust-chk">
+          <input type="checkbox" id="chkSkipHeavy" checked />
+          <span>Skip heavy non-web cache folders (<code>.git/</code>, <code>node_modules/</code>, <code>.vs/</code>) for instant upload</span>
+        </label>
+        <label class="trust-chk">
+          <input type="checkbox" id="chkAlwaysTrust" checked />
+          <span>Remember my choice and automatically trust local authors &amp; permissions</span>
+        </label>
+        <div class="trust-actions">
+          <button type="button" class="btn secondary" id="btnTrustCancel">Cancel</button>
+          <button type="button" class="btn" id="btnTrustConfirm">🛡 Trust Author &amp; Deploy</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Drag & Drop Website Deployer -->
     <div class="drop-card" id="dropZone">
@@ -293,13 +332,15 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
       document.getElementById("btnPickFiles").onclick = () => inputFiles.click();
 
       inputFolder.onchange = () => {
-        if (inputFolder.files.length) uploadFileList(Array.from(inputFolder.files).map((f) => ({ file: f, relPath: f.webkitRelativePath || f.name })));
+        if (inputFolder.files.length) promptTrustAndDeploy(Array.from(inputFolder.files).map((f) => ({ file: f, relPath: f.webkitRelativePath || f.name })));
         inputFolder.value = "";
       };
       inputFiles.onchange = () => {
-        if (inputFiles.files.length) uploadFileList(Array.from(inputFiles.files).map((f) => ({ file: f, relPath: f.name })));
+        if (inputFiles.files.length) promptTrustAndDeploy(Array.from(inputFiles.files).map((f) => ({ file: f, relPath: f.name })));
         inputFiles.value = "";
       };
+
+      const SKIP_DIRS = new Set([".git", "node_modules", ".vs", ".idea", "__pycache__", ".next", "dist-cache"]);
 
       // Recursively read dropped folders and files via FileSystemEntry API
       async function readEntry(entry, prefix = "") {
@@ -350,6 +391,7 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
         const dt = e.dataTransfer;
         if (!dt) return;
 
+        showStatus("<span>Scanning dropped folder &amp; verifying author permissions...</span>", true);
         const items = dt.items ? Array.from(dt.items) : [];
         const entries = items.map((it) => it.webkitGetAsEntry ? it.webkitGetAsEntry() : null).filter(Boolean);
         if (entries.length) {
@@ -359,32 +401,169 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
             collected.push(...sub);
           }
           if (collected.length) {
-            await uploadFileList(collected);
+            await promptTrustAndDeploy(collected);
             return;
           }
         }
         if (dt.files && dt.files.length) {
-          await uploadFileList(Array.from(dt.files).map((f) => ({ file: f, relPath: f.name })));
+          await promptTrustAndDeploy(Array.from(dt.files).map((f) => ({ file: f, relPath: f.name })));
         }
       });
 
-      async function uploadFileList(items) {
-        if (!items.length) return;
-        showStatus("<span>Uploading &amp; deploying " + items.length + " file(s) to <code>www/</code>...</span>", true);
-        const fd = new FormData();
-        fd.append("siteName", siteSlug.value.trim());
-        for (const it of items) {
-          fd.append("files", it.file, it.file.name);
-          fd.append("paths", it.relPath || it.file.name);
+      const trustModal = document.getElementById("trustModal");
+      const trustSummaryBox = document.getElementById("trustSummaryBox");
+      const chkGrantPerms = document.getElementById("chkGrantPerms");
+      const chkSkipHeavy = document.getElementById("chkSkipHeavy");
+      const chkAlwaysTrust = document.getElementById("chkAlwaysTrust");
+      const trustStatusBadge = document.getElementById("trustStatusBadge");
+      let pendingUploadItems = null;
+
+      function isHeavyCachePath(relPath) {
+        const parts = String(relPath || "").replace(/\\/g, "/").split("/");
+        return parts.some((p) => SKIP_DIRS.has(p.toLowerCase()));
+      }
+
+      function detectTargetSite(items) {
+        const manual = siteSlug.value.trim();
+        if (manual) return manual;
+        if (items.length === 1 && items[0].file.name.toLowerCase().endsWith(".zip")) {
+          return items[0].file.name.replace(/\.zip$/i, "");
         }
+        const firstRel = String(items[0].relPath || items[0].file.name).replace(/\\/g, "/").replace(/^\/+/, "");
+        const parts = firstRel.split("/");
+        if (parts.length > 1 && parts[0]) return parts[0];
+        return items[0].file.name.replace(/\.[^.]+$/, "") || "my-site";
+      }
+
+      trustStatusBadge.onclick = () => {
+        const cur = localStorage.getItem("darius_always_trust") === "1";
+        const next = !cur;
+        localStorage.setItem("darius_always_trust", next ? "1" : "0");
+        updateTrustBadge();
+      };
+
+      function updateTrustBadge() {
+        const always = localStorage.getItem("darius_always_trust") === "1";
+        trustStatusBadge.textContent = always
+          ? "🛡 Author Trusted: Auto-Allow (Full Permissions)"
+          : "🛡 Trust Author: Ask Before Deploy";
+      }
+      updateTrustBadge();
+
+      async function promptTrustAndDeploy(rawItems) {
+        if (!rawItems || !rawItems.length) return;
+        const folderName = detectTargetSite(rawItems);
+        const filteredCount = rawItems.filter((it) => !isHeavyCachePath(it.relPath)).length;
+        const heavyCount = rawItems.length - filteredCount;
+
+        // Always open the Trust Author & Permissions dialog if > 200 files or if auto-trust is off
+        if (localStorage.getItem("darius_always_trust") === "1" && rawItems.length <= 200) {
+          await uploadFileList(rawItems, true, true);
+          return;
+        }
+
+        pendingUploadItems = rawItems;
+        trustSummaryBox.innerHTML =
+          '<div><strong>Project / Folder:</strong> <code>' + esc(folderName) + '</code></div>' +
+          '<div><strong>Destination:</strong> <code>C:\\DariusDB\\www\\' + esc(folderName) + '\\</code></div>' +
+          '<div><strong>Total Files Detected:</strong> ' + rawItems.length.toLocaleString() + ' file(s)' +
+          (heavyCount > 0 ? ' (' + filteredCount.toLocaleString() + ' web files + ' + heavyCount.toLocaleString() + ' in <code>.git</code>/<code>node_modules</code>)' : '') +
+          '</div>' +
+          '<div><strong>Permissions:</strong> Full Local Read / Write / Execute &amp; Author Trust</div>';
+        trustModal.classList.add("open");
+      }
+
+      document.getElementById("btnTrustCancel").onclick = () => {
+        trustModal.classList.remove("open");
+        pendingUploadItems = null;
+        showStatus("<span>Deployment cancelled.</span>", false);
+      };
+
+      document.getElementById("btnTrustConfirm").onclick = async () => {
+        if (!chkGrantPerms.checked) {
+          alert("Please check 'Trust Author & Grant Full Permissions' to deploy into www/.");
+          return;
+        }
+        if (chkAlwaysTrust.checked) {
+          localStorage.setItem("darius_always_trust", "1");
+        } else {
+          localStorage.setItem("darius_always_trust", "0");
+        }
+        updateTrustBadge();
+        const items = pendingUploadItems;
+        const skipHeavy = chkSkipHeavy.checked;
+        trustModal.classList.remove("open");
+        pendingUploadItems = null;
+        if (items) {
+          await uploadFileList(items, skipHeavy, true);
+        }
+      };
+
+      async function uploadFileList(rawItems, skipHeavy = true, trusted = true) {
+        let items = skipHeavy ? rawItems.filter((it) => !isHeavyCachePath(it.relPath)) : rawItems;
+        if (!items.length) items = rawItems;
+        if (!items.length) return;
+
+        // Determine siteName & strip common outer directory once so all chunked batches write to the exact same site folder
+        let targetSite = siteSlug.value.trim();
+        let commonTop = "";
+        let allHaveTop = true;
+        for (const it of items) {
+          const rel = String(it.relPath || it.file.name).replace(/\\/g, "/").replace(/^\/+/, "");
+          const parts = rel.split("/");
+          if (parts.length < 2) { allHaveTop = false; break; }
+          if (!commonTop) commonTop = parts[0];
+          else if (commonTop.toLowerCase() !== parts[0].toLowerCase()) { allHaveTop = false; break; }
+        }
+        if (!targetSite) {
+          if (allHaveTop && commonTop) targetSite = commonTop;
+          else if (items.length === 1) targetSite = items[0].file.name.replace(/\.[^.]+$/, "");
+          else targetSite = "site-" + Date.now();
+        }
+
+        // Upload in safe chunks of 40 files per HTTP request so 13,000+ file folders never fail with 'Failed to fetch'
+        const BATCH_SIZE = 40;
+        const total = items.length;
+        let uploaded = 0;
+        let finalRes = null;
+
         try {
-          const r = await fetch("/__darius_www__/upload", { method: "POST", body: fd });
-          const res = await r.json();
-          if (!r.ok || res.error) throw new Error(res.error || "Deploy failed");
+          for (let start = 0; start < total; start += BATCH_SIZE) {
+            const chunk = items.slice(start, start + BATCH_SIZE);
+            const pct = Math.round((uploaded / total) * 100);
+            showStatus(
+              '<div style="width:100%">' +
+                '<div style="display:flex;justify-content:space-between"><span>🛡 Author Trusted · Deploying <strong>' + esc(targetSite) + '</strong> to <code>www/</code>...</span><span>' + uploaded.toLocaleString() + ' / ' + total.toLocaleString() + ' (' + pct + '%)</span></div>' +
+                '<div class="prog-wrap"><div class="prog-bar" style="width:' + pct + '%"></div></div>' +
+              '</div>',
+              true
+            );
+
+            const fd = new FormData();
+            fd.append("siteName", targetSite);
+            fd.append("trusted", trusted ? "true" : "false");
+            for (const it of chunk) {
+              let rel = String(it.relPath || it.file.name).replace(/\\/g, "/").replace(/^\/+/, "");
+              if (allHaveTop && commonTop && rel.toLowerCase().startsWith(commonTop.toLowerCase() + "/")) {
+                rel = rel.slice(commonTop.length + 1);
+              }
+              fd.append("files", it.file, it.file.name);
+              fd.append("paths", rel || it.file.name);
+            }
+
+            const r = await fetch("/__darius_www__/upload", { method: "POST", body: fd });
+            const res = await r.json();
+            if (!r.ok || res.error) throw new Error(res.error || "Deploy batch failed");
+            finalRes = res;
+            uploaded += chunk.length;
+          }
+
           siteSlug.value = "";
+          const siteUrl = (finalRes && finalRes.url) || ("/" + targetSite + "/");
+          const siteDir = (finalRes && finalRes.site) || targetSite;
           showStatus(
-            '<span>✓ Deployed <strong>' + esc(res.site) + '</strong> (' + res.count + ' file' + (res.count === 1 ? '' : 's') + ') to <code>www/' + esc(res.site) + '/</code></span>' +
-            '<a class="btn" style="padding:5px 12px;font-size:12px" href="' + esc(res.url) + '" target="_blank">Open Site ↗</a>',
+            '<span>✓ 🛡 Trusted &amp; Deployed <strong>' + esc(siteDir) + '</strong> (' + total.toLocaleString() + ' file' + (total === 1 ? '' : 's') + ') with full permissions in <code>www/' + esc(siteDir) + '/</code></span>' +
+            '<a class="btn" style="padding:5px 12px;font-size:12px" href="' + esc(siteUrl) + '" target="_blank">Open Site ↗</a>',
             true
           );
           await loadSites();
@@ -406,10 +585,10 @@ func ensureWwwIndex(wwwDir string) {
 		_ = writeIfMissing(indexPath, defaultWwwIndexHTML)
 		return
 	}
-	// Automatically upgrade older static Darius DB welcome page to the Drag & Drop dashboard
+	// Automatically upgrade older Darius DB welcome page to the Trust Author + Chunked Drag & Drop dashboard
 	if b, err := os.ReadFile(indexPath); err == nil {
 		s := string(b)
-		if strings.Contains(s, "Apache Web Server is Running") && !strings.Contains(s, "__darius_www__") {
+		if strings.Contains(s, "Apache Web Server is Running") && !strings.Contains(s, "trustModal") {
 			_ = os.WriteFile(indexPath, []byte(strings.ReplaceAll(defaultWwwIndexHTML, "\n", "\r\n")), 0o644)
 		}
 	}
@@ -599,6 +778,14 @@ func ListWwwSites(wwwDir string) []WwwSiteInfo {
 }
 
 func handleDariusWwwAPI(w http.ResponseWriter, r *http.Request, wwwDir string, port int) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "*")
+	w.Header().Set("Access-Control-Allow-Private-Network", "true")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	writeJSON := func(code int, v interface{}) {
 		w.WriteHeader(code)
@@ -770,8 +957,10 @@ func handleDariusWwwAPI(w http.ResponseWriter, r *http.Request, wwwDir string, p
 			_, _ = io.Copy(out, src)
 			out.Close()
 			src.Close()
+			_ = os.Chmod(targetPath, 0o777)
 			count++
 		}
+		_ = os.Chmod(destSiteDir, 0o777)
 
 		writeJSON(http.StatusOK, map[string]interface{}{
 			"ok":    true,

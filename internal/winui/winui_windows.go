@@ -30,9 +30,50 @@ const (
 )
 
 var (
-	user32          = windows.NewLazySystemDLL("user32.dll")
-	procMessageBoxW = user32.NewProc("MessageBoxW")
+	user32                   = windows.NewLazySystemDLL("user32.dll")
+	shell32                  = windows.NewLazySystemDLL("shell32.dll")
+	ole32                    = windows.NewLazySystemDLL("ole32.dll")
+	procMessageBoxW          = user32.NewProc("MessageBoxW")
+	procSHBrowseForFolderW   = shell32.NewProc("SHBrowseForFolderW")
+	procSHGetPathFromIDListW = shell32.NewProc("SHGetPathFromIDListW")
+	procOleInitialize        = ole32.NewProc("OleInitialize")
+	procCoTaskMemFree        = ole32.NewProc("CoTaskMemFree")
 )
+
+type browseInfoW struct {
+	hwndOwner      syscall.Handle
+	pidlRoot       uintptr
+	pszDisplayName *uint16
+	lpszTitle      *uint16
+	ulFlags        uint32
+	lpfn           uintptr
+	lParam         uintptr
+	iImage         int32
+}
+
+// BrowseForFolder opens the native Windows folder picker dialog.
+// Returns "" if the user cancelled.
+func BrowseForFolder(title string) string {
+	procOleInitialize.Call(0)
+	displayBuf := make([]uint16, windows.MAX_PATH)
+	titlePtr, _ := windows.UTF16PtrFromString(title)
+	bi := browseInfoW{
+		pszDisplayName: &displayBuf[0],
+		lpszTitle:      titlePtr,
+		ulFlags:        0x00000001 | 0x00000040, // BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE
+	}
+	pidl, _, _ := procSHBrowseForFolderW.Call(uintptr(unsafe.Pointer(&bi)))
+	if pidl == 0 {
+		return ""
+	}
+	defer procCoTaskMemFree.Call(pidl)
+	pathBuf := make([]uint16, windows.MAX_PATH)
+	ok, _, _ := procSHGetPathFromIDListW.Call(pidl, uintptr(unsafe.Pointer(&pathBuf[0])))
+	if ok == 0 {
+		return ""
+	}
+	return windows.UTF16ToString(pathBuf)
+}
 
 func MessageBox(title, text string, flags uint32) int {
 	t, _ := windows.UTF16PtrFromString(title)

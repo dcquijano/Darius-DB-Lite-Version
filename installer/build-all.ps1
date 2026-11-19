@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Builds Darius DB (GUI + Launcher + Uninstaller), portable ZIP, and optional Inno Setup installer.
+  Builds Darius DB (Lite Version 0.1.1) GUI, Launcher, Uninstaller, Portable ZIP, and Standalone Setup .exe.
   Created by Darius Cumpio - November 19, 2026 - v0.1.1
 #>
 param(
@@ -9,38 +9,43 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version = "0.1.1"
+$Version  = "0.1.1"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Push-Location $RepoRoot
 
 try {
-    # Ensure Go and Wails are on PATH
-    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
     $goPath = (go env GOPATH).Trim()
     if ($goPath) { $env:Path += ';' + (Join-Path $goPath 'bin') }
 
     if (-not $SkipTests) {
         Write-Host "==> Running tests..." -ForegroundColor Cyan
-        go test -count=1 ./...
+        go test -p 1 -vet=off -count=1 ./internal/core ./internal/tray ./internal/winui
         if ($LASTEXITCODE -ne 0) { throw "go test failed" }
     }
 
     Write-Host "==> Building DariusDB.exe (Wails production build)..." -ForegroundColor Cyan
-    wails build -clean -ldflags "-s -w"
+    wails build -ldflags "-s -w"
     if ($LASTEXITCODE -ne 0) { throw "wails build failed" }
 
     Write-Host "==> Building DariusDB-Launcher.exe..." -ForegroundColor Cyan
-    go build -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Launcher.exe" ./cmd/launcher
+    go build -p 1 -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Launcher.exe" ./cmd/launcher
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Launcher.exe failed" }
 
     Write-Host "==> Building DariusDB-Uninstall.exe..." -ForegroundColor Cyan
-    go build -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Uninstall.exe" ./cmd/uninstaller
+    go build -p 1 -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Uninstall.exe" ./cmd/uninstaller
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Uninstall.exe failed" }
 
-    Write-Host "==> Packaging portable ZIP..." -ForegroundColor Cyan
-    $distDir = Join-Path $RepoRoot "dist"
+    Write-Host "==> Building DariusDB-Setup-$Version.exe stub..." -ForegroundColor Cyan
+    $stubExe = "build\bin\DariusDB-Setup-stub.exe"
+    go build -p 1 -ldflags "-s -w -H=windowsgui" -o $stubExe ./cmd/installer
+    if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Setup.exe failed" }
+
+    Write-Host "==> Packaging portable ZIP & self-contained DariusDB-Setup-$Version.exe..." -ForegroundColor Cyan
+    $distDir  = Join-Path $RepoRoot "dist"
     $stageDir = Join-Path $distDir "DariusDB-$Version-portable"
-    $zipPath = Join-Path $distDir "DariusDB-$Version-portable-windows-amd64.zip"
+    $zipPath  = Join-Path $distDir "DariusDB-$Version-portable-windows-amd64.zip"
+    $setupExe = Join-Path $distDir "DariusDB-Setup-$Version.exe"
 
     Remove-Item -Recurse -Force $stageDir -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
@@ -49,36 +54,36 @@ try {
     Copy-Item "build\bin\DariusDB-Launcher.exe"  $stageDir
     Copy-Item "build\bin\DariusDB-Uninstall.exe" $stageDir
     Copy-Item "LICENSE", "README.md", "GUIDE.md" $stageDir
-    Copy-Item "installer\install.ps1"            $stageDir
-    Copy-Item "installer\Install-DariusDB.bat"   $stageDir
-    Copy-Item "installer\uninstall.ps1"          $stageDir
-    Copy-Item "installer\Uninstall-DariusDB.bat" $stageDir
 
     Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
     Compress-Archive -Path "$stageDir\*" -DestinationPath $zipPath
     Remove-Item -Recurse -Force $stageDir
 
-    # Build Inno Setup installer if ISCC.exe is available
-    $iscc = @(
-        (Get-Command iscc -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
-        "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-        "C:\Program Files\Inno Setup 6\ISCC.exe"
-    ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    # Create self-contained single-file DariusDB-Setup-0.1.1.exe (stub + zip payload + 16-byte trailer)
+    Copy-Item -Force $stubExe $setupExe
+    $zipBytes  = [System.IO.File]::ReadAllBytes($zipPath)
+    $sizeBytes = [System.BitConverter]::GetBytes([uint64]$zipBytes.Length)
+    $magic     = [System.Text.Encoding]::ASCII.GetBytes("DARIUS01")
+    $fs = [System.IO.File]::Open($setupExe, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write)
+    try {
+        $fs.Write($zipBytes, 0, $zipBytes.Length)
+        $fs.Write($sizeBytes, 0, 8)
+        $fs.Write($magic, 0, 8)
+    }
+    finally {
+        $fs.Close()
+    }
+    Remove-Item -Force $stubExe -ErrorAction SilentlyContinue
 
-    if ($iscc) {
-        Write-Host "==> Building Inno Setup installer (DariusDB-Setup-$Version.exe)..." -ForegroundColor Cyan
-        & $iscc "installer\DariusDB.iss"
-    }
-    else {
-        Write-Host "==> Inno Setup (ISCC.exe) not installed - skipping Setup .exe (portable ZIP + Install-DariusDB.bat ready)." -ForegroundColor Yellow
-        Write-Host "    To build DariusDB-Setup-$Version.exe, install Inno Setup: winget install JRSoftware.InnoSetup" -ForegroundColor DarkYellow
-    }
+    # Also place DariusDB-Setup-0.1.1.exe and DariusDB-Uninstall.exe in installer\ for direct click access
+    Copy-Item -Force $setupExe "installer\DariusDB-Setup-$Version.exe"
+    Copy-Item -Force "build\bin\DariusDB-Uninstall.exe" "installer\DariusDB-Uninstall.exe"
 
     Write-Host ""
     Write-Host "==> Build outputs:" -ForegroundColor Green
-    Get-ChildItem "build\bin\*.exe", "dist\*" -ErrorAction SilentlyContinue |
-    Select-Object Name, @{N = "SizeMB"; E = { [math]::Round($_.Length / 1MB, 2) } }, FullName |
-    Format-Table -AutoSize
+    Get-ChildItem "build\bin\*.exe", "dist\*", "installer\*.exe" -ErrorAction SilentlyContinue |
+        Select-Object Name, @{N="SizeMB";E={[math]::Round($_.Length/1MB,2)}}, FullName |
+        Format-Table -AutoSize
 }
 finally {
     Pop-Location

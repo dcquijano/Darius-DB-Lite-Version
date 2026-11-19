@@ -14,9 +14,8 @@
 
 1. [System Requirements](#1-system-requirements)
 2. [How to Install Darius DB (Step by Step)](#2-how-to-install-darius-db-step-by-step)
-   - [Option A: Using the Windows Installer (`DariusDB-Setup-0.1.1.exe`)](#option-a-using-the-windows-installer-dariusdb-setup-011exe)
-   - [Option B: Using the Built-In Script Installer (`Install-DariusDB.bat`)](#option-b-using-the-built-in-script-installer-install-dariusdbbat)
-   - [Option C: 100% Portable (No Installation Required)](#option-c-100-portable-no-installation-required)
+   - [Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.1.exe`)](#option-a-using-the-standalone-windows-installer-dariusdb-setup-011exe)
+   - [Option B: 100% Portable (No Installation Required)](#option-b-100-portable-no-installation-required)
 3. [First-Time Setup & Daily Usage Guide](#3-first-time-setup--daily-usage-guide)
 4. [Using the Launcher (`DariusDB-Launcher.exe`)](#4-using-the-launcher-dariusdb-launcherexe)
 5. [How to Uninstall Darius DB](#5-how-to-uninstall-darius-db)
@@ -37,43 +36,28 @@
 
 ## 2. How to Install Darius DB (Step by Step)
 
-### Option A: Using the Windows Installer (`DariusDB-Setup-0.1.1.exe`)
+### Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.1.exe`)
 
-1. Download **`DariusDB-Setup-0.1.1.exe`** from Releases (or build it yourself in [Section 6](#6-how-to-build-from-source--create-your-own-installer)).
-2. Double-click `DariusDB-Setup-0.1.1.exe`.
-3. Accept the MIT License agreement and click **Next**.
-4. Choose your install folder (default: **`C:\DariusDB`** — a short path with no spaces is recommended for database tools).
-5. Choose optional shortcuts:
-   - **Create a Desktop shortcut** (recommended)
-   - **Start Darius DB automatically on Windows sign-in** (optional, starts minimized to system tray)
-6. Click **Install**, then **Finish** to launch Darius DB.
-
----
-
-### Option B: Using the Built-In Script Installer (`Install-DariusDB.bat`)
-
-No Inno Setup required — works on any Windows 10/11 PC right away:
-
-1. Extract the portable release ZIP (`DariusDB-0.1.1-portable-windows-amd64.zip`) or build from source.
-2. Double-click **`Install-DariusDB.bat`** (located in the ZIP or inside `installer\Install-DariusDB.bat`).
-3. When prompted:
-   - Press **Enter** to install to `C:\DariusDB` (or type any custom path).
-   - Type **`y`** or **`n`** for auto-starting on Windows boot.
-4. The installer automatically:
-   - Copies `DariusDB.exe`, `DariusDB-Launcher.exe`, and `DariusDB-Uninstall.exe` into your install folder.
-   - Creates the portable folders (`bin/`, `data/`, `etc/`, `logs/`, `tmp/`).
-   - Adds Desktop & Start Menu shortcuts (**Darius DB**, **Darius DB Terminal**, **Uninstall Darius DB**).
-   - Registers **Darius DB** in **Windows Settings → Apps → Installed Apps** (without needing Administrator privileges).
-5. Press **Enter** when asked *"Launch Darius DB now?"*.
+1. Double-click **`DariusDB-Setup-0.1.1.exe`** (located in `installer\DariusDB-Setup-0.1.1.exe` or `dist\DariusDB-Setup-0.1.1.exe`).
+2. In the **Welcome to Darius DB (Lite Version 0.1.1) Setup** dialog:
+   - Click **Yes** to install to **`C:\DariusDB`** (recommended), or
+   - Click **No** to open the Windows folder browser and pick any custom folder.
+3. Choose whether to **Start Darius DB automatically when Windows signs in** (Yes / No).
+4. Setup automatically:
+   - Extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Uninstall.exe`, `LICENSE`, `README.md`, and `GUIDE.md`.
+   - Creates `bin/`, `data/`, `etc/`, `logs/`, and `tmp/`.
+   - Creates Desktop & Start Menu shortcuts (**Darius DB**, **Darius DB Terminal**, **Uninstall Darius DB**).
+   - Registers **Darius DB (Lite Version 0.1.1)** in **Windows Settings → Apps → Installed Apps**.
+5. Click **Yes** on the completion dialog to launch **Darius DB (Lite Version 0.1.1)** immediately.
 
 > **Silent / Automated CLI install:**
 > ```powershell
-> powershell -ExecutionPolicy Bypass -File installer\install.ps1 -InstallDir "C:\DariusDB" -AutoStart -Silent
+> .\DariusDB-Setup-0.1.1.exe --silent --dir="C:\DariusDB" --autostart
 > ```
 
 ---
 
-### Option C: 100% Portable (No Installation Required)
+### Option B: 100% Portable (No Installation Required)
 
 1. Create any folder, e.g. `D:\Tools\DariusDB\` or on a USB flash drive.
 2. Copy **`DariusDB.exe`** (and optionally `DariusDB-Launcher.exe`) into that folder.
@@ -222,8 +206,8 @@ This creates:
 - `build\bin\DariusDB.exe` — main desktop app (~13 MB)
 - `build\bin\DariusDB-Launcher.exe` — native launcher (~2–3 MB)
 - `build\bin\DariusDB-Uninstall.exe` — native uninstaller (~2–3 MB)
-- `dist\DariusDB-0.1.1-portable-windows-amd64.zip` — portable bundle with `Install-DariusDB.bat`
-- `dist\DariusDB-Setup-0.1.1.exe` — standalone Windows setup wizard (automatically built if Inno Setup 6 is installed)
+- `dist\DariusDB-0.1.1-portable-windows-amd64.zip` — portable archive
+- `dist\DariusDB-Setup-0.1.1.exe` (and `installer\DariusDB-Setup-0.1.1.exe`) — standalone single-file native Windows installer `.exe`
 
 ### Manual Inno Setup Build
 

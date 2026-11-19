@@ -11,7 +11,7 @@ Manage **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** 
 
 ## Features
 
-- **100% Portable or Standard Install** — Use it right out of any folder (`bin/`, `data/`, `etc/`, `logs/`, `settings.json`), install with `Install-DariusDB.bat`, or distribute a single `DariusDB-Setup-0.1.1.exe` via Inno Setup.
+- **100% Portable or Standard `.exe` Install** — Run directly out of any folder (`bin/`, `data/`, `etc/`, `logs/`, `settings.json`) or install using the standalone Windows installer **`DariusDB-Setup-0.1.1.exe`**.
 - **One-Click Start/Stop & Native System Tray** — Start All / Stop All, per-engine controls, live PID & port-conflict detection, single-instance wake, close-to-tray, and right-click tray menu.
 - **Portable Engine Downloader & Version Switcher** — Download official portable builds (MariaDB, MySQL, PostgreSQL, Redis) or import any local `.zip`, keep multiple versions side-by-side, and switch active versions in one click without touching `data/`.
 - **Built-in Lightweight Database Browser**
@@ -28,10 +28,10 @@ Manage **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** 
 ## Quick Start
 
 ### Option 1: Install on Windows (Recommended)
-1. Download/extract the release folder (or build it below).
-2. Double-click **`installer\Install-DariusDB.bat`** (or run **`DariusDB-Setup-0.1.1.exe`**).
-3. Launch **Darius DB** from the Desktop or Start Menu.
-4. Open **Versions** to download MariaDB, MySQL, PostgreSQL, or Redis, then click **Start All**.
+1. Double-click **`installer\DariusDB-Setup-0.1.1.exe`** (or **`dist\DariusDB-Setup-0.1.1.exe`**).
+2. Choose **`C:\DariusDB`** (or pick any custom folder) and select whether to start on Windows boot.
+3. Launch **Darius DB (Lite Version 0.1.1)** from the Desktop or Start Menu.
+4. Open **Versions** to download MariaDB, MySQL, PostgreSQL, or Redis (or start **MS SQL Server** immediately), then click **Start All**.
 
 ### Option 2: Portable (No Install)
 1. Copy `DariusDB.exe` (and `DariusDB-Launcher.exe`) into any folder, e.g. `C:\DariusDB\`.

@@ -658,3 +658,28 @@ func (a *App) RedisDelete(db int, key string) error {
 func (a *App) Repair(target string, resetConfigs bool) (*core.RepairReport, error) {
 	return a.mgr.Repair(target, resetConfigs)
 }
+
+func (a *App) DeployWebsiteDialog() (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("window not ready")
+	}
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Website .zip Archive or index.html to Host in www/",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Website Package (*.zip;*.html;*.htm)", Pattern: "*.zip;*.html;*.htm"},
+			{DisplayName: "All Files (*.*)", Pattern: "*.*"},
+		},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	siteName, _, err := core.DeployWebsitePath(a.paths.Www, path, "")
+	if err != nil {
+		return "", err
+	}
+	port := a.settings.Engine("apache").Port
+	if port <= 0 {
+		port = 8080
+	}
+	return fmt.Sprintf("http://localhost:%d/%s/", port, siteName), nil
+}

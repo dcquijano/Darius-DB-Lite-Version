@@ -1,13 +1,20 @@
 package core
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -116,44 +123,297 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Darius DB (Lite Version 0.1.2) — Local Web Server</title>
+  <title>Darius DB (Lite Version 0.1.2) — Local Web Server & Drag-and-Drop Hosting</title>
   <style>
-    :root { --bg:#0c1220; --card:#162033; --border:rgba(148,163,184,0.18); --text:#e6edf7; --muted:#8ea0ba; --accent:#14b8a6; --green:#22c55e; }
+    :root { --bg:#0c1220; --card:#162033; --subtle:#0e1626; --border:rgba(148,163,184,0.18); --text:#e6edf7; --muted:#8ea0ba; --accent:#14b8a6; --accent-hover:#0d9488; --green:#22c55e; --danger:#ef4444; }
     * { box-sizing:border-box; }
     body { margin:0; min-height:100vh; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--text); display:flex; align-items:center; justify-content:center; padding:24px; }
-    .box { max-width:680px; width:100%; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:32px; box-shadow:0 16px 40px rgba(0,0,0,0.35); }
+    .box { max-width:760px; width:100%; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:30px; box-shadow:0 16px 40px rgba(0,0,0,0.35); }
+    .top-bar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
     .badge { display:inline-flex; align-items:center; gap:8px; background:rgba(34,197,94,0.14); color:var(--green); padding:5px 12px; border-radius:99px; font-size:12.5px; font-weight:600; }
     .dot { width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green); }
-    h1 { margin:16px 0 8px; font-size:24px; }
-    p { margin:0 0 18px; color:var(--muted); line-height:1.55; }
-    code { background:#0e1626; border:1px solid var(--border); padding:3px 7px; border-radius:6px; font-family:Consolas,monospace; color:#38bdf8; font-size:13px; }
-    .steps { background:#0e1626; border:1px solid var(--border); border-radius:10px; padding:16px 20px; margin-top:16px; }
-    .steps h3 { margin:0 0 10px; font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.04em; }
-    .steps ol { margin:0; padding-left:20px; color:var(--text); line-height:1.8; font-size:14px; }
-    .foot { margin-top:22px; padding-top:14px; border-top:1px solid var(--border); display:flex; justify-content:space-between; font-size:12px; color:var(--muted); }
+    h1 { margin:14px 0 6px; font-size:24px; }
+    p { margin:0 0 16px; color:var(--muted); line-height:1.55; font-size:14px; }
+    code { background:var(--subtle); border:1px solid var(--border); padding:2px 7px; border-radius:6px; font-family:Consolas,monospace; color:#38bdf8; font-size:12.5px; }
+    .drop-card { background:var(--subtle); border:2px dashed rgba(20,184,166,0.45); border-radius:12px; padding:22px 20px; text-align:center; transition:all 0.18s ease; margin-top:12px; position:relative; }
+    .drop-card.dragover { border-color:var(--green); background:rgba(20,184,166,0.12); transform:scale(1.01); box-shadow:0 0 24px rgba(20,184,166,0.22); }
+    .drop-icon { font-size:32px; margin-bottom:6px; display:block; }
+    .drop-title { font-size:16px; font-weight:600; color:var(--text); margin-bottom:4px; }
+    .drop-sub { font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+    .drop-controls { display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap; max-width:560px; margin:0 auto; }
+    .slug-input { background:#162033; border:1px solid var(--border); color:var(--text); border-radius:8px; padding:8px 12px; font-size:13px; width:220px; outline:none; }
+    .slug-input:focus { border-color:var(--accent); }
+    .btn { display:inline-flex; align-items:center; gap:6px; background:var(--accent); color:#042f2e; font-weight:600; border:none; border-radius:8px; padding:8px 14px; font-size:13px; cursor:pointer; text-decoration:none; transition:background 0.15s; }
+    .btn:hover { background:var(--accent-hover); color:#fff; }
+    .btn.secondary { background:#1e293b; color:var(--text); border:1px solid var(--border); }
+    .btn.secondary:hover { border-color:var(--accent); color:var(--accent); }
+    .btn.danger { background:rgba(239,68,68,0.14); color:#fca5a5; border:1px solid rgba(239,68,68,0.3); padding:5px 10px; font-size:12px; }
+    .btn.danger:hover { background:var(--danger); color:#fff; }
+    .status-msg { margin-top:12px; padding:10px 14px; border-radius:8px; font-size:13px; display:none; align-items:center; justify-content:space-between; gap:10px; text-align:left; }
+    .status-msg.ok { display:flex; background:rgba(34,197,94,0.14); border:1px solid rgba(34,197,94,0.35); color:#86efac; }
+    .status-msg.err { display:flex; background:rgba(239,68,68,0.14); border:1px solid rgba(239,68,68,0.35); color:#fca5a5; }
+    .sites-panel { background:var(--subtle); border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin-top:16px; }
+    .sites-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+    .sites-head h3 { margin:0; font-size:13.5px; color:var(--accent); text-transform:uppercase; letter-spacing:0.04em; }
+    .site-list { display:flex; flex-direction:column; gap:8px; }
+    .site-row { display:flex; align-items:center; justify-content:space-between; gap:10px; background:#162033; border:1px solid var(--border); border-radius:8px; padding:9px 13px; }
+    .site-info { display:flex; align-items:center; gap:10px; min-width:0; }
+    .site-link { color:#38bdf8; font-weight:600; text-decoration:none; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .site-link:hover { text-decoration:underline; color:var(--accent); }
+    .site-meta { color:var(--muted); font-size:12px; }
+    .site-actions { display:flex; align-items:center; gap:6px; }
+    .steps { background:var(--subtle); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-top:14px; }
+    .steps h3 { margin:0 0 8px; font-size:13px; color:var(--accent); text-transform:uppercase; letter-spacing:0.04em; }
+    .steps ol { margin:0; padding-left:20px; color:var(--text); line-height:1.75; font-size:13.5px; }
+    .foot { margin-top:20px; padding-top:14px; border-top:1px solid var(--border); display:flex; justify-content:space-between; font-size:12px; color:var(--muted); }
   </style>
 </head>
 <body>
   <div class="box">
-    <span class="badge"><span class="dot"></span> Apache Web Server is Running</span>
+    <div class="top-bar">
+      <span class="badge"><span class="dot"></span> Apache Web Server is Running</span>
+      <code id="wwwPathBadge">www/</code>
+    </div>
     <h1>Darius DB (Lite Version 0.1.2)</h1>
     <p>Your local web server is active and serving websites directly from your portable <code>www/</code> directory.</p>
+
+    <!-- Drag & Drop Website Deployer -->
+    <div class="drop-card" id="dropZone">
+      <span class="drop-icon">🚀</span>
+      <div class="drop-title">Drag &amp; Drop Your Website Folder, .zip Archive, or HTML Files Here</div>
+      <div class="drop-sub">
+        Drop any project folder (e.g. <code>my-site/</code>), a <code>.zip</code> website bundle, or <code>.html</code>/<code>.css</code>/<code>.js</code> files to publish immediately into <code>www/</code>
+      </div>
+      <div class="drop-controls">
+        <input type="text" id="siteSlug" class="slug-input" placeholder="Site folder (auto from folder/zip)" title="Optional target subfolder name in www/" />
+        <button type="button" class="btn" id="btnPickFolder">📁 Select Folder</button>
+        <button type="button" class="btn secondary" id="btnPickFiles">📦 Select .zip / Files</button>
+        <input type="file" id="inputFolder" webkitdirectory directory multiple hidden />
+        <input type="file" id="inputFiles" multiple hidden />
+      </div>
+      <div class="status-msg" id="deployStatus"></div>
+    </div>
+
+    <!-- Hosted Websites in www/ -->
+    <div class="sites-panel">
+      <div class="sites-head">
+        <h3>Hosted Websites &amp; Projects in www/</h3>
+        <button type="button" class="btn secondary" style="padding:4px 10px;font-size:12px" id="btnRefreshSites">↻ Refresh</button>
+      </div>
+      <div class="site-list" id="siteList">
+        <div class="site-meta">Loading hosted websites...</div>
+      </div>
+    </div>
+
     <div class="steps">
       <h3>How to Host Your Local Website</h3>
       <ol>
-        <li>Click <strong>www/</strong> on the Apache card in Darius DB (or open <code>C:\DariusDB\www\</code>).</li>
-        <li>Place your website files in <code>www\</code> or create a project subfolder like <code>www\my-site\index.html</code>.</li>
-        <li>Open <code>http://localhost:PORT/my-site/</code> in your browser to preview it live!</li>
+        <li><strong>Drag &amp; Drop</strong> your website project folder, <code>.zip</code> file, or <code>index.html</code> into the box above (or copy into <code>C:\DariusDB\www\</code>).</li>
+        <li>Your project is automatically deployed into <code>www\&lt;site-name&gt;\</code>.</li>
+        <li>Click <strong>Open Site ↗</strong> in the Hosted Websites list above to view <code>http://localhost:PORT/&lt;site-name&gt;/</code> live!</li>
       </ol>
     </div>
+
     <div class="foot">
       <span>Created by Darius Cumpio · MIT Open Source</span>
       <span>Darius DB (Lite Version 0.1.2)</span>
     </div>
   </div>
+
+  <script>
+    (() => {
+      const dropZone = document.getElementById("dropZone");
+      const siteSlug = document.getElementById("siteSlug");
+      const inputFolder = document.getElementById("inputFolder");
+      const inputFiles = document.getElementById("inputFiles");
+      const deployStatus = document.getElementById("deployStatus");
+      const siteList = document.getElementById("siteList");
+      const wwwPathBadge = document.getElementById("wwwPathBadge");
+
+      const esc = (s) => String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      const fmtSize = (b) => b < 1024 ? b + " B" : b < 1048576 ? (b/1024).toFixed(1) + " KB" : (b/1048576).toFixed(1) + " MB";
+
+      function showStatus(html, ok = true) {
+        deployStatus.className = "status-msg " + (ok ? "ok" : "err");
+        deployStatus.innerHTML = html;
+      }
+
+      async function loadSites() {
+        try {
+          const r = await fetch("/__darius_www__/sites");
+          if (!r.ok) throw new Error("API unavailable");
+          const data = await r.json();
+          if (data.wwwDir) wwwPathBadge.textContent = data.wwwDir;
+          const sites = data.sites || [];
+          if (!sites.length) {
+            siteList.innerHTML = '<div class="site-meta">No project subfolders in <code>www/</code> yet — drag &amp; drop a folder, .zip, or .html file above!</div>';
+            return;
+          }
+          siteList.innerHTML = sites.map((s) =>
+            '<div class="site-row">' +
+              '<div class="site-info">' +
+                '<span>' + (s.isDir ? "📁" : "📄") + '</span>' +
+                '<div>' +
+                  '<a class="site-link" href="' + esc(s.url) + '" target="_blank">' + esc(s.name) + '</a>' +
+                  '<div class="site-meta">' + esc(s.url) + ' · ' + s.files + ' file' + (s.files === 1 ? "" : "s") + ' (' + fmtSize(s.bytes) + ')</div>' +
+                '</div>' +
+              '</div>' +
+              '<div class="site-actions">' +
+                '<a class="btn" style="padding:5px 11px;font-size:12px" href="' + esc(s.url) + '" target="_blank">Open Site ↗</a>' +
+                '<button type="button" class="btn danger" data-del="' + esc(s.name) + '">✕</button>' +
+              '</div>' +
+            '</div>'
+          ).join("");
+        } catch {
+          siteList.innerHTML = '<div class="site-meta">Place project folders inside <code>www/</code> and open <code>http://localhost:' + (location.port || 8080) + '/&lt;project&gt;/</code>.</div>';
+        }
+      }
+
+      siteList.addEventListener("click", async (e) => {
+        const btn = e.target.closest("[data-del]");
+        if (!btn) return;
+        const name = btn.dataset.del;
+        if (!confirm('Remove "' + name + '" from www/?')) return;
+        try {
+          const r = await fetch("/__darius_www__/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name })
+          });
+          const res = await r.json();
+          if (!r.ok || res.error) throw new Error(res.error || "Delete failed");
+          loadSites();
+        } catch (err) {
+          showStatus("<span>Error: " + esc(err.message) + "</span>", false);
+        }
+      });
+
+      document.getElementById("btnRefreshSites").onclick = loadSites;
+      document.getElementById("btnPickFolder").onclick = () => inputFolder.click();
+      document.getElementById("btnPickFiles").onclick = () => inputFiles.click();
+
+      inputFolder.onchange = () => {
+        if (inputFolder.files.length) uploadFileList(Array.from(inputFolder.files).map((f) => ({ file: f, relPath: f.webkitRelativePath || f.name })));
+        inputFolder.value = "";
+      };
+      inputFiles.onchange = () => {
+        if (inputFiles.files.length) uploadFileList(Array.from(inputFiles.files).map((f) => ({ file: f, relPath: f.name })));
+        inputFiles.value = "";
+      };
+
+      // Recursively read dropped folders and files via FileSystemEntry API
+      async function readEntry(entry, prefix = "") {
+        if (entry.isFile) {
+          return new Promise((resolve) => {
+            entry.file((f) => resolve([{ file: f, relPath: prefix + f.name }]), () => resolve([]));
+          });
+        }
+        if (entry.isDirectory) {
+          const reader = entry.createReader();
+          const allEntries = [];
+          const readBatch = () => new Promise((resolve) => {
+            reader.readEntries((batch) => {
+              if (!batch.length) return resolve();
+              allEntries.push(...batch);
+              readBatch().then(resolve);
+            }, () => resolve());
+          });
+          await readBatch();
+          const out = [];
+          for (const child of allEntries) {
+            const sub = await readEntry(child, prefix + entry.name + "/");
+            out.push(...sub);
+          }
+          return out;
+        }
+        return [];
+      }
+
+      ["dragenter", "dragover"].forEach((ev) => {
+        window.addEventListener(ev, (e) => {
+          e.preventDefault();
+          dropZone.classList.add("dragover");
+        });
+      });
+      ["dragleave", "drop"].forEach((ev) => {
+        window.addEventListener(ev, (e) => {
+          e.preventDefault();
+          if (ev === "drop" || e.relatedTarget === null) {
+            dropZone.classList.remove("dragover");
+          }
+        });
+      });
+
+      window.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("dragover");
+        const dt = e.dataTransfer;
+        if (!dt) return;
+
+        const items = dt.items ? Array.from(dt.items) : [];
+        const entries = items.map((it) => it.webkitGetAsEntry ? it.webkitGetAsEntry() : null).filter(Boolean);
+        if (entries.length) {
+          const collected = [];
+          for (const ent of entries) {
+            const sub = await readEntry(ent, "");
+            collected.push(...sub);
+          }
+          if (collected.length) {
+            await uploadFileList(collected);
+            return;
+          }
+        }
+        if (dt.files && dt.files.length) {
+          await uploadFileList(Array.from(dt.files).map((f) => ({ file: f, relPath: f.name })));
+        }
+      });
+
+      async function uploadFileList(items) {
+        if (!items.length) return;
+        showStatus("<span>Uploading &amp; deploying " + items.length + " file(s) to <code>www/</code>...</span>", true);
+        const fd = new FormData();
+        fd.append("siteName", siteSlug.value.trim());
+        for (const it of items) {
+          fd.append("files", it.file, it.file.name);
+          fd.append("paths", it.relPath || it.file.name);
+        }
+        try {
+          const r = await fetch("/__darius_www__/upload", { method: "POST", body: fd });
+          const res = await r.json();
+          if (!r.ok || res.error) throw new Error(res.error || "Deploy failed");
+          siteSlug.value = "";
+          showStatus(
+            '<span>✓ Deployed <strong>' + esc(res.site) + '</strong> (' + res.count + ' file' + (res.count === 1 ? '' : 's') + ') to <code>www/' + esc(res.site) + '/</code></span>' +
+            '<a class="btn" style="padding:5px 12px;font-size:12px" href="' + esc(res.url) + '" target="_blank">Open Site ↗</a>',
+            true
+          );
+          await loadSites();
+        } catch (err) {
+          showStatus("<span>Deploy Error: " + esc(err.message) + "</span>", false);
+        }
+      }
+
+      loadSites();
+    })();
+  </script>
 </body>
 </html>
 `
+
+func ensureWwwIndex(wwwDir string) {
+	indexPath := filepath.Join(wwwDir, "index.html")
+	if !fileExists(indexPath) {
+		_ = writeIfMissing(indexPath, defaultWwwIndexHTML)
+		return
+	}
+	// Automatically upgrade older static Darius DB welcome page to the Drag & Drop dashboard
+	if b, err := os.ReadFile(indexPath); err == nil {
+		s := string(b)
+		if strings.Contains(s, "Apache Web Server is Running") && !strings.Contains(s, "__darius_www__") {
+			_ = os.WriteFile(indexPath, []byte(strings.ReplaceAll(defaultWwwIndexHTML, "\n", "\r\n")), 0o644)
+		}
+	}
+}
 
 func (a *apacheEngine) Prepare(ctx context.Context, p *Paths, inst Installation, s EngineSettings, logf func(string)) error {
 	if err := writeIfMissing(a.ConfigFile(p, inst), apacheHttpdConf); err != nil {
@@ -162,9 +422,7 @@ func (a *apacheEngine) Prepare(ctx context.Context, p *Paths, inst Installation,
 	if err := os.MkdirAll(p.Www, 0o755); err != nil {
 		return err
 	}
-	if dirEmpty(p.Www) {
-		_ = writeIfMissing(filepath.Join(p.Www, "index.html"), defaultWwwIndexHTML)
-	}
+	ensureWwwIndex(p.Www)
 	return nil
 }
 
@@ -237,14 +495,19 @@ func RunBuiltInHTTPD(args []string) int {
 	}
 
 	_ = os.MkdirAll(wwwDir, 0o755)
-	if dirEmpty(wwwDir) {
-		_ = writeIfMissing(filepath.Join(wwwDir, "index.html"), defaultWwwIndexHTML)
-	}
+	ensureWwwIndex(wwwDir)
 
 	fs := http.FileServer(http.Dir(wwwDir))
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		w.Header().Set("Server", "Apache/2.4 (DariusDB-Lite/0.1.2)")
+
+		// Built-in Drag & Drop Website Deployer API
+		if strings.HasPrefix(r.URL.Path, "/__darius_www__/") {
+			handleDariusWwwAPI(w, r, wwwDir, port)
+			return
+		}
+
 		// Clean directory listing if requesting a directory without index.html
 		relPath := filepath.FromSlash(strings.TrimPrefix(filepath.Clean("/"+r.URL.Path), "/"))
 		fullPath := filepath.Join(wwwDir, relPath)
@@ -268,6 +531,414 @@ func RunBuiltInHTTPD(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+type WwwSiteInfo struct {
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	IsDir bool   `json:"isDir"`
+	Files int    `json:"files"`
+	Bytes int64  `json:"bytes"`
+}
+
+var slugSanitizeRe = regexp.MustCompile(`[^a-zA-Z0-9_\-\.]+`)
+
+func sanitizeSiteSlug(s string) string {
+	s = strings.TrimSpace(s)
+	s = slugSanitizeRe.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-.")
+	return s
+}
+
+func ListWwwSites(wwwDir string) []WwwSiteInfo {
+	entries, err := os.ReadDir(wwwDir)
+	if err != nil {
+		return []WwwSiteInfo{}
+	}
+	sites := []WwwSiteInfo{}
+	for _, e := range entries {
+		name := e.Name()
+		if strings.EqualFold(name, "index.html") || strings.HasPrefix(name, ".") {
+			continue
+		}
+		full := filepath.Join(wwwDir, name)
+		if e.IsDir() {
+			count := 0
+			var total int64
+			_ = filepath.Walk(full, func(_ string, info os.FileInfo, err error) error {
+				if err == nil && info != nil && !info.IsDir() {
+					count++
+					total += info.Size()
+				}
+				return nil
+			})
+			sites = append(sites, WwwSiteInfo{
+				Name:  name,
+				URL:   "/" + name + "/",
+				IsDir: true,
+				Files: count,
+				Bytes: total,
+			})
+		} else if info, err := e.Info(); err == nil {
+			sites = append(sites, WwwSiteInfo{
+				Name:  name,
+				URL:   "/" + name,
+				IsDir: false,
+				Files: 1,
+				Bytes: info.Size(),
+			})
+		}
+	}
+	sort.Slice(sites, func(i, j int) bool {
+		if sites[i].IsDir != sites[j].IsDir {
+			return sites[i].IsDir
+		}
+		return strings.ToLower(sites[i].Name) < strings.ToLower(sites[j].Name)
+	})
+	return sites
+}
+
+func handleDariusWwwAPI(w http.ResponseWriter, r *http.Request, wwwDir string, port int) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	writeJSON := func(code int, v interface{}) {
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(v)
+	}
+
+	switch r.URL.Path {
+	case "/__darius_www__/sites":
+		writeJSON(http.StatusOK, map[string]interface{}{
+			"wwwDir": wwwDir,
+			"port":   port,
+			"sites":  ListWwwSites(wwwDir),
+		})
+
+	case "/__darius_www__/delete":
+		if r.Method != http.MethodPost {
+			writeJSON(http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
+			return
+		}
+		var req struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		name := filepath.Base(strings.TrimSpace(req.Name))
+		if name == "" || name == "." || name == ".." || strings.EqualFold(name, "index.html") {
+			writeJSON(http.StatusBadRequest, map[string]string{"error": "invalid site name"})
+			return
+		}
+		target := filepath.Join(wwwDir, name)
+		if err := os.RemoveAll(target); err != nil {
+			writeJSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(http.StatusOK, map[string]interface{}{"ok": true})
+
+	case "/__darius_www__/upload":
+		if r.Method != http.MethodPost {
+			writeJSON(http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
+			return
+		}
+		if err := r.ParseMultipartForm(128 << 20); err != nil {
+			writeJSON(http.StatusBadRequest, map[string]string{"error": "cannot parse upload: " + err.Error()})
+			return
+		}
+		siteName := sanitizeSiteSlug(r.FormValue("siteName"))
+		files := r.MultipartForm.File["files"]
+		paths := r.MultipartForm.Value["paths"]
+		if len(files) == 0 {
+			writeJSON(http.StatusBadRequest, map[string]string{"error": "no files uploaded"})
+			return
+		}
+
+		// Case 1: Single .zip archive dropped
+		if len(files) == 1 && strings.HasSuffix(strings.ToLower(files[0].Filename), ".zip") {
+			if siteName == "" {
+				base := strings.TrimSuffix(files[0].Filename, filepath.Ext(files[0].Filename))
+				siteName = sanitizeSiteSlug(base)
+			}
+			if siteName == "" {
+				siteName = "site-" + time.Now().Format("150405")
+			}
+			f, err := files[0].Open()
+			if err != nil {
+				writeJSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			defer f.Close()
+			raw, err := io.ReadAll(f)
+			if err != nil {
+				writeJSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			count, err := extractSiteZipBytes(raw, filepath.Join(wwwDir, siteName))
+			if err != nil {
+				writeJSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(http.StatusOK, map[string]interface{}{
+				"ok":    true,
+				"site":  siteName,
+				"url":   "/" + siteName + "/",
+				"count": count,
+			})
+			return
+		}
+
+		// Case 2: Dropped folder or multiple files
+		// Detect common root folder from relative paths if siteName was not explicitly specified
+		commonTop := ""
+		allHaveTop := true
+		for i := range files {
+			rel := files[i].Filename
+			if i < len(paths) && paths[i] != "" {
+				rel = paths[i]
+			}
+			rel = strings.TrimLeft(filepath.ToSlash(rel), "/")
+			parts := strings.SplitN(rel, "/", 2)
+			if len(parts) < 2 {
+				allHaveTop = false
+				break
+			}
+			if commonTop == "" {
+				commonTop = parts[0]
+			} else if !strings.EqualFold(commonTop, parts[0]) {
+				allHaveTop = false
+				break
+			}
+		}
+
+		if siteName == "" {
+			if allHaveTop && commonTop != "" {
+				siteName = sanitizeSiteSlug(commonTop)
+			} else if len(files) == 1 {
+				ext := strings.ToLower(filepath.Ext(files[0].Filename))
+				base := strings.TrimSuffix(files[0].Filename, filepath.Ext(files[0].Filename))
+				if (ext == ".html" || ext == ".htm") && !strings.EqualFold(base, "index") {
+					siteName = sanitizeSiteSlug(base)
+				} else {
+					siteName = "site-" + time.Now().Format("150405")
+				}
+			} else {
+				siteName = "site-" + time.Now().Format("150405")
+			}
+		}
+
+		destSiteDir := filepath.Join(wwwDir, siteName)
+		if err := os.MkdirAll(destSiteDir, 0o755); err != nil {
+			writeJSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		count := 0
+		for i, fh := range files {
+			rel := fh.Filename
+			if i < len(paths) && paths[i] != "" {
+				rel = paths[i]
+			}
+			rel = strings.TrimLeft(filepath.ToSlash(rel), "/")
+			if allHaveTop && commonTop != "" && strings.HasPrefix(rel, commonTop+"/") {
+				rel = strings.TrimPrefix(rel, commonTop+"/")
+			}
+			// If a single non-index HTML file was dropped, save it as index.html inside www/<siteName>/
+			if len(files) == 1 && (strings.HasSuffix(strings.ToLower(rel), ".html") || strings.HasSuffix(strings.ToLower(rel), ".htm")) {
+				rel = "index.html"
+			}
+			cleanRel := filepath.Clean(filepath.FromSlash(rel))
+			if cleanRel == "." || strings.HasPrefix(cleanRel, "..") {
+				continue
+			}
+			targetPath := filepath.Join(destSiteDir, cleanRel)
+			if !strings.HasPrefix(strings.ToLower(filepath.Clean(targetPath)), strings.ToLower(filepath.Clean(destSiteDir))) {
+				continue
+			}
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				continue
+			}
+			src, err := fh.Open()
+			if err != nil {
+				continue
+			}
+			out, err := os.Create(targetPath)
+			if err != nil {
+				src.Close()
+				continue
+			}
+			_, _ = io.Copy(out, src)
+			out.Close()
+			src.Close()
+			count++
+		}
+
+		writeJSON(http.StatusOK, map[string]interface{}{
+			"ok":    true,
+			"site":  siteName,
+			"url":   "/" + siteName + "/",
+			"count": count,
+		})
+
+	default:
+		writeJSON(http.StatusNotFound, map[string]string{"error": "unknown endpoint"})
+	}
+}
+
+func extractSiteZipBytes(raw []byte, destDir string) (int, error) {
+	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		return 0, fmt.Errorf("invalid .zip archive: %w", err)
+	}
+	return extractZipReaderToSite(zr, destDir)
+}
+
+func extractZipReaderToSite(zr *zip.Reader, destDir string) (int, error) {
+	// Detect if all files share a single top-level directory inside the zip
+	commonTop := ""
+	allHaveTop := true
+	for _, f := range zr.File {
+		name := strings.Trim(filepath.ToSlash(f.Name), "/")
+		if name == "" {
+			continue
+		}
+		parts := strings.SplitN(name, "/", 2)
+		if len(parts) < 2 {
+			if !f.FileInfo().IsDir() {
+				allHaveTop = false
+				break
+			}
+			continue
+		}
+		if commonTop == "" {
+			commonTop = parts[0]
+		} else if !strings.EqualFold(commonTop, parts[0]) {
+			allHaveTop = false
+			break
+		}
+	}
+
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return 0, err
+	}
+	cleanDest := strings.ToLower(filepath.Clean(destDir))
+	count := 0
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		rel := strings.TrimLeft(filepath.ToSlash(f.Name), "/")
+		if allHaveTop && commonTop != "" && strings.HasPrefix(rel, commonTop+"/") {
+			rel = strings.TrimPrefix(rel, commonTop+"/")
+		}
+		cleanRel := filepath.Clean(filepath.FromSlash(rel))
+		if cleanRel == "." || strings.HasPrefix(cleanRel, "..") {
+			continue
+		}
+		target := filepath.Join(destDir, cleanRel)
+		if !strings.HasPrefix(strings.ToLower(filepath.Clean(target)), cleanDest) {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return count, err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return count, err
+		}
+		out, err := os.Create(target)
+		if err != nil {
+			rc.Close()
+			return count, err
+		}
+		_, cerr := io.Copy(out, rc)
+		out.Close()
+		rc.Close()
+		if cerr != nil {
+			return count, cerr
+		}
+		count++
+	}
+	return count, nil
+}
+
+// DeployWebsitePath deploys a local .zip archive, project directory, or .html file into www/<siteName>/.
+func DeployWebsitePath(wwwDir, srcPath, siteName string) (string, int, error) {
+	srcPath = strings.TrimSpace(srcPath)
+	st, err := os.Stat(srcPath)
+	if err != nil {
+		return "", 0, err
+	}
+	siteName = sanitizeSiteSlug(siteName)
+	if siteName == "" {
+		base := filepath.Base(srcPath)
+		if !st.IsDir() {
+			base = strings.TrimSuffix(base, filepath.Ext(base))
+		}
+		siteName = sanitizeSiteSlug(base)
+		if siteName == "" || strings.EqualFold(siteName, "index") {
+			siteName = "site-" + time.Now().Format("150405")
+		}
+	}
+	destDir := filepath.Join(wwwDir, siteName)
+
+	if st.IsDir() {
+		count := 0
+		err := filepath.Walk(srcPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info == nil || info.IsDir() {
+				return err
+			}
+			rel, err := filepath.Rel(srcPath, path)
+			if err != nil {
+				return err
+			}
+			target := filepath.Join(destDir, rel)
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			in, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer in.Close()
+			out, err := os.Create(target)
+			if err != nil {
+				return err
+			}
+			_, cerr := io.Copy(out, in)
+			out.Close()
+			if cerr == nil {
+				count++
+			}
+			return cerr
+		})
+		return siteName, count, err
+	}
+
+	ext := strings.ToLower(filepath.Ext(srcPath))
+	if ext == ".zip" {
+		zr, err := zip.OpenReader(srcPath)
+		if err != nil {
+			return "", 0, err
+		}
+		defer zr.Close()
+		count, err := extractZipReaderToSite(&zr.Reader, destDir)
+		return siteName, count, err
+	}
+	if ext == ".html" || ext == ".htm" {
+		if err := os.MkdirAll(destDir, 0o755); err != nil {
+			return "", 0, err
+		}
+		b, err := os.ReadFile(srcPath)
+		if err != nil {
+			return "", 0, err
+		}
+		if err := os.WriteFile(filepath.Join(destDir, "index.html"), b, 0o644); err != nil {
+			return "", 0, err
+		}
+		return siteName, 1, nil
+	}
+	return "", 0, errors.New("unsupported file type — choose a .zip website archive, project folder, or .html file")
 }
 
 func renderDirListing(w http.ResponseWriter, urlPath, dirPath string) {

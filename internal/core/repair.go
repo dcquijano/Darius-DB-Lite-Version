@@ -88,9 +88,10 @@ func (m *Manager) Repair(target string, resetConfigs bool) (*RepairReport, error
 
 	indexFile := filepath.Join(m.p.Www, "index.html")
 	if !fileExists(indexFile) {
-		_ = writeIfMissing(indexFile, defaultWwwIndexHTML)
+		ensureWwwIndex(m.p.Www)
 		add("Web Root", "Restored missing default landing page (www/index.html)", "fixed")
 	} else {
+		ensureWwwIndex(m.p.Www)
 		add("Web Root", "Verified web root document (www/index.html)", "ok")
 	}
 

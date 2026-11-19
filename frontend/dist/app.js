@@ -196,10 +196,13 @@
         const isApache = s.engine === "apache";
         const extraRunning = running
           ? isApache
-            ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}">Open Site</button>
+            ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}" title="Open Drag &amp; Drop Website Dashboard">Open Site</button>
+               <button class="btn sm" data-act="deploysite" data-engine="${s.engine}" title="Deploy a .zip or .html website into www/">Deploy .zip</button>
                <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy http://localhost:${s.port}/">URL</button>`
             : `<button class="btn sm accent" data-act="browse" data-engine="${s.engine}">Browse</button>
                <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy connection URI">URI</button>`
+          : isApache && installed
+          ? `<button class="btn sm" data-act="deploysite" data-engine="${s.engine}" title="Deploy a .zip or .html website into www/">Deploy .zip</button>`
           : "";
 
         return `
@@ -1123,6 +1126,13 @@
           const url = `http://localhost:${btn.dataset.port || 8080}/`;
           if (rt()?.BrowserOpenURL) rt().BrowserOpenURL(url);
           else window.open(url, "_blank");
+        } else if (act === "deploysite") {
+          const url = await api().DeployWebsiteDialog();
+          if (url) {
+            toast(`Website deployed! Opening ${url}`, "ok");
+            if (rt()?.BrowserOpenURL) rt().BrowserOpenURL(url);
+            else window.open(url, "_blank");
+          }
         } else if (act === "browse") {
           state.dbEngine = eng;
           switchTab("database");

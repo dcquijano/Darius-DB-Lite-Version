@@ -35,7 +35,7 @@ Manage **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** 
 4. Open **Versions** to download MariaDB, MySQL, PostgreSQL, or Redis (or start **MS SQL Server** immediately), then click **Start All**.
 
 ### Option 2: Portable (No Install)
-1. Copy `DariusDB.exe` (and `DariusDB-Launcher.exe`) into any folder, e.g. `C:\DariusDB\`.
+1. Extract `DariusDB-0.1.1-portable-windows-amd64.zip` (or copy `DariusDB.exe`, `DariusDB-Launcher.exe`, and `darius.exe`) into any folder, e.g. `C:\DariusDB\`.
 2. Double-click `DariusDB-Launcher.exe` (or `DariusDB.exe`).
 
 ---
@@ -49,23 +49,46 @@ C:\DariusDB\
 ├── DariusDB-Uninstall.exe
 ├── darius.exe
 ├── settings.json
+├── GUIDE.md
+├── README.md
+├── LICENSE
 ├── bin/
-│   ├── mariadb/mariadb-11.4.14/
-│   ├── mysql/mysql-8.4.11/
-│   ├── postgresql/postgresql-17.12/
+│   ├── mariadb/mariadb-13.0.2/
+│   ├── mysql/mysql-9.7.2/
+│   ├── postgresql/postgresql-18.7/
+│   ├── mssql/mssql-17.0.1000.7/
 │   └── redis/redis-8.10.3/
 ├── data/
-│   ├── mariadb-11.4/
-│   ├── mysql-8.4/
-│   ├── postgresql-17/
+│   ├── mariadb-13.0/
+│   ├── mysql-9.7/
+│   ├── postgresql-18/
+│   ├── mssql/
 │   └── redis/
 ├── etc/
 │   ├── mariadb/my.ini
 │   ├── mysql/my.ini
+│   ├── mssql/mssql.conf
 │   └── redis/redis.conf
 ├── logs/
+│   ├── mariadb.log
+│   ├── mysql.log
+│   ├── postgresql.log
+│   ├── mssql.log
+│   └── redis.log
 └── tmp/
 ```
+
+---
+
+## Supported Database Engines & Catalog Versions
+
+| Engine | Default Port | Included Versions |
+|---|---|---|
+| **MariaDB** | `3306` | `13.0.2` (Latest Stable), `12.3.4` (LTS), `11.8.10` (LTS), `11.4.14` (LTS), `10.11.20` (LTS) |
+| **MySQL** | `3307` | `9.7.2` (Latest), `8.4.11` (LTS), `8.0.46` (LTS) |
+| **PostgreSQL** | `5432` | `18.7` (Latest), `17.12`, `16.16`, `15.20`, `14.25` |
+| **MS SQL Server** | `1433` / LocalDB | `17.0.1000.7` / `17.0.4025.3` (**SQL Server 2025 — 17.x**), `16.0.1000.6` (SQL Server 2022 — 16.x) |
+| **Redis** | `6379` | `8.10.3` (Latest), `8.8.3`, `7.4.11` (LTS), `6.2.24`, `5.0.14.1` |
 
 ---
 

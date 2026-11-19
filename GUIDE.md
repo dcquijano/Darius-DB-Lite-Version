@@ -74,7 +74,7 @@
 
 1. Open Darius DB and click **Versions** in the left sidebar (or click **Install Engines** on the welcome banner).
 2. Select an engine tab at the top: **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, or **Redis**.
-3. Click **Download** next to the version you want (e.g., MariaDB `11.4.14` LTS, PostgreSQL `17.12`, Redis `8.10.3`).
+3. Click **Download** next to the version you want (e.g., MariaDB `13.0.2` / `12.3.4` LTS, MySQL `9.7.2` / `8.4.11` LTS, PostgreSQL `18.7` / `17.12`, MS SQL Server 2025 `17.0.1000.7`, or Redis `8.10.3`).
    - Prefer an offline archive? Click **Install .zip** and select any official Windows portable `.zip` you already downloaded.
 4. Wait for the progress bar to finish downloading and extracting into `bin/<engine>/`.
 

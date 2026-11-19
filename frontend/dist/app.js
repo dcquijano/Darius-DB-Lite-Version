@@ -225,10 +225,12 @@
           <div class="svc-actions">
             ${primaryBtn}
             ${extraRunning}
+            ${s.state === "error" ? `<button class="btn sm accent" data-act="repair" data-engine="${s.engine}" title="Auto-repair ${esc(s.name)}">🔧 Repair</button>` : ""}
             <div class="spacer"></div>
             ${
               installed
-                ? `<button class="btn xs ghost" data-act="config" data-engine="${s.engine}">Config</button>
+                ? `<button class="btn xs ghost" data-act="repair" data-engine="${s.engine}" title="Diagnose &amp; repair ${esc(s.name)}">Repair</button>
+                   <button class="btn xs ghost" data-act="config" data-engine="${s.engine}">Config</button>
                    <button class="btn xs ghost" data-act="logs" data-engine="${s.engine}">Logs</button>
                    <button class="btn xs ghost" data-act="data" data-engine="${s.engine}" title="${
                      isApache ? "Open www/ website folder" : "Open data folder"
@@ -1056,6 +1058,54 @@
     };
     $("btnGoVersions").onclick = () => switchTab("versions");
 
+    const closeRepair = () => ($("modalRepair").hidden = true);
+    const runRepairAction = async () => {
+      const target = $("repairTarget").value || "all";
+      const resetCfg = !!$("repairResetCfg").checked;
+      const btn = $("btnRunRepair");
+      const box = $("repairReportBox");
+      btn.disabled = true;
+      btn.textContent = "Repairing...";
+      box.hidden = false;
+      box.innerHTML = `<div class="muted">Running diagnostics &amp; repairing ${esc(target)}...</div>`;
+      try {
+        const rep = await api().Repair(target, resetCfg);
+        const rows = (rep.items || [])
+          .map((it) => {
+            const pillClass = it.status === "fixed" ? "running" : it.status === "warn" ? "warn" : "accent";
+            const badgeText = it.status === "fixed" ? "FIXED" : it.status === "warn" ? "WARN" : "OK";
+            return `<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
+              <span class="pill ${pillClass}" style="min-width:48px;text-align:center">${badgeText}</span>
+              <strong style="min-width:105px">${esc(it.category)}</strong>
+              <span style="flex:1">${esc(it.action)}</span>
+            </div>`;
+          })
+          .join("");
+        box.innerHTML = `<div style="font-weight:600;margin-bottom:8px;color:var(--accent)">${esc(rep.summary)}</div>${rows}`;
+        state.statuses = (await api().Status()) || [];
+        renderDashboard();
+        toast(rep.summary, rep.fixedCount > 0 ? "ok" : "info");
+      } catch (e) {
+        box.innerHTML = `<div style="color:var(--danger)">Repair error: ${esc(errMsg(e))}</div>`;
+        toast(errMsg(e), "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🔧 Run Repair Now";
+      }
+    };
+    const openRepairModal = (target = "all", autoRun = false) => {
+      $("repairTarget").value = target || "all";
+      $("repairResetCfg").checked = false;
+      $("repairReportBox").hidden = !autoRun;
+      if (!autoRun) $("repairReportBox").innerHTML = "";
+      $("modalRepair").hidden = false;
+      if (autoRun) runRepairAction();
+    };
+    $("btnOpenRepair").onclick = () => openRepairModal("all", false);
+    $("btnCloseRepair").onclick = closeRepair;
+    $("btnCancelRepair").onclick = closeRepair;
+    $("btnRunRepair").onclick = runRepairAction;
+
     $("serviceGrid").addEventListener("click", async (e) => {
       const btn = e.target.closest("[data-act]");
       if (!btn) return;
@@ -1065,6 +1115,7 @@
         if (act === "start") await api().Start(eng);
         else if (act === "stop") await api().Stop(eng);
         else if (act === "restart") await api().Restart(eng);
+        else if (act === "repair") openRepairModal(eng, true);
         else if (act === "install") {
           state.verEngine = eng;
           switchTab("versions");
@@ -1587,6 +1638,7 @@
         if (!$("modalNewDb").hidden) closeNewDb();
         if (!$("modalManual").hidden) closeManual();
         if (!$("modalRestore").hidden) closeRestore();
+        if (!$("modalRepair").hidden) closeRepair();
       }
     });
   }

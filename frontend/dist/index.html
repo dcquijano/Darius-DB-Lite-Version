@@ -116,6 +116,9 @@
             <p class="subtitle" id="rootPathLabel">Portable root</p>
           </div>
           <div class="head-actions">
+            <button class="btn accent" id="btnOpenRepair" title="Diagnose &amp; repair corrupted configs, stale PID locks, LocalDB, and folders">
+              🔧 Repair
+            </button>
             <button class="btn primary" id="btnStartAll">
               <svg viewBox="0 0 24 24">
                 <polygon points="6 4 20 12 6 20 6 4" />
@@ -151,12 +154,6 @@
         <header class="view-head compact">
           <div class="seg-tabs" id="dbEngineTabs"></div>
           <div class="head-actions">
-            <button class="btn sm primary" id="btnOpenRestore"
-              title="Restore a .bak backup or import a .sql script">Restore (.bak / .sql)</button>
-            <button class="btn sm accent" id="btnBackupBak" title="Back up selected database to .bak file" hidden>Backup
-              .bak</button>
-            <button class="btn sm" id="btnBackupSql" title="Export selected database to .sql script">Export
-              .sql</button>
             <button class="btn sm primary" id="btnOpenRestore"
               title="Restore a .bak backup or import a .sql script">Restore (.bak / .sql)</button>
             <button class="btn sm accent" id="btnBackupBak" title="Back up selected database to .bak file" hidden>Backup
@@ -588,73 +585,39 @@
     </div>
   </div>
 
-  <!-- Manual Download & Custom Version Modal -->
-  <div class="modal-backdrop" id="modalManual" hidden>
-    <div class="modal">
+  <!-- Repair & Diagnostics Modal -->
+  <div class="modal-backdrop" id="modalRepair" hidden>
+    <div class="modal" style="max-width:600px">
       <div class="modal-head">
-        <h3 id="modalManualTitle">Manual Download &amp; Custom Version</h3>
-        <button class="icon-btn" id="btnCloseManual" aria-label="Close">✕</button>
+        <h3>🔧 Repair Darius DB (Lite Version 0.1.2)</h3>
+        <button class="icon-btn" id="btnCloseRepair" aria-label="Close">✕</button>
       </div>
-      <form id="formManual" class="modal-body">
-        <div class="field">
-          <span>Option 1: Download from Official Vendor Website</span>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button type="button" class="btn sm accent" id="btnOpenOfficialSite">Open Official Download Page in
-              Browser</button>
-            <button type="button" class="btn sm" id="btnModalPickZip">Import Downloaded .zip File...</button>
-          </div>
-        </div>
-        <div class="divider-label">Option 2: Add &amp; Download Any Custom Version URL</div>
-        <label class="field">
-          <span>Version Number *</span>
-          <input type="text" id="manualVer" class="input" required placeholder="e.g. 13.0.2 or 17.0.1000.7" />
-        </label>
-        <label class="field">
-          <span>Direct Portable .zip Download URL *</span>
-          <input type="url" id="manualUrl" class="input" required placeholder="https://.../engine-version-winx64.zip" />
-        </label>
-        <label class="field">
-          <span>Tag / Note (optional)</span>
-          <input type="text" id="manualNote" class="input" placeholder="e.g. Custom / Latest / LTS" />
-        </label>
-        <div class="modal-actions">
-          <button type="button" class="btn" id="btnCancelManual">Cancel</button>
-          <button type="submit" class="btn primary">Save &amp; Download</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Restore .bak / Import .sql Modal -->
-  <div class="modal-backdrop" id="modalRestore" hidden>
-    <div class="modal">
-      <div class="modal-head">
-        <h3 id="modalRestoreTitle">Restore .bak / Import .sql</h3>
-        <button class="icon-btn" id="btnCloseRestore" aria-label="Close">✕</button>
-      </div>
-      <form id="formRestore" class="modal-body">
-        <label class="field">
-          <span>Backup or SQL File (<code>.bak</code>, <code>.sql</code>, <code>.backup</code>) *</span>
-          <div style="display:flex;gap:6px">
-            <input type="text" id="restoreFilePath" class="input" style="flex:1" required
-              placeholder="C:\path\to\backup.bak or dump.sql" />
-            <button type="button" class="btn sm accent" id="btnBrowseRestore">Browse...</button>
-          </div>
-        </label>
-        <label class="field">
-          <span>Target Database Name *</span>
-          <input type="text" id="restoreDbName" class="input" required pattern="[A-Za-z0-9_][A-Za-z0-9_$\-]{0,62}"
-            placeholder="Auto-filled from file or enter database name" />
-        </label>
-        <p class="muted" id="restoreHint" style="margin:0;font-size:11.5px">
-          For MS SQL Server <code>.bak</code> files, logical data &amp; log files are mapped automatically to
-          <code>data/mssql/</code>. If the target database does not exist yet, it will be created automatically.
+      <div class="modal-body">
+        <p class="muted" style="margin:0;font-size:12px">
+          Diagnoses and repairs missing portable folders (<code>www/</code>, <code>bin/</code>, <code>data/</code>, <code>etc/</code>, <code>logs/</code>, <code>tmp/</code>), corrupted <code>settings.json</code> or engine config files, stale PID locks (e.g. PostgreSQL <code>postmaster.pid</code>), and MS SQL Server LocalDB instances — while keeping all your databases in <code>data/</code> untouched.
         </p>
+        <label class="field">
+          <span>Target to Repair</span>
+          <select id="repairTarget" class="input">
+            <option value="all">All Components &amp; Engines (Recommended)</option>
+            <option value="apache">Apache Web Server</option>
+            <option value="mariadb">MariaDB</option>
+            <option value="mysql">MySQL</option>
+            <option value="postgresql">PostgreSQL</option>
+            <option value="mssql">MS SQL Server</option>
+            <option value="redis">Redis</option>
+          </select>
+        </label>
+        <label class="check-row" style="font-size:12px">
+          <input type="checkbox" id="repairResetCfg" />
+          <span>Reset configuration files (<code>etc/*</code>) to clean defaults (backs up existing configs to <code>.bak</code>)</span>
+        </label>
+        <div id="repairReportBox" hidden style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg-subtle);font-size:12px"></div>
         <div class="modal-actions">
-          <button type="button" class="btn" id="btnCancelRestore">Cancel</button>
-          <button type="submit" class="btn primary" id="btnSubmitRestore">Restore / Import</button>
+          <button type="button" class="btn" id="btnCancelRepair">Close</button>
+          <button type="button" class="btn primary" id="btnRunRepair">🔧 Run Repair Now</button>
         </div>
-      </form>
+      </div>
     </div>
   </div>
 

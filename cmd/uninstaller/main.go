@@ -50,10 +50,13 @@ func main() {
 
 	silent := false
 	keepData := true
+	repairOnly := false
 	for _, a := range os.Args[1:] {
 		switch strings.ToLower(a) {
 		case "--silent", "/s", "/verysilent":
 			silent = true
+		case "--repair", "/repair":
+			repairOnly = true
 		case "--remove-data", "--purge":
 			keepData = false
 		case "--keep-data":
@@ -61,13 +64,28 @@ func main() {
 		}
 	}
 
+	if repairOnly {
+		runRepair(root, silent)
+		return
+	}
+
 	if !silent {
 		ans := winui.MessageBox(
 			title,
-			fmt.Sprintf("Uninstall Darius DB (Lite Version %s)?\n\nInstall folder:\n%s\n\nRunning Darius DB services will be stopped cleanly.", appVersion, root),
-			winui.MBYesNo|winui.MBIconQuestion,
+			fmt.Sprintf(
+				"Manage Darius DB (Lite Version %s)\n\nInstall folder:\n%s\n\n"+
+					"• Click YES to UNINSTALL Darius DB\n"+
+					"• Click NO to REPAIR Darius DB (fix errors, configs, stale locks & shortcuts while keeping all your databases)\n"+
+					"• Click CANCEL to exit",
+				appVersion, root,
+			),
+			winui.MBYesNoCancel|winui.MBIconQuestion,
 		)
-		if ans != winui.IDYES {
+		if ans == winui.IDCANCEL {
+			return
+		}
+		if ans == winui.IDNO {
+			runRepair(root, false)
 			return
 		}
 
@@ -158,4 +176,27 @@ func scheduleSelfDelete(exePath, root string, removeRoot bool) {
 		CmdLine:       fmt.Sprintf(`"%s" /c "%s"`, cmdExe, cmdStr),
 	}
 	_ = cmd.Start()
+}
+
+func runRepair(root string, silent bool) {
+	for _, sub := range []string{"www", "bin", "data", "etc", "logs", "tmp"} {
+		_ = os.MkdirAll(filepath.Join(root, sub), 0o755)
+	}
+	cliExe := filepath.Join(root, "darius.exe")
+	summary := "Repaired portable directories (www/, bin/, data/, etc/, logs/, tmp/)."
+	if st, err := os.Stat(cliExe); err == nil && !st.IsDir() {
+		cmd := exec.Command(cliExe, "repair", "all")
+		cmd.Dir = root
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+		if out, err := cmd.CombinedOutput(); err == nil && len(out) > 0 {
+			summary = strings.TrimSpace(string(out))
+		}
+	}
+	if !silent {
+		winui.MessageBox(
+			"Repair Darius DB (Lite Version "+appVersion+")",
+			"Darius DB Repair Completed!\n\n"+summary,
+			winui.MBOK|winui.MBIconInfo,
+		)
+	}
 }

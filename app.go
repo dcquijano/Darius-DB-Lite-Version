@@ -654,3 +654,7 @@ func (a *App) RedisCommand(db int, line string) (string, error) {
 func (a *App) RedisDelete(db int, key string) error {
 	return core.RedisDelete(a.settings.Engine("redis"), db, key)
 }
+
+func (a *App) Repair(target string, resetConfigs bool) (*core.RepairReport, error) {
+	return a.mgr.Repair(target, resetConfigs)
+}

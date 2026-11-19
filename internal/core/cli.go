@@ -398,6 +398,39 @@ func RunCLI(root string, args []string) int {
 		fmt.Printf("Active %s version set to %s.\n", eng, name)
 		return 0
 
+	case "repair", "fix", "doctor":
+		target := "all"
+		resetCfg := false
+		for _, a := range rest {
+			low := strings.ToLower(a)
+			if low == "--reset-config" || low == "--reset" || low == "-r" {
+				resetCfg = true
+			} else {
+				target = normalizeEngineArg(a)
+			}
+		}
+		rep, err := mgr.Repair(target, resetCfg)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 1
+		}
+		dirs := append([]string{root}, mgr.ClientPaths()...)
+		_ = UpdateUserPath(dirs, true)
+		fmt.Printf("%s — Self-Repair & Diagnostics (%s)\n\n", CLIAppTitle, rep.CheckedAt)
+		rows := [][]string{}
+		for _, it := range rep.Items {
+			badge := "OK"
+			if it.Status == "fixed" {
+				badge = "FIXED"
+			} else if it.Status == "warn" {
+				badge = "WARN"
+			}
+			rows = append(rows, []string{badge, it.Category, it.Action})
+		}
+		fmt.Println(renderASCIITable([]string{"STATUS", "COMPONENT", "DIAGNOSTIC / ACTION"}, rows))
+		fmt.Println("\n" + rep.Summary)
+		return 0
+
 	case "path":
 		action := "show"
 		if len(rest) > 0 {
@@ -658,6 +691,7 @@ Usage:
   darius versions [engine]                       List installed & downloadable engine versions
   darius install <engine> [version]              Download & install a portable engine version
   darius use <engine> <version>                  Switch active version of an engine
+  darius repair [all|<engine>] [--reset-config]  Repair directories, settings, configs, locks & PATH
   darius path [--add|--remove]                   Register Darius DB CLI & DB tools in Windows PATH
   darius gui                                     Open or focus the Darius DB desktop GUI
   darius version                                 Show version & credits

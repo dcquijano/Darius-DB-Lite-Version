@@ -23,32 +23,42 @@ try {
 
     Remove-Item -Force "dist\*", "installer\*.exe", "build\bin\*.exe" -ErrorAction SilentlyContinue
 
+    # Incrementally warm Go build cache with unified build tags (-tags "desktop,production")
+    # so all 5 binaries share a single standard-library cache entry
+    $tags = "desktop,production"
+    go build -p 1 -tags $tags runtime os io
+    go build -p 1 -tags $tags archive/zip encoding/json
+    go build -p 1 -tags $tags net/http
+    go build -p 1 -tags $tags ./internal/winui ./internal/tray ./internal/core
+    go build -p 1 -tags $tags github.com/wailsapp/wails/v2/pkg/runtime github.com/wailsapp/wails/v2/pkg/options
+    go build -p 1 -tags $tags github.com/wailsapp/wails/v2
+
     if (-not $SkipTests) {
         Write-Host "==> Running tests..." -ForegroundColor Cyan
-        go test -p 1 -vet=off -count=1 ./internal/core ./internal/tray ./internal/winui
+        go test -p 1 -tags $tags -vet=off -count=1 ./internal/core ./internal/tray ./internal/winui
         if ($LASTEXITCODE -ne 0) { throw "go test failed" }
     }
 
     Write-Host "==> Building DariusDB.exe (Wails production build)..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Force -Path "build\bin" | Out-Null
-    go build -p 1 -tags "desktop,production" -ldflags "-s -w -H windowsgui" -o "build\bin\DariusDB.exe" .
+    go build -p 1 -tags $tags -ldflags "-s -w -H windowsgui" -o "build\bin\DariusDB.exe" .
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB.exe failed" }
 
     Write-Host "==> Building DariusDB-Launcher.exe..." -ForegroundColor Cyan
-    go build -p 1 -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Launcher.exe" ./cmd/launcher
+    go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Launcher.exe" ./cmd/launcher
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Launcher.exe failed" }
 
     Write-Host "==> Building DariusDB-Uninstall.exe..." -ForegroundColor Cyan
-    go build -p 1 -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Uninstall.exe" ./cmd/uninstaller
+    go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Uninstall.exe" ./cmd/uninstaller
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Uninstall.exe failed" }
 
     Write-Host "==> Building darius.exe (Developer CLI for Visual Studio & VS Code)..." -ForegroundColor Cyan
-    go build -p 1 -ldflags "-s -w" -o "build\bin\darius.exe" ./cmd/cli
+    go build -p 1 -tags $tags -ldflags "-s -w" -o "build\bin\darius.exe" ./cmd/cli
     if ($LASTEXITCODE -ne 0) { throw "building darius.exe failed" }
 
     Write-Host "==> Building DariusDB-Setup-$Version.exe stub..." -ForegroundColor Cyan
     $stubExe = "build\bin\DariusDB-Setup-stub.exe"
-    go build -p 1 -ldflags "-s -w -H=windowsgui" -o $stubExe ./cmd/installer
+    go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui" -o $stubExe ./cmd/installer
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Setup.exe failed" }
     go clean -cache
 

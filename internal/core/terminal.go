@@ -228,6 +228,22 @@ func (t *Terminal) tryServiceCommand(line string) (*TerminalExecResult, bool) {
 	if (verb == "status" || verb == "services") && len(fields) == 1 {
 		return &TerminalExecResult{State: t.State(), Output: t.formatStatusTable()}, true
 	}
+	if verb == "repair" && len(fields) <= 2 {
+		target := "all"
+		if len(fields) == 2 {
+			target = normalizeEngineArg(fields[1])
+		}
+		rep, err := t.mgr.Repair(target, false)
+		if err != nil {
+			return &TerminalExecResult{State: t.State(), Output: "Error: " + err.Error()}, true
+		}
+		rows := [][]string{}
+		for _, it := range rep.Items {
+			rows = append(rows, []string{strings.ToUpper(it.Status), it.Category, it.Action})
+		}
+		out := renderASCIITable([]string{"STATUS", "COMPONENT", "DIAGNOSTIC / ACTION"}, rows) + "\n\n" + rep.Summary
+		return &TerminalExecResult{State: t.State(), Output: out}, true
+	}
 	if (verb == "start" || verb == "stop" || verb == "restart") && len(fields) == 2 {
 		target := strings.ToLower(fields[1])
 		switch target {

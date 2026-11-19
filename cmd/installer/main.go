@@ -71,6 +71,7 @@ func main() {
 	installDir := defaultDir
 	silent := false
 	forceUpdate := false
+	repairMode := false
 	autoStart := false
 	noDesktop := false
 
@@ -81,6 +82,8 @@ func main() {
 			silent = true
 		case low == "--force" || low == "--update":
 			forceUpdate = true
+		case low == "--repair" || low == "/repair":
+			repairMode = true
 		case low == "--autostart":
 			autoStart = true
 		case low == "--no-desktop":
@@ -94,27 +97,42 @@ func main() {
 	if !forceUpdate {
 		if existingDir := detectExistingInstallation(installDir); existingDir != "" {
 			if silent {
-				fmt.Fprintf(os.Stderr, "Darius DB is already installed in %s. Uninstall first or pass --force.\n", existingDir)
-				os.Exit(1)
-			}
-			ans := winui.MessageBox(
-				appFullTitle+" Setup — Already Installed",
-				fmt.Sprintf(
-					"%s is already installed on your computer!\n\nInstalled location:\n%s\n\nTo avoid double installation, setup will not install a duplicate copy. If you want to reinstall, please uninstall Darius DB first (via Windows Settings > Apps > Installed Apps or DariusDB-Uninstall.exe).\n\nWould you like to open the installed Darius DB now?",
-					appFullTitle, existingDir,
-				),
-				winui.MBYesNo|winui.MBIconInfo,
-			)
-			if ans == winui.IDYES {
-				launcher := filepath.Join(existingDir, "DariusDB-Launcher.exe")
-				if !fileExists(launcher) {
-					launcher = filepath.Join(existingDir, "DariusDB.exe")
+				if !repairMode {
+					fmt.Fprintf(os.Stderr, "Darius DB is already installed in %s. Uninstall first or pass --repair / --force.\n", existingDir)
+					os.Exit(1)
 				}
-				cmd := exec.Command(launcher)
-				cmd.Dir = existingDir
-				_ = cmd.Start()
+				installDir = existingDir
+			} else if repairMode {
+				wiz.repairMode = true
+				wiz.finalDir = existingDir
+			} else {
+				ans := winui.MessageBox(
+					appFullTitle+" Setup — Already Installed (Repair or Launch)",
+					fmt.Sprintf(
+						"%s is already installed on your computer!\n\nInstalled location:\n%s\n\nDouble installation into a second folder is disabled.\n\n"+
+							"• Click YES to REPAIR the existing installation at %s (restores missing/corrupted binaries, fixes configs, stale locks, shortcuts & PATH while keeping all your databases in data/)\n"+
+							"• Click NO to open the installed Darius DB application now\n"+
+							"• Click CANCEL to exit Setup",
+						appFullTitle, existingDir, existingDir,
+					),
+					winui.MBYesNoCancel|winui.MBIconInfo,
+				)
+				if ans == winui.IDYES {
+					wiz.repairMode = true
+					wiz.finalDir = existingDir
+				} else {
+					if ans == winui.IDNO {
+						launcher := filepath.Join(existingDir, "DariusDB-Launcher.exe")
+						if !fileExists(launcher) {
+							launcher = filepath.Join(existingDir, "DariusDB.exe")
+						}
+						cmd := exec.Command(launcher)
+						cmd.Dir = existingDir
+						_ = cmd.Start()
+					}
+					return
+				}
 			}
-			return
 		}
 	}
 
@@ -125,6 +143,7 @@ func main() {
 			startMenu: true,
 			addToPath: true,
 			autoStart: autoStart,
+			repair:    repairMode,
 		}
 		if err := performInstall(opts, nil); err != nil {
 			os.Exit(1)
@@ -141,6 +160,7 @@ type installOptions struct {
 	startMenu bool
 	addToPath bool
 	autoStart bool
+	repair    bool
 }
 
 // ---------------------------------------------------------------- Win32 Wizard GUI
@@ -286,6 +306,7 @@ type wizardState struct {
 	fontMono   syscall.Handle
 	page       int // 1..4
 	installing bool
+	repairMode bool
 	finalDir   string
 
 	// Header
@@ -495,19 +516,27 @@ func buildWizardControls(hwnd syscall.Handle) {
 	setChecked(wiz.p1Accept, true)
 
 	// ---- Page 2: Destination & Options ----
-	wiz.p2LblDir = createCtrl(0, "STATIC", "Destination Folder (where Darius DB will be installed):",
+	dirLabel := "Destination Folder (where Darius DB will be installed):"
+	if wiz.repairMode {
+		dirLabel = "Existing Installation Folder (locked for Repair — double install disabled):"
+	}
+	wiz.p2LblDir = createCtrl(0, "STATIC", dirLabel,
 		0, 22, 88, 480, 20, hwnd, 0, wiz.fontBold)
-	wiz.p2EditDir = createCtrl(wsExClientEdge, "EDIT", defaultDir,
+	wiz.p2EditDir = createCtrl(wsExClientEdge, "EDIT", wiz.finalDir,
 		wsTabStop|wsBorder|esAutoHScroll, 22, 112, 396, 26, hwnd, idEditDir, wiz.fontUI)
 	wiz.p2BtnBrw = createCtrl(0, "BUTTON", "Browse...",
 		wsTabStop|bsPushButton, 426, 111, 96, 28, hwnd, idBtnBrowse, wiz.fontUI)
+	if wiz.repairMode {
+		procEnableWindow.Call(uintptr(wiz.p2EditDir), 0)
+		procEnableWindow.Call(uintptr(wiz.p2BtnBrw), 0)
+	}
 
 	wiz.p2LblOpt = createCtrl(0, "STATIC", "Shortcuts & Developer Integration:",
 		0, 22, 156, 480, 20, hwnd, 0, wiz.fontBold)
-	wiz.p2ChkDesk = createCtrl(0, "BUTTON", "Create a Desktop shortcut",
+	wiz.p2ChkDesk = createCtrl(0, "BUTTON", "Create / Repair Desktop shortcut",
 		wsTabStop|bsAutoCheckBox, 26, 182, 480, 22, hwnd, idChkDesktop, wiz.fontUI)
-	wiz.p2ChkMenu = createCtrl(0, "BUTTON", "Create Start Menu shortcuts (Darius DB, Terminal, Uninstall)",
-		wsTabStop|bsAutoCheckBox, 26, 210, 480, 22, hwnd, idChkStartMnu, wiz.fontUI)
+	wiz.p2ChkMenu = createCtrl(0, "BUTTON", "Create / Repair Start Menu shortcuts (Darius DB, Terminal, Repair, Uninstall)",
+		wsTabStop|bsAutoCheckBox, 26, 210, 495, 22, hwnd, idChkStartMnu, wiz.fontUI)
 	wiz.p2ChkPath = createCtrl(0, "BUTTON", "Add 'darius' CLI & DB tools to Windows PATH (Visual Studio & VS Code)",
 		wsTabStop|bsAutoCheckBox, 26, 238, 495, 22, hwnd, idChkPath, wiz.fontUI)
 	wiz.p2ChkBoot = createCtrl(0, "BUTTON", "Start Darius DB automatically when Windows signs in (minimized to tray)",
@@ -527,7 +556,11 @@ func buildWizardControls(hwnd syscall.Handle) {
 		22, 144, 502, 176, hwnd, 0, wiz.fontMono)
 
 	// ---- Page 4: Completed ----
-	wiz.p4DoneTitle = createCtrl(0, "STATIC", "Darius DB (Lite Version 0.1.2) has been installed!",
+	doneHeadline := "Darius DB (Lite Version 0.1.2) has been installed!"
+	if wiz.repairMode {
+		doneHeadline = "Darius DB (Lite Version 0.1.2) has been repaired!"
+	}
+	wiz.p4DoneTitle = createCtrl(0, "STATIC", doneHeadline,
 		0, 22, 92, 500, 24, hwnd, 0, wiz.fontTitle)
 	wiz.p4Summary = createCtrl(0, "STATIC", "",
 		0, 22, 126, 500, 96, hwnd, 0, wiz.fontUI)
@@ -543,7 +576,12 @@ func buildWizardControls(hwnd syscall.Handle) {
 	wiz.btnNext = createCtrl(0, "BUTTON", "Next >", wsVisible|wsTabStop|bsDefPushBtn, 340, 350, 90, 30, hwnd, idBtnNext, wiz.fontBold)
 	wiz.btnCancel = createCtrl(0, "BUTTON", "Cancel", wsVisible|wsTabStop|bsPushButton, 436, 350, 90, 30, hwnd, idBtnCancel, wiz.fontUI)
 
-	showWizardPage(1)
+	if wiz.repairMode {
+		setText(wiz.lblTitle, appFullTitle+" Repair")
+		showWizardPage(2)
+	} else {
+		showWizardPage(1)
+	}
 }
 
 func showWizardPage(page int) {
@@ -577,23 +615,35 @@ func showWizardPage(page int) {
 			procEnableWindow.Call(uintptr(wiz.btnNext), 0)
 		}
 	case 2:
-		setText(wiz.lblSubtitle, "Step 2 of 3 — Choose Install Location & Options")
-		procEnableWindow.Call(uintptr(wiz.btnBack), 1)
-		procEnableWindow.Call(uintptr(wiz.btnNext), 1)
-		setText(wiz.btnNext, "Install")
+		if wiz.repairMode {
+			setText(wiz.lblSubtitle, "Maintenance Mode — Repair Existing Darius DB Installation")
+			procEnableWindow.Call(uintptr(wiz.btnBack), 0)
+			procEnableWindow.Call(uintptr(wiz.btnNext), 1)
+			setText(wiz.btnNext, "Repair")
+		} else {
+			setText(wiz.lblSubtitle, "Step 2 of 3 — Choose Install Location & Options")
+			procEnableWindow.Call(uintptr(wiz.btnBack), 1)
+			procEnableWindow.Call(uintptr(wiz.btnNext), 1)
+			setText(wiz.btnNext, "Install")
+		}
 	case 3:
-		setText(wiz.lblSubtitle, "Step 3 of 3 — Installing Darius DB (Lite Version 0.1.2)...")
+		if wiz.repairMode {
+			setText(wiz.lblSubtitle, "Repairing Darius DB (Lite Version 0.1.2)...")
+			setText(wiz.btnNext, "Repairing...")
+		} else {
+			setText(wiz.lblSubtitle, "Step 3 of 3 — Installing Darius DB (Lite Version 0.1.2)...")
+			setText(wiz.btnNext, "Installing...")
+		}
 		procEnableWindow.Call(uintptr(wiz.btnBack), 0)
 		procEnableWindow.Call(uintptr(wiz.btnNext), 0)
 		procEnableWindow.Call(uintptr(wiz.btnCancel), 0)
-		setText(wiz.btnNext, "Installing...")
 	case 4:
 		setText(wiz.lblSubtitle, "Setup Completed — Ready to Use")
 		setText(wiz.p4Summary, fmt.Sprintf(
 			"Installed Folder:   %s\r\n"+
 				"Created By:         %s (November 19, 2026)\r\n"+
 				"Developer CLI:      'darius' command ready for Visual Studio & VS Code\r\n"+
-				"Uninstall Anytime:  Windows Settings > Apps > Installed Apps",
+				"Repair / Uninstall: Windows Settings > Apps > Installed Apps",
 			wiz.finalDir, appAuthor,
 		))
 		showCtrl(wiz.btnBack, false)
@@ -620,12 +670,12 @@ func startAsyncInstall() {
 	if dir == "" {
 		dir = defaultDir
 	}
-	// Also block double-installing if the user picked a folder that already has DariusDB.exe
-	if fileExists(filepath.Join(dir, "DariusDB.exe")) {
+	// Block double-installing if not in repair mode and folder already has DariusDB.exe
+	if !wiz.repairMode && fileExists(filepath.Join(dir, "DariusDB.exe")) {
 		winui.MessageBox(
 			appFullTitle+" Setup — Already Installed",
 			fmt.Sprintf(
-				"Darius DB is already installed in:\n%s\n\nPlease uninstall the existing installation first to avoid double installing.",
+				"Darius DB is already installed in:\n%s\n\nPlease use Repair mode or uninstall the existing installation first to avoid double installing.",
 				dir,
 			),
 			winui.MBOK|winui.MBIconWarning,
@@ -639,6 +689,7 @@ func startAsyncInstall() {
 		startMenu: isChecked(wiz.p2ChkMenu),
 		addToPath: isChecked(wiz.p2ChkPath),
 		autoStart: isChecked(wiz.p2ChkBoot),
+		repair:    wiz.repairMode,
 	}
 
 	showWizardPage(3)
@@ -804,15 +855,24 @@ func performInstall(opts installOptions, report func(pct int, msg string)) error
 		}
 	}
 
-	step(76, "Creating portable directories (www, bin, data, etc, logs, tmp)")
+	step(76, "Verifying portable directories (www, bin, data, etc, logs, tmp)")
 	for _, sub := range []string{"www", "bin", "data", "etc", "logs", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(opts.dir, sub), 0o755); err != nil {
 			return err
 		}
 	}
 
+	cliExe := filepath.Join(opts.dir, "darius.exe")
+	if fileExists(cliExe) {
+		step(81, "Running self-diagnostics & repairing configs, settings, and stale PID locks")
+		repCmd := exec.Command(cliExe, "repair", "all")
+		repCmd.Dir = opts.dir
+		repCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+		_ = repCmd.Run()
+	}
+
 	if opts.startMenu || opts.desktop {
-		step(84, "Creating Start Menu and Desktop shortcuts")
+		step(86, "Creating / repairing Start Menu and Desktop shortcuts")
 		createShortcuts(opts.dir, opts.startMenu, opts.desktop)
 	}
 
@@ -825,7 +885,11 @@ func performInstall(opts installOptions, report func(pct int, msg string)) error
 		addInstallDirToUserPath(opts.dir)
 	}
 
-	step(100, "Installation complete!")
+	if opts.repair {
+		step(100, "Repair complete!")
+	} else {
+		step(100, "Installation complete!")
+	}
 	return nil
 }
 
@@ -977,9 +1041,11 @@ func createShortcuts(installDir string, createMenu, createDesktop bool) {
 		ps += fmt.Sprintf(
 			`mk '%s' '%s' '' 'Launch %s'; `+
 				`mk '%s' '%s' '--terminal' 'Open %s Terminal'; `+
+				`mk '%s' '%s' '--repair' 'Repair %s'; `+
 				`mk '%s' '%s' '' 'Uninstall %s'; `,
 			escPS(filepath.Join(startMenu, appShortName+".lnk")), escPS(launcherExe), escPS(appFullTitle),
 			escPS(filepath.Join(startMenu, appShortName+" Terminal.lnk")), escPS(launcherExe), escPS(appFullTitle),
+			escPS(filepath.Join(startMenu, "Repair "+appShortName+".lnk")), escPS(uninstExe), escPS(appFullTitle),
 			escPS(filepath.Join(startMenu, "Uninstall "+appShortName+".lnk")), escPS(uninstExe), escPS(appFullTitle),
 		)
 	}
@@ -1015,8 +1081,9 @@ func registerUninstall(installDir string) {
 	_ = k.SetStringValue("DisplayIcon", mainExe+",0")
 	_ = k.SetStringValue("InstallDate", time.Now().Format("20060102"))
 	_ = k.SetDWordValue("EstimatedSize", 28000)
-	_ = k.SetDWordValue("NoModify", 1)
-	_ = k.SetDWordValue("NoRepair", 1)
+	_ = k.SetDWordValue("NoModify", 0)
+	_ = k.SetDWordValue("NoRepair", 0)
+	_ = k.SetStringValue("ModifyPath", fmt.Sprintf(`"%s" --repair`, uninstExe))
 	_ = k.SetStringValue("UninstallString", fmt.Sprintf(`"%s"`, uninstExe))
 	_ = k.SetStringValue("QuietUninstallString", fmt.Sprintf(`"%s" --silent --keep-data`, uninstExe))
 }

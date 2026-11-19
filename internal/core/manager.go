@@ -65,6 +65,7 @@ func NewManager(p *Paths, st *SettingsStore, onChange func()) *Manager {
 		m.ops[id] = &sync.Mutex{}
 	}
 	m.ensureActiveVersions()
+	ensureWwwIndex(p.Www)
 	m.adopt()
 	go m.monitor()
 	return m

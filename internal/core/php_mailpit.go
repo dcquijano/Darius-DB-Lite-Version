@@ -46,6 +46,213 @@ func (p *phpEngine) ConfigFile(paths *Paths, _ Installation) string {
 	return filepath.Join(paths.EngineEtc("php"), "php.ini")
 }
 
+func (p *phpEngine) RouterFile(paths *Paths) string {
+	return filepath.Join(paths.EngineEtc("php"), "router.php")
+}
+
+const defaultPhpRouter = `<?php
+// Darius DB (Lite Version 0.1.2) - Built-in PHP Development Server Router
+// Handles /__darius_www__/* Drag & Drop Website Deployer API and routes all other requests to www/.
+
+$uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+$wwwDir = $_SERVER['DOCUMENT_ROOT'] ?? __DIR__;
+
+if (strpos($uri, '/__darius_www__/') === 0) {
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: *');
+    header('Access-Control-Allow-Private-Network: true');
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
+        http_response_code(204);
+        exit;
+    }
+    header('Content-Type: application/json; charset=utf-8');
+
+    $sanitizeSlug = function($s) {
+        $s = trim((string)$s);
+        $s = preg_replace('/[^a-zA-Z0-9_\-\.]+/', '-', $s);
+        return trim($s, '-.');
+    };
+
+    if ($uri === '/__darius_www__/sites') {
+        $sites = [];
+        if (is_dir($wwwDir)) {
+            $items = @scandir($wwwDir) ?: [];
+            foreach ($items as $name) {
+                if ($name === '.' || $name === '..' || strcasecmp($name, 'index.html') === 0 || strpos($name, '.') === 0) {
+                    continue;
+                }
+                $full = $wwwDir . DIRECTORY_SEPARATOR . $name;
+                if (is_dir($full)) {
+                    $count = 0;
+                    $bytes = 0;
+                    try {
+                        $it = new RecursiveIteratorIterator(
+                            new RecursiveDirectoryIterator($full, FilesystemIterator::SKIP_DOTS),
+                            RecursiveIteratorIterator::LEAVES_ONLY
+                        );
+                        foreach ($it as $fi) {
+                            if ($fi->isFile()) {
+                                $count++;
+                                $bytes += $fi->getSize();
+                            }
+                        }
+                    } catch (Throwable $e) {}
+                    $sites[] = [
+                        'name'  => $name,
+                        'url'   => '/' . $name . '/',
+                        'isDir' => true,
+                        'files' => $count,
+                        'bytes' => $bytes,
+                    ];
+                } elseif (is_file($full)) {
+                    $sites[] = [
+                        'name'  => $name,
+                        'url'   => '/' . $name,
+                        'isDir' => false,
+                        'files' => 1,
+                        'bytes' => (int)@filesize($full),
+                    ];
+                }
+            }
+        }
+        echo json_encode([
+            'wwwDir' => $wwwDir,
+            'port'   => (int)($_SERVER['SERVER_PORT'] ?? 9000),
+            'sites'  => $sites,
+        ]);
+        exit;
+    }
+
+    if ($uri === '/__darius_www__/delete') {
+        $raw = file_get_contents('php://input');
+        $req = json_decode($raw, true) ?: [];
+        $name = basename(trim((string)($req['name'] ?? '')));
+        if ($name === '' || $name === '.' || $name === '..' || strcasecmp($name, 'index.html') === 0) {
+            http_response_code(400);
+            echo json_encode(['error' => 'invalid site name']);
+            exit;
+        }
+        $target = $wwwDir . DIRECTORY_SEPARATOR . $name;
+        if (is_dir($target)) {
+            try {
+                $it = new RecursiveIteratorIterator(
+                    new RecursiveDirectoryIterator($target, FilesystemIterator::SKIP_DOTS),
+                    RecursiveIteratorIterator::CHILD_FIRST
+                );
+                foreach ($it as $fi) {
+                    $p = $fi->getRealPath();
+                    @chmod($p, 0777);
+                    if ($fi->isDir()) @rmdir($p); else @unlink($p);
+                }
+            } catch (Throwable $e) {}
+            @rmdir($target);
+        } elseif (is_file($target)) {
+            @chmod($target, 0777);
+            @unlink($target);
+        }
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    if ($uri === '/__darius_www__/upload') {
+        $siteName = $sanitizeSlug($_POST['siteName'] ?? '');
+        $f = $_FILES['files'] ?? null;
+        if (!$f) {
+            http_response_code(400);
+            echo json_encode(['error' => 'no files uploaded']);
+            exit;
+        }
+        $names = is_array($f['name']) ? $f['name'] : [$f['name']];
+        $tmps  = is_array($f['tmp_name']) ? $f['tmp_name'] : [$f['tmp_name']];
+        $paths = isset($_POST['paths']) ? (is_array($_POST['paths']) ? $_POST['paths'] : [$_POST['paths']]) : [];
+
+        if (count($names) === 1 && preg_match('/\.zip$/i', (string)$names[0])) {
+            if ($siteName === '') {
+                $siteName = $sanitizeSlug(preg_replace('/\.zip$/i', '', (string)$names[0]));
+            }
+            if ($siteName === '') $siteName = 'site-' . date('His');
+            $destDir = $wwwDir . DIRECTORY_SEPARATOR . $siteName;
+            if (!is_dir($destDir)) @mkdir($destDir, 0777, true);
+            $count = 0;
+            if (class_exists('ZipArchive')) {
+                $za = new ZipArchive();
+                if ($za->open($tmps[0]) === true) {
+                    $za->extractTo($destDir);
+                    $count = $za->numFiles;
+                    $za->close();
+                }
+            } else {
+                $cmd = 'powershell -NoProfile -Command "Expand-Archive -LiteralPath ' . escapeshellarg($tmps[0]) . ' -DestinationPath ' . escapeshellarg($destDir) . ' -Force"';
+                @exec($cmd);
+                $count = 1;
+            }
+            echo json_encode(['ok' => true, 'site' => $siteName, 'url' => '/' . $siteName . '/', 'count' => $count]);
+            exit;
+        }
+
+        if ($siteName === '') {
+            $firstRel = isset($paths[0]) && $paths[0] !== '' ? $paths[0] : (string)$names[0];
+            $firstRel = ltrim(str_replace('\\', '/', $firstRel), '/');
+            $parts = explode('/', $firstRel);
+            if (count($parts) > 1 && $parts[0] !== '') {
+                $siteName = $sanitizeSlug($parts[0]);
+            } else {
+                $siteName = $sanitizeSlug(pathinfo((string)$names[0], PATHINFO_FILENAME));
+            }
+            if ($siteName === '' || strcasecmp($siteName, 'index') === 0) {
+                $siteName = 'site-' . date('His');
+            }
+        }
+
+        $destSiteDir = $wwwDir . DIRECTORY_SEPARATOR . $siteName;
+        if (!is_dir($destSiteDir)) @mkdir($destSiteDir, 0777, true);
+
+        $count = 0;
+        for ($i = 0; $i < count($names); $i++) {
+            $tmp = $tmps[$i] ?? '';
+            if ($tmp === '' || !is_file($tmp)) continue;
+            $rel = isset($paths[$i]) && $paths[$i] !== '' ? $paths[$i] : (string)$names[$i];
+            $rel = ltrim(str_replace('\\', '/', $rel), '/');
+            if (strpos($rel, '..') !== false) continue;
+            if (count($names) === 1 && preg_match('/\.html?$/i', $rel) && strpos($rel, '/') === false) {
+                $rel = 'index.html';
+            }
+            $targetPath = $destSiteDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);
+            $parentDir = dirname($targetPath);
+            if (!is_dir($parentDir)) @mkdir($parentDir, 0777, true);
+            if (@move_uploaded_file($tmp, $targetPath) || @copy($tmp, $targetPath)) {
+                @chmod($targetPath, 0777);
+                $count++;
+            }
+        }
+        echo json_encode(['ok' => true, 'site' => $siteName, 'url' => '/' . $siteName . '/', 'count' => $count]);
+        exit;
+    }
+
+    http_response_code(404);
+    echo json_encode(['error' => 'unknown endpoint']);
+    exit;
+}
+
+$cleanRel = ltrim(str_replace('/', DIRECTORY_SEPARATOR, urldecode($uri)), DIRECTORY_SEPARATOR);
+$fullPath = $wwwDir . ($cleanRel !== '' ? DIRECTORY_SEPARATOR . $cleanRel : '');
+if (is_dir($fullPath)) {
+    foreach (['index.php', 'index.html', 'index.htm'] as $idx) {
+        $candidate = rtrim($fullPath, '\\/') . DIRECTORY_SEPARATOR . $idx;
+        if (is_file($candidate)) {
+            if (substr($idx, -4) === '.php') {
+                chdir(dirname($candidate));
+                require $candidate;
+                return true;
+            }
+            return false;
+        }
+    }
+}
+return false;
+`
+
 const defaultPhpIni = `; Darius DB (Lite Version 0.1.2) - PHP Local Development Configuration
 ; DocumentRoot: www/ | Pre-configured with Mailpit SMTP (127.0.0.1:1025)
 
@@ -106,6 +313,12 @@ func (p *phpEngine) Prepare(ctx context.Context, paths *Paths, inst Installation
 	if err := writeIfMissing(p.ConfigFile(paths, inst), defaultPhpIni); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(filepath.Dir(p.RouterFile(paths)), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(p.RouterFile(paths), []byte(strings.ReplaceAll(defaultPhpRouter, "\n", "\r\n")), 0o644); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(paths.Www, 0o755); err != nil {
 		return err
 	}
@@ -121,15 +334,23 @@ func (p *phpEngine) Start(paths *Paths, inst Installation, s EngineSettings) (*S
 	if !fileExists(phpExe) {
 		return nil, errors.New("php.exe not found in " + inst.Dir)
 	}
+	_ = os.MkdirAll(filepath.Dir(p.RouterFile(paths)), 0o755)
+	_ = os.WriteFile(p.RouterFile(paths), []byte(strings.ReplaceAll(defaultPhpRouter, "\n", "\r\n")), 0o644)
+
 	extDir := filepath.Join(filepath.Dir(phpExe), "ext")
 	args := []string{
 		"-S", fmt.Sprintf("127.0.0.1:%d", s.Port),
 		"-t", paths.Www,
 		"-c", p.ConfigFile(paths, inst),
+		"-d", "upload_max_filesize=256M",
+		"-d", "post_max_size=256M",
+		"-d", "max_file_uploads=100",
+		"-d", "memory_limit=512M",
 	}
 	if dirExists(extDir) {
 		args = append(args, "-d", fmt.Sprintf("extension_dir=%s", extDir))
 	}
+	args = append(args, p.RouterFile(paths))
 	cmd := exec.Command(phpExe, args...)
 	cmd.Dir = paths.Www
 	return &StartSpec{Cmd: cmd}, nil

@@ -119,6 +119,7 @@ LogLevel warn
 `
 
 const defaultWwwIndexHTML = `<!DOCTYPE html>
+<!-- darius-www-v3 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -183,7 +184,7 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
   <div class="box">
     <div class="top-bar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span class="badge"><span class="dot"></span> Apache Web Server is Running</span>
+        <span class="badge"><span class="dot"></span> <span id="serverStatusText">Apache &amp; PHP Web Server is Running</span></span>
         <span class="trust-badge" id="trustStatusBadge" title="Click to toggle Auto-Trust Author &amp; Full Folder Permissions">🛡 Trust Author: Enabled (Full Permissions)</span>
       </div>
       <code id="wwwPathBadge">www/</code>
@@ -277,15 +278,43 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
         deployStatus.innerHTML = html;
       }
 
+      const srvLabel = document.getElementById("serverStatusText");
+      if (srvLabel) {
+        srvLabel.textContent = location.port === "9000"
+          ? "PHP Web Server (:9000) is Running"
+          : "Apache & PHP Web Server (:" + (location.port || "8080") + ") is Running";
+      }
+
+      // Smart JSON API caller that supports both Apache (:8080) and PHP (:9000) and automatically falls back if one port returns HTML
+      async function apiFetch(path, opts) {
+        const candidates = [path];
+        if (location.port !== "8080") candidates.push("http://localhost:8080" + path);
+        if (location.port !== "9000") candidates.push("http://localhost:9000" + path);
+        let lastErr = null;
+        for (const url of candidates) {
+          try {
+            const r = await fetch(url, opts);
+            const txt = (await r.text()).trim();
+            if (txt.startsWith("{")) {
+              const data = JSON.parse(txt);
+              if (!r.ok || data.error) throw new Error(data.error || ("HTTP " + r.status));
+              return data;
+            }
+            lastErr = new Error("Deploy API on " + url + " returned non-JSON response");
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+        throw lastErr || new Error("Local web server deploy API is unreachable");
+      }
+
       async function loadSites() {
         try {
-          const r = await fetch("/__darius_www__/sites");
-          if (!r.ok) throw new Error("API unavailable");
-          const data = await r.json();
+          const data = await apiFetch("/__darius_www__/sites");
           if (data.wwwDir) wwwPathBadge.textContent = data.wwwDir;
           const sites = data.sites || [];
           if (!sites.length) {
-            siteList.innerHTML = '<div class="site-meta">No project subfolders in <code>www/</code> yet — drag &amp; drop a folder, .zip, or .html file above!</div>';
+            siteList.innerHTML = '<div class="site-meta">No project subfolders in <code>www/</code> yet — drag &amp; drop a folder, .zip, .php, or .html file above!</div>';
             return;
           }
           siteList.innerHTML = sites.map((s) =>
@@ -314,13 +343,11 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
         const name = btn.dataset.del;
         if (!confirm('Remove "' + name + '" from www/?')) return;
         try {
-          const r = await fetch("/__darius_www__/delete", {
+          await apiFetch("/__darius_www__/delete", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name })
           });
-          const res = await r.json();
-          if (!r.ok || res.error) throw new Error(res.error || "Delete failed");
           loadSites();
         } catch (err) {
           showStatus("<span>Error: " + esc(err.message) + "</span>", false);
@@ -547,13 +574,11 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
               if (allHaveTop && commonTop && rel.toLowerCase().startsWith(commonTop.toLowerCase() + "/")) {
                 rel = rel.slice(commonTop.length + 1);
               }
-              fd.append("files", it.file, it.file.name);
-              fd.append("paths", rel || it.file.name);
+              fd.append("files[]", it.file, it.file.name);
+              fd.append("paths[]", rel || it.file.name);
             }
 
-            const r = await fetch("/__darius_www__/upload", { method: "POST", body: fd });
-            const res = await r.json();
-            if (!r.ok || res.error) throw new Error(res.error || "Deploy batch failed");
+            const res = await apiFetch("/__darius_www__/upload", { method: "POST", body: fd });
             finalRes = res;
             uploaded += chunk.length;
           }
@@ -585,10 +610,10 @@ func ensureWwwIndex(wwwDir string) {
 		_ = writeIfMissing(indexPath, defaultWwwIndexHTML)
 		return
 	}
-	// Automatically upgrade older Darius DB welcome page to the Trust Author + Chunked Drag & Drop dashboard
+	// Automatically upgrade older Darius DB welcome page to the v3 Apache + PHP Drag & Drop dashboard
 	if b, err := os.ReadFile(indexPath); err == nil {
 		s := string(b)
-		if strings.Contains(s, "Apache Web Server is Running") && !strings.Contains(s, "trustModal") {
+		if strings.Contains(s, "Darius DB") && !strings.Contains(s, "darius-www-v3") {
 			_ = os.WriteFile(indexPath, []byte(strings.ReplaceAll(defaultWwwIndexHTML, "\n", "\r\n")), 0o644)
 		}
 	}
@@ -687,16 +712,33 @@ func RunBuiltInHTTPD(args []string) int {
 			return
 		}
 
-		// Clean directory listing if requesting a directory without index.html
+		// Clean directory listing or index.php execution if requesting a directory
 		relPath := filepath.FromSlash(strings.TrimPrefix(filepath.Clean("/"+r.URL.Path), "/"))
 		fullPath := filepath.Join(wwwDir, relPath)
 		if st, err := os.Stat(fullPath); err == nil && st.IsDir() {
-			if !fileExists(filepath.Join(fullPath, "index.html")) && !fileExists(filepath.Join(fullPath, "index.htm")) {
+			hasHTML := fileExists(filepath.Join(fullPath, "index.html")) || fileExists(filepath.Join(fullPath, "index.htm"))
+			hasPHP := fileExists(filepath.Join(fullPath, "index.php"))
+			if hasPHP && (!hasHTML || r.URL.Path != "/") {
+				if !strings.HasSuffix(r.URL.Path, "/") {
+					http.Redirect(w, r, r.URL.Path+"/", http.StatusMovedPermanently)
+					return
+				}
+				servePHPFile(w, r, wwwDir, filepath.Join(fullPath, "index.php"), port)
+				fmt.Fprintf(os.Stdout, "%s - \"%s %s\" [PHP] (%s)\n",
+					time.Now().Format("2006-01-02 15:04:05"), r.Method, r.URL.Path, time.Since(start).Round(time.Microsecond))
+				return
+			}
+			if !hasHTML {
 				renderDirListing(w, r.URL.Path, fullPath)
 				fmt.Fprintf(os.Stdout, "%s - \"%s %s\" 200 (%s)\n",
 					time.Now().Format("2006-01-02 15:04:05"), r.Method, r.URL.Path, time.Since(start).Round(time.Microsecond))
 				return
 			}
+		} else if err == nil && !st.IsDir() && strings.HasSuffix(strings.ToLower(fullPath), ".php") {
+			servePHPFile(w, r, wwwDir, fullPath, port)
+			fmt.Fprintf(os.Stdout, "%s - \"%s %s\" [PHP] (%s)\n",
+				time.Now().Format("2006-01-02 15:04:05"), r.Method, r.URL.Path, time.Since(start).Round(time.Microsecond))
+			return
 		}
 		fs.ServeHTTP(w, r)
 		fmt.Fprintf(os.Stdout, "%s - \"%s %s\" (%s)\n",
@@ -835,7 +877,13 @@ func handleDariusWwwAPI(w http.ResponseWriter, r *http.Request, wwwDir string, p
 		}
 		siteName := sanitizeSiteSlug(r.FormValue("siteName"))
 		files := r.MultipartForm.File["files"]
+		if len(files) == 0 {
+			files = r.MultipartForm.File["files[]"]
+		}
 		paths := r.MultipartForm.Value["paths"]
+		if len(paths) == 0 {
+			paths = r.MultipartForm.Value["paths[]"]
+		}
 		if len(files) == 0 {
 			writeJSON(http.StatusBadRequest, map[string]string{"error": "no files uploaded"})
 			return
@@ -1162,4 +1210,158 @@ func renderDirListing(w http.ResponseWriter, urlPath, dirPath string) {
 	}
 	b.WriteString(`</ul></body></html>`)
 	_, _ = w.Write([]byte(b.String()))
+}
+
+func findPHPExecutables() (phpCgi string, phpCli string, phpIni string) {
+	paths := NewPaths(ResolveRoot())
+	phpIni = filepath.Join(paths.EngineEtc("php"), "php.ini")
+	dirs := []string{}
+	for _, inst := range ListInstallations(paths, "php") {
+		dirs = append(dirs, inst.Dir, filepath.Join(inst.Dir, "bin"))
+	}
+	if sysInst, ok := detectSystemPHP(); ok {
+		dirs = append(dirs, sysInst.Dir, filepath.Join(sysInst.Dir, "bin"))
+	}
+	for _, d := range dirs {
+		if phpCgi == "" && fileExists(filepath.Join(d, "php-cgi.exe")) {
+			phpCgi = filepath.Join(d, "php-cgi.exe")
+		}
+		if phpCli == "" && fileExists(filepath.Join(d, "php.exe")) {
+			phpCli = filepath.Join(d, "php.exe")
+		}
+		if phpCgi != "" && phpCli != "" {
+			break
+		}
+	}
+	return phpCgi, phpCli, phpIni
+}
+
+func servePHPFile(w http.ResponseWriter, r *http.Request, wwwDir, scriptPath string, port int) {
+	phpCgi, phpCli, phpIni := findPHPExecutables()
+	if phpCgi == "" && phpCli == "" {
+		http.Error(w, "PHP is not installed yet. Install PHP from the Versions tab in Darius DB to run .php websites.", http.StatusServiceUnavailable)
+		return
+	}
+
+	if phpCgi != "" {
+		args := []string{"-d", "cgi.force_redirect=0"}
+		if fileExists(phpIni) {
+			args = append(args, "-c", phpIni)
+		}
+		extDir := filepath.Join(filepath.Dir(phpCgi), "ext")
+		if dirExists(extDir) {
+			args = append(args, "-d", "extension_dir="+extDir)
+		}
+		cmd := exec.Command(phpCgi, args...)
+		hideWindow(cmd)
+		cmd.Dir = filepath.Dir(scriptPath)
+
+		scriptName := r.URL.Path
+		if strings.HasSuffix(scriptName, "/") {
+			scriptName += "index.php"
+		}
+		env := append(os.Environ(),
+			"REDIRECT_STATUS=200",
+			"GATEWAY_INTERFACE=CGI/1.1",
+			"SERVER_PROTOCOL=HTTP/1.1",
+			"SERVER_SOFTWARE=Apache/2.4 (DariusDB-Lite/0.1.2)",
+			"SERVER_NAME=localhost",
+			"SERVER_ADDR=127.0.0.1",
+			"SERVER_PORT="+strconv.Itoa(port),
+			"REMOTE_ADDR=127.0.0.1",
+			"DOCUMENT_ROOT="+wwwDir,
+			"SCRIPT_FILENAME="+scriptPath,
+			"SCRIPT_NAME="+scriptName,
+			"REQUEST_URI="+r.URL.RequestURI(),
+			"QUERY_STRING="+r.URL.RawQuery,
+			"REQUEST_METHOD="+r.Method,
+			"CONTENT_TYPE="+r.Header.Get("Content-Type"),
+			"CONTENT_LENGTH="+strconv.FormatInt(maxInt64(r.ContentLength, 0), 10),
+		)
+		for k, vals := range r.Header {
+			hk := "HTTP_" + strings.ToUpper(strings.ReplaceAll(k, "-", "_"))
+			env = append(env, hk+"="+strings.Join(vals, ", "))
+		}
+		cmd.Env = env
+		if r.Body != nil {
+			cmd.Stdin = r.Body
+		}
+
+		out, err := cmd.Output()
+		if err != nil && len(out) == 0 {
+			var ee *exec.ExitError
+			if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+				http.Error(w, "PHP Error:\n"+string(ee.Stderr), http.StatusInternalServerError)
+				return
+			}
+			http.Error(w, "PHP CGI Error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Split CGI headers and body
+		sep := []byte("\r\n\r\n")
+		idx := bytes.Index(out, sep)
+		if idx == -1 {
+			sep = []byte("\n\n")
+			idx = bytes.Index(out, sep)
+		}
+		statusCode := http.StatusOK
+		body := out
+		if idx != -1 {
+			hdrBlock := string(out[:idx])
+			body = out[idx+len(sep):]
+			for _, line := range strings.Split(strings.ReplaceAll(hdrBlock, "\r\n", "\n"), "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) != 2 {
+					continue
+				}
+				hk := strings.TrimSpace(parts[0])
+				hv := strings.TrimSpace(parts[1])
+				if strings.EqualFold(hk, "Status") {
+					fields := strings.Fields(hv)
+					if len(fields) > 0 {
+						if code, err := strconv.Atoi(fields[0]); err == nil && code >= 100 {
+							statusCode = code
+						}
+					}
+					continue
+				}
+				w.Header().Add(hk, hv)
+			}
+		}
+		if w.Header().Get("Content-Type") == "" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		}
+		w.WriteHeader(statusCode)
+		_, _ = w.Write(body)
+		return
+	}
+
+	// Fallback to php.exe CLI if php-cgi.exe is not present
+	args := []string{}
+	if fileExists(phpIni) {
+		args = append(args, "-c", phpIni)
+	}
+	extDir := filepath.Join(filepath.Dir(phpCli), "ext")
+	if dirExists(extDir) {
+		args = append(args, "-d", "extension_dir="+extDir)
+	}
+	args = append(args, scriptPath)
+	cmd := exec.Command(phpCli, args...)
+	hideWindow(cmd)
+	cmd.Dir = filepath.Dir(scriptPath)
+	out, _ := cmd.CombinedOutput()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(out)
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }

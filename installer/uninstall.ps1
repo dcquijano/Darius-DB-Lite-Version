@@ -1,10 +1,12 @@
 <#
 .SYNOPSIS
-  Darius DB Uninstaller script wrapper.
+  Darius DB (Lite Version 0.1.2) Uninstall & Maintenance Wizard wrapper.
+  Created by Darius Cumpio - November 19, 2026 - v0.1.2
 #>
 param(
     [string]$InstallDir = "",
     [switch]$Silent,
+    [switch]$Repair,
     [switch]$RemoveData
 )
 
@@ -20,9 +22,17 @@ if (-not $InstallDir) {
 }
 
 $exe = Join-Path $InstallDir "DariusDB-Uninstall.exe"
+if (-not (Test-Path -LiteralPath $exe)) {
+    $localUninst = Join-Path $PSScriptRoot "DariusDB-Uninstall.exe"
+    if (Test-Path -LiteralPath $localUninst) {
+        $exe = $localUninst
+    }
+}
+
 if (Test-Path -LiteralPath $exe) {
-    $argsList = @()
+    $argsList = @("--dir=$InstallDir")
     if ($Silent)     { $argsList += "--silent" }
+    if ($Repair)     { $argsList += "--repair" }
     if ($RemoveData) { $argsList += "--remove-data" } else { $argsList += "--keep-data" }
     Start-Process -FilePath $exe -ArgumentList $argsList -Wait
     exit 0

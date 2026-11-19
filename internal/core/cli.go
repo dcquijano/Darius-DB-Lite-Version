@@ -449,21 +449,27 @@ func RunCLI(root string, args []string) int {
 			fmt.Println(msg)
 			return 0
 		}
-		up, err := CheckSystemUpdate(CLIAppVersion)
+		up, err := SyncFromGitHub(paths, CLIAppVersion)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 1
 		}
-		fmt.Printf("%s — System Version Updater\n", CLIAppTitle)
+		fmt.Printf("%s — System Version Updater (Live GitHub Sync)\n", CLIAppTitle)
 		fmt.Printf("Installed Version: Lite Version %s\n", up.CurrentVersion)
 		fmt.Printf("Latest Version:    Lite Version %s\n", up.LatestVersion)
+		if up.LatestCommitSHA != "" {
+			fmt.Printf("Latest GitHub:     [%s] %s (%s)\n", up.LatestCommitSHA, up.LatestCommitMsg, up.LatestCommitDate)
+		}
 		if up.HasUpdate {
 			fmt.Printf("Status:            UPDATE AVAILABLE (v%s)\n", up.LatestVersion)
 		} else {
-			fmt.Printf("Status:            UP TO DATE\n")
+			fmt.Printf("Status:            UP TO DATE & SYNCED WITH GITHUB\n")
 		}
 		fmt.Printf("Installer Folder:  %s\n\n", up.InstallerURL)
-		fmt.Printf("Announcement:\n  %s\n", up.Announcement)
+		fmt.Printf("What's New (Fetched from GitHub):\n")
+		for _, item := range up.Changelog {
+			fmt.Printf("  • %s\n", item)
+		}
 		return 0
 
 	case "path":

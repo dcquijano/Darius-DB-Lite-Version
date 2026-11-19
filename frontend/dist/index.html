@@ -128,10 +128,6 @@
               title="Check for Darius DB System Updates or install a new Setup .exe / .zip version">
               ⬆️ System Updater
             </button>
-            <button class="btn accent" id="btnOpenSysUpdater"
-              title="Check for Darius DB System Updates or install a new Setup .exe / .zip version">
-              ⬆️ System Updater
-            </button>
             <button class="btn ghost" id="btnToggleAnnounce"
               title="Show System Announcement &amp; New Version Installer">
               📢 What's New
@@ -706,66 +702,16 @@
               <span class="pill running" id="sysUpBadge">Up to Date</span>
             </div>
           </div>
-          <button type="button" class="btn sm accent" id="btnSysUpCheckNow">↻ Check Online</button>
-        </div>
-
-        <div id="sysUpAnnounceBox"
-          style="padding:10px 14px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;font-size:12px;max-height:150px;overflow:auto">
-          <strong>📢 Release Announcement &amp; What's New:</strong>
-          <p id="sysUpAnnounceText" style="margin:6px 0"></p>
-          <ul id="sysUpChangelogList" style="margin:4px 0 0;padding-left:18px"></ul>
-        </div>
-
-        <div class="divider-label">Option 1: Install Update from Downloaded Setup .exe or Portable .zip</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn sm primary" id="btnSysUpPickFile">📂 Select Setup .exe / Portable .zip &amp;
-            Update Now...</button>
-          <button type="button" class="btn sm accent" id="btnSysUpOpenDrive">📥 Open Official Google Drive Installer
-            Folder</button>
-        </div>
-
-        <div class="divider-label">Option 2: Direct Online Setup .exe / .zip Update URL</div>
-        <div style="display:flex;gap:6px">
-          <input type="url" id="sysUpDirectUrl" class="input" style="flex:1"
-            placeholder="https://.../DariusDB-Setup-0.1.2.exe or portable.zip" />
-          <button type="button" class="btn sm primary" id="btnSysUpRunUrl">⬇️ Download &amp; Update</button>
-        </div>
-
-        <p class="muted" id="sysUpStatusMsg" style="margin:0;font-size:11.5px">
-          Updating Darius DB upgrades <code>DariusDB.exe</code>, <code>DariusDB-Launcher.exe</code>,
-          <code>DariusDB-Uninstall.exe</code>, and <code>darius.exe</code> in-place and automatically restarts the app
-          while keeping all your databases in <code>data/</code> and websites in <code>www/</code> untouched.
-        </p>
-
-        <div class="modal-actions">
-          <button type="button" class="btn" id="btnCancelSysUpdater">Close</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- System Version Updater Modal -->
-  <div class="modal-backdrop" id="modalSysUpdater" hidden>
-    <div class="modal" style="max-width:620px">
-      <div class="modal-head">
-        <h3>⬆️ Darius DB System Version Updater</h3>
-        <button class="icon-btn" id="btnCloseSysUpdater" aria-label="Close">✕</button>
-      </div>
-      <div class="modal-body">
-        <div
-          style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:10px;flex-wrap:wrap">
-          <div>
-            <div style="font-size:12px;color:var(--text-muted)">Installed System Version</div>
-            <strong id="sysUpCurVer" style="font-size:15px">Darius DB (Lite Version 0.1.2)</strong>
+          <div style="display:flex;gap:6px">
+            <button type="button" class="btn sm accent" id="btnSysUpCheckNow"
+              title="Fetch latest version.json and pushed commits from GitHub">↻ Check Online</button>
+            <button type="button" class="btn sm primary" id="btnSysUpSyncGithub"
+              title="Sync version.json, recent commits, and engine catalog from GitHub">🔄 Fetch Latest from
+              GitHub</button>
           </div>
-          <div>
-            <div style="font-size:12px;color:var(--text-muted)">Latest Official Release</div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <strong id="sysUpLatVer" style="font-size:15px">Lite Version 0.1.2</strong>
-              <span class="pill running" id="sysUpBadge">Up to Date</span>
-            </div>
-          </div>
-          <button type="button" class="btn sm accent" id="btnSysUpCheckNow">↻ Check Online</button>
+        </div>
+        <div id="sysUpCommitBar" class="muted" style="font-size:11.5px;padding:0 2px">
+          Checking latest GitHub commit on <code>dcquijano/Darius-DB-Lite-Version</code>...
         </div>
 
         <div id="sysUpAnnounceBox"

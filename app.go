@@ -698,6 +698,10 @@ func (a *App) CheckSystemUpdate() (*core.SystemUpdateInfo, error) {
 	return core.CheckSystemUpdate(AppVersion)
 }
 
+func (a *App) SyncFromGitHub() (*core.SystemUpdateInfo, error) {
+	return core.SyncFromGitHub(a.paths, AppVersion)
+}
+
 func (a *App) ApplySystemUpdateFromURL(downloadURL string) (string, error) {
 	msg, err := core.ApplySystemUpdateFromURL(a.paths, downloadURL)
 	if err != nil {

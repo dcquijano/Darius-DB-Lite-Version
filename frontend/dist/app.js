@@ -1098,29 +1098,44 @@
     };
 
     const closeSysUpdater = () => ($("modalSysUpdater").hidden = true);
+    const applyUpdateInfoToUI = (up) => {
+      $("sysUpCurVer").textContent = `Darius DB (Lite Version ${up.currentVersion})`;
+      $("sysUpLatVer").textContent = `Lite Version ${up.latestVersion}`;
+      const badge = $("sysUpBadge");
+      if (up.hasUpdate) {
+        badge.className = "pill warn";
+        badge.textContent = `Update Available (${up.latestVersion})`;
+      } else {
+        badge.className = "pill running";
+        badge.textContent = up.latestCommitSha ? `Synced (${up.latestCommitSha})` : "Up to Date";
+      }
+      if ($("sysUpCommitBar")) {
+        if (up.latestCommitSha) {
+          $("sysUpCommitBar").innerHTML = `Latest GitHub Push: <code>${esc(up.latestCommitSha)}</code> — <strong>${esc(
+            up.latestCommitMsg
+          )}</strong> <span class="muted">(${esc(up.latestCommitDate)})</span>`;
+        } else {
+          $("sysUpCommitBar").textContent = `Checked at ${up.checkedAt || ""}`;
+        }
+      }
+      $("sysUpAnnounceText").textContent = up.announcement || "";
+      $("sysUpChangelogList").innerHTML = (up.changelog || [])
+        .map((item) => `<li>${esc(item)}</li>`)
+        .join("");
+      if (up.directSetupUrl && !$("sysUpDirectUrl").value) {
+        $("sysUpDirectUrl").value = up.directSetupUrl;
+      }
+      if ($("announceUpdateInfo") && up.latestCommitSha) {
+        $("announceUpdateInfo").textContent = `Latest GitHub Update [${up.latestCommitSha}]: ${up.latestCommitMsg} (${up.latestCommitDate})`;
+      }
+    };
     const refreshSystemUpdateModal = async () => {
       const btn = $("btnSysUpCheckNow");
       btn.disabled = true;
       btn.textContent = "Checking...";
       try {
         const up = await api().CheckSystemUpdate();
-        $("sysUpCurVer").textContent = `Darius DB (Lite Version ${up.currentVersion})`;
-        $("sysUpLatVer").textContent = `Lite Version ${up.latestVersion}`;
-        const badge = $("sysUpBadge");
-        if (up.hasUpdate) {
-          badge.className = "pill warn";
-          badge.textContent = `Update Available (${up.latestVersion})`;
-        } else {
-          badge.className = "pill running";
-          badge.textContent = "Up to Date";
-        }
-        $("sysUpAnnounceText").textContent = up.announcement || "";
-        $("sysUpChangelogList").innerHTML = (up.changelog || [])
-          .map((item) => `<li>${esc(item)}</li>`)
-          .join("");
-        if (up.directSetupUrl && !$("sysUpDirectUrl").value) {
-          $("sysUpDirectUrl").value = up.directSetupUrl;
-        }
+        applyUpdateInfoToUI(up);
       } catch (e) {
         toast(errMsg(e), "err");
       } finally {
@@ -1128,6 +1143,34 @@
         btn.textContent = "↻ Check Online";
       }
     };
+    if ($("btnSysUpSyncGithub")) {
+      $("btnSysUpSyncGithub").onclick = async () => {
+        const btn = $("btnSysUpSyncGithub");
+        btn.disabled = true;
+        btn.textContent = "Fetching from GitHub...";
+        try {
+          const up = await api().SyncFromGitHub();
+          applyUpdateInfoToUI(up);
+          state.catalog = await api().Catalog();
+          if (state.tab === "versions") renderVersions();
+          toast(
+            up.latestCommitSha
+              ? `Fetched latest GitHub commit [${up.latestCommitSha}]: ${up.latestCommitMsg}`
+              : "Fetched latest version.json and catalog from GitHub!",
+            "ok"
+          );
+          if (up.hasUpdate && up.directSetupUrl) {
+            const msg = await api().ApplySystemUpdateFromURL(up.directSetupUrl);
+            if (msg) toast(msg, "ok");
+          }
+        } catch (e) {
+          toast(errMsg(e), "err");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "🔄 Fetch Latest from GitHub";
+        }
+      };
+    }
     const openSysUpdater = () => {
       $("modalSysUpdater").hidden = false;
       refreshSystemUpdateModal();

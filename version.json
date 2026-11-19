@@ -7,11 +7,12 @@
   "installerUrl": "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing",
   "directSetupUrl": "",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.2) is live! Includes Apache Web Server with Drag & Drop www/ Hosting, PHP 8.4/8.3/8.2, Mailpit Local Email Testing (:8025 / SMTP :1025), SQL Server 2025 (17.x) .bak & .sql Restore/Backup, 1-Click Self-Repair, and the built-in System Version Updater.",
+  "announcement": "Darius DB (Lite Version 0.1.2) — Live GitHub Sync enabled! Includes MS SQL Server default PC User Server Name & dbdarius/admin credentials, Apache Drag & Drop Hosting with Trust Author & Folder Permissions, PHP 8.4/8.3/8.2, Mailpit (:8025 / SMTP :1025), .bak/.sql Restore & Backup, and 1-Click Self-Repair.",
   "changelog": [
-    "Added built-in System Version Updater (check online releases, apply downloaded Setup .exe / .zip updates, or download from Google Drive)",
+    "Set default MS SQL Server Name to Windows PC User Name and default credentials to dbdarius / admin",
+    "Added Trust Author & Folder Permissions dialog and 40-file chunked batch uploader for Apache Drag & Drop Hosting",
+    "Added built-in System Version Updater with live GitHub commit & version.json fetching",
     "Added PHP (8.4.4, 8.3.17 LTS, 8.2.27 LTS, 8.1.31) and Mailpit (:8025 Web Inbox + :1025 SMTP Capture)",
-    "Added Apache Web Server Drag & Drop Website Hosting Dashboard at http://localhost:8080/",
     "Added MS SQL Server 2025 (17.x) .bak & .sql Database Restore and Backup",
     "Added 1-Click Self-Repair & Diagnostics and 3-Step Win32 Uninstall & Maintenance Wizard"
   ]

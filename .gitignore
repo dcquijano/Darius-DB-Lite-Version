@@ -1,0 +1,24 @@
+# Build outputs
+/build/bin/
+/build/windows/icon.ico
+/build/windows/wails.exe.manifest
+/build/windows/info.json
+/dist/
+/frontend/wailsjs/
+*.exe
+*.syso
+
+# Runtime portable data (when running from repo root)
+/bin/
+/data/
+/etc/
+/logs/
+/tmp/
+/settings.json
+/catalog.json
+
+# OS & editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

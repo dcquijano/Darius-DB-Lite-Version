@@ -1,0 +1,19 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "DariusDB",
+  "outputfilename": "DariusDB",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "frontend:dev:serverUrl": "",
+  "author": {
+    "name": "Darius Cumpio"
+  },
+  "info": {
+    "companyName": "Darius Cumpio",
+    "productName": "Darius DB (Lite Version 0.1.0)",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright (c) 2026 Darius Cumpio (MIT License)",
+    "comments": "Lightweight, portable open-source database manager for Windows"
+  }
+}

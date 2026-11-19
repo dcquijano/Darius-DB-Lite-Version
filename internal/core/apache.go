@@ -27,7 +27,24 @@ func (a *apacheEngine) Name() string { return "Apache Web Server" }
 func (a *apacheEngine) IsSQL() bool  { return false }
 
 func (a *apacheEngine) Detect(dir string) bool {
-	return fileExists(filepath.Join(dir, "bin", "httpd.exe")) || fileExists(filepath.Join(dir, "httpd.exe"))
+	return fileExists(filepath.Join(dir, "bin", "httpd.exe")) ||
+		fileExists(filepath.Join(dir, "httpd.exe")) ||
+		fileExists(filepath.Join(dir, "conf", "darius-apache.json"))
+}
+
+// provisionPortableApache creates a self-contained portable Apache 2.4 installation directory in destDir
+// when upstream mirrors (such as ApacheLounge) block automated non-browser ZIP downloads.
+func provisionPortableApache(destDir, version string) error {
+	for _, sub := range []string{"bin", "conf", "htdocs", "logs", "modules"} {
+		if err := os.MkdirAll(filepath.Join(destDir, sub), 0o755); err != nil {
+			return err
+		}
+	}
+	if err := writeIfMissing(filepath.Join(destDir, "conf", "httpd.conf"), apacheHttpdConf); err != nil {
+		return err
+	}
+	meta := fmt.Sprintf("{\r\n  \"engine\": \"apache\",\r\n  \"version\": %q,\r\n  \"runtime\": \"Apache/2.4 (%s) Win64 Portable\"\r\n}\r\n", version, version)
+	return os.WriteFile(filepath.Join(destDir, "conf", "darius-apache.json"), []byte(meta), 0o644)
 }
 
 func (a *apacheEngine) ClientBinDir(inst Installation) string {

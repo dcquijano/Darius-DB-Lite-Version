@@ -369,13 +369,29 @@ func (d *Downloader) Install(engine, version, url string) error {
 	go func() {
 		defer d.end(engine, version)
 		zipPath := filepath.Join(d.p.Tmp, fmt.Sprintf("%s-%s.zip", engine, version))
-		if err := d.download(ctx, engine, version, url, zipPath); err != nil {
-			d.fail(ctx, engine, version, err)
+		dlErr := d.download(ctx, engine, version, url, zipPath)
+		if dlErr != nil {
+			if engine == "apache" && ctx.Err() == nil {
+				d.emit(Progress{Engine: engine, Version: version, Phase: "extracting", Received: 1, Total: 1})
+				finalDir := filepath.Join(d.p.EngineBin("apache"), "apache-"+version)
+				if err := provisionPortableApache(finalDir, version); err == nil {
+					d.finish(engine, version)
+					return
+				}
+			}
+			d.fail(ctx, engine, version, dlErr)
 			return
 		}
 		err := d.extract(ctx, engine, version, zipPath)
 		os.Remove(zipPath)
 		if err != nil {
+			if engine == "apache" && ctx.Err() == nil {
+				finalDir := filepath.Join(d.p.EngineBin("apache"), "apache-"+version)
+				if perr := provisionPortableApache(finalDir, version); perr == nil {
+					d.finish(engine, version)
+					return
+				}
+			}
 			d.fail(ctx, engine, version, err)
 			return
 		}
@@ -434,6 +450,9 @@ func (d *Downloader) download(ctx context.Context, engine, version, url, dest st
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("download failed: %s", resp.Status)
+	}
+	if ct := strings.ToLower(resp.Header.Get("Content-Type")); strings.Contains(ct, "text/html") {
+		return fmt.Errorf("remote host returned an HTML page instead of a .zip archive")
 	}
 	part := dest + ".part"
 	f, err := os.Create(part)

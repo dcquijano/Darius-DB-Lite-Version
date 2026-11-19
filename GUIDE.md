@@ -1,7 +1,7 @@
-# Darius DB (Lite Version 0.1.0) — Step-by-Step Installation & User Guide
+# Darius DB (Lite Version 0.1.1) — Step-by-Step Installation & User Guide
 
-> **Application:** Darius DB (Lite Version 0.1.0)  
-> **Version:** `Lite Version 0.1.0`  
+> **Application:** Darius DB (Lite Version 0.1.1)  
+> **Version:** `Lite Version 0.1.1`  
 > **Created by:** Darius Cumpio  
 > **Created Date:** November 19, 2026  
 > **Year:** 2026  
@@ -14,7 +14,7 @@
 
 1. [System Requirements](#1-system-requirements)
 2. [How to Install Darius DB (Step by Step)](#2-how-to-install-darius-db-step-by-step)
-   - [Option A: Using the Windows Installer (`DariusDB-Setup-0.1.0.exe`)](#option-a-using-the-windows-installer-dariusdb-setup-010exe)
+   - [Option A: Using the Windows Installer (`DariusDB-Setup-0.1.1.exe`)](#option-a-using-the-windows-installer-dariusdb-setup-011exe)
    - [Option B: Using the Built-In Script Installer (`Install-DariusDB.bat`)](#option-b-using-the-built-in-script-installer-install-dariusdbbat)
    - [Option C: 100% Portable (No Installation Required)](#option-c-100-portable-no-installation-required)
 3. [First-Time Setup & Daily Usage Guide](#3-first-time-setup--daily-usage-guide)
@@ -37,10 +37,10 @@
 
 ## 2. How to Install Darius DB (Step by Step)
 
-### Option A: Using the Windows Installer (`DariusDB-Setup-0.1.0.exe`)
+### Option A: Using the Windows Installer (`DariusDB-Setup-0.1.1.exe`)
 
-1. Download **`DariusDB-Setup-0.1.0.exe`** from Releases (or build it yourself in [Section 6](#6-how-to-build-from-source--create-your-own-installer)).
-2. Double-click `DariusDB-Setup-0.1.0.exe`.
+1. Download **`DariusDB-Setup-0.1.1.exe`** from Releases (or build it yourself in [Section 6](#6-how-to-build-from-source--create-your-own-installer)).
+2. Double-click `DariusDB-Setup-0.1.1.exe`.
 3. Accept the MIT License agreement and click **Next**.
 4. Choose your install folder (default: **`C:\DariusDB`** — a short path with no spaces is recommended for database tools).
 5. Choose optional shortcuts:
@@ -54,7 +54,7 @@
 
 No Inno Setup required — works on any Windows 10/11 PC right away:
 
-1. Extract the portable release ZIP (`DariusDB-0.1.0-portable-windows-amd64.zip`) or build from source.
+1. Extract the portable release ZIP (`DariusDB-0.1.1-portable-windows-amd64.zip`) or build from source.
 2. Double-click **`Install-DariusDB.bat`** (located in the ZIP or inside `installer\Install-DariusDB.bat`).
 3. When prompted:
    - Press **Enter** to install to `C:\DariusDB` (or type any custom path).
@@ -203,7 +203,7 @@ If you used the portable folder without running an installer:
    ```powershell
    go install github.com/wailsapp/wails/v2/cmd/wails@latest
    ```
-3. *(Optional — only needed to compile `DariusDB-Setup-0.1.0.exe`)* Install **Inno Setup 6**:
+3. *(Optional — only needed to compile `DariusDB-Setup-0.1.1.exe`)* Install **Inno Setup 6**:
    ```powershell
    winget install JRSoftware.InnoSetup
    ```
@@ -222,8 +222,8 @@ This creates:
 - `build\bin\DariusDB.exe` — main desktop app (~13 MB)
 - `build\bin\DariusDB-Launcher.exe` — native launcher (~2–3 MB)
 - `build\bin\DariusDB-Uninstall.exe` — native uninstaller (~2–3 MB)
-- `dist\DariusDB-0.1.0-portable-windows-amd64.zip` — portable bundle with `Install-DariusDB.bat`
-- `dist\DariusDB-Setup-0.1.0.exe` — standalone Windows setup wizard (automatically built if Inno Setup 6 is installed)
+- `dist\DariusDB-0.1.1-portable-windows-amd64.zip` — portable bundle with `Install-DariusDB.bat`
+- `dist\DariusDB-Setup-0.1.1.exe` — standalone Windows setup wizard (automatically built if Inno Setup 6 is installed)
 
 ### Manual Inno Setup Build
 
@@ -235,7 +235,7 @@ If you already built `build\bin\*.exe` and want to compile just the Inno Setup `
 
 ### Automated GitHub Releases
 
-Pushing a version tag (for example `git tag v0.1.0 && git push origin v0.1.0`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which automatically runs tests, builds all binaries, packages the portable ZIP, compiles `DariusDB-Setup-*.exe` with Inno Setup, and uploads both artifacts!
+Pushing a version tag (for example `git tag v0.1.1 && git push origin v0.1.1`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which automatically runs tests, builds all binaries, packages the portable ZIP, compiles `DariusDB-Setup-*.exe` with Inno Setup, and uploads both artifacts!
 
 ---
 
@@ -252,8 +252,8 @@ Pushing a version tag (for example `git tag v0.1.0 && git push origin v0.1.0`) t
 
 | Field | Details |
 |---|---|
-| **Project Name** | Darius DB (Lite Version 0.1.0) |
-| **Version** | `Lite Version 0.1.0` |
+| **Project Name** | Darius DB (Lite Version 0.1.1) |
+| **Version** | `Lite Version 0.1.1` |
 | **Creator / Author** | **Darius Cumpio** |
 | **Built By** | Darius Cumpio |
 | **Created Date** | November 19, 2026 |

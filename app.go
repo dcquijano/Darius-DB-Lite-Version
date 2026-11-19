@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	AppName    = "Darius DB (Lite Version 0.1.0)"
-	AppVersion = "0.1.0"
+	AppName    = "Darius DB (Lite Version 0.1.1)"
+	AppVersion = "0.1.1"
 	AppAuthor  = "Darius Cumpio"
 	AppBuiltBy = "Darius Cumpio"
 	AppCreated = "November 19, 2026"
@@ -141,15 +141,15 @@ func (a *App) trayTooltipFrom(st []core.ServiceStatus) string {
 		}
 	}
 	if len(running) == 0 {
-		return "Darius DB (Lite Version 0.1.0) — All services stopped"
+		return "Darius DB (Lite Version 0.1.1) — All services stopped"
 	}
-	return fmt.Sprintf("Darius DB (Lite Version 0.1.0) — Running: %s", strings.Join(running, ", "))
+	return fmt.Sprintf("Darius DB (Lite Version 0.1.1) — Running: %s", strings.Join(running, ", "))
 }
 
 func (a *App) buildTrayMenu() []tray.MenuItem {
 	st := a.mgr.Status()
 	items := []tray.MenuItem{
-		{Label: "Open Darius DB (Lite Version 0.1.0)", Default: true, Action: a.ShowWindow},
+		{Label: "Open Darius DB (Lite Version 0.1.1)", Default: true, Action: a.ShowWindow},
 		{Separator: true},
 		{Label: "Start All", Action: func() { _ = a.mgr.StartAll() }},
 		{Label: "Stop All", Action: func() { _ = a.mgr.StopAll() }},
@@ -190,7 +190,7 @@ func (a *App) buildTrayMenu() []tray.MenuItem {
 		}},
 		tray.MenuItem{Label: "Open Data Folder", Action: func() { _ = a.OpenFolder("data") }},
 		tray.MenuItem{Separator: true},
-		tray.MenuItem{Label: "Quit Darius DB (Lite Version 0.1.0)", Action: a.QuitApp},
+		tray.MenuItem{Label: "Quit Darius DB (Lite Version 0.1.1)", Action: a.QuitApp},
 	)
 	return items
 }

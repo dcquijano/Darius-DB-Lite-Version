@@ -40,7 +40,7 @@ func main() {
 	app := NewApp(paths, st)
 
 	err := wails.Run(&options.App{
-		Title:            "Darius DB (Lite Version 0.1.0)",
+		Title:            "Darius DB (Lite Version 0.1.1)",
 		Width:            960,
 		Height:           660,
 		MinWidth:         760,

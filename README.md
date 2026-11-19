@@ -1,4 +1,4 @@
-# Darius DB (Lite Version 0.1.0)
+# Darius DB (Lite Version 0.1.1)
 
 A fast, lightweight, portable open-source database environment manager for Windows — built to make local database development simple, clean, and zero-bloat.
 
@@ -11,7 +11,7 @@ Manage **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** 
 
 ## Features
 
-- **100% Portable or Standard Install** — Use it right out of any folder (`bin/`, `data/`, `etc/`, `logs/`, `settings.json`), install with `Install-DariusDB.bat`, or distribute a single `DariusDB-Setup-0.1.0.exe` via Inno Setup.
+- **100% Portable or Standard Install** — Use it right out of any folder (`bin/`, `data/`, `etc/`, `logs/`, `settings.json`), install with `Install-DariusDB.bat`, or distribute a single `DariusDB-Setup-0.1.1.exe` via Inno Setup.
 - **One-Click Start/Stop & Native System Tray** — Start All / Stop All, per-engine controls, live PID & port-conflict detection, single-instance wake, close-to-tray, and right-click tray menu.
 - **Portable Engine Downloader & Version Switcher** — Download official portable builds (MariaDB, MySQL, PostgreSQL, Redis) or import any local `.zip`, keep multiple versions side-by-side, and switch active versions in one click without touching `data/`.
 - **Built-in Lightweight Database Browser**
@@ -29,7 +29,7 @@ Manage **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** 
 
 ### Option 1: Install on Windows (Recommended)
 1. Download/extract the release folder (or build it below).
-2. Double-click **`installer\Install-DariusDB.bat`** (or run **`DariusDB-Setup-0.1.0.exe`**).
+2. Double-click **`installer\Install-DariusDB.bat`** (or run **`DariusDB-Setup-0.1.1.exe`**).
 3. Launch **Darius DB** from the Desktop or Start Menu.
 4. Open **Versions** to download MariaDB, MySQL, PostgreSQL, or Redis, then click **Start All**.
 
@@ -73,7 +73,7 @@ C:\DariusDB\
 - Windows 10/11 (x64) with Microsoft Edge WebView2 (pre-installed on Windows 10/11)
 - [Go 1.24+](https://go.dev/dl/)
 - [Wails CLI v2](https://wails.io/): `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
-- *(Optional, for `DariusDB-Setup-0.1.0.exe`)* [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`
+- *(Optional, for `DariusDB-Setup-0.1.1.exe`)* [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`
 
 No C compiler (CGO) and no Node.js build step required!
 
@@ -96,11 +96,11 @@ wails build -clean -ldflags "-s -w"
 
 | | |
 |---|---|
-| **Application** | **Darius DB (Lite Version 0.1.0)** |
+| **Application** | **Darius DB (Lite Version 0.1.1)** |
 | **Creator / Author** | **Darius Cumpio** |
 | **Built By** | Darius Cumpio |
 | **Created Date** | November 19, 2026 |
 | **Year** | 2026 |
-| **Version** | `Lite Version 0.1.0` |
+| **Version** | `Lite Version 0.1.1` |
 | **Repository** | [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version) |
 | **License** | [MIT License](LICENSE) — Copyright © 2026 Darius Cumpio |

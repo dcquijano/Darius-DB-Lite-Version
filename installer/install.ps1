@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Darius DB Installer for Windows (no admin required, portable-friendly).
-  Created by Darius Cumpio - November 19, 2026 - v0.1.0 (MIT License)
+  Created by Darius Cumpio - November 19, 2026 - v0.1.1 (MIT License)
 #>
 param(
     [string]$InstallDir = "C:\DariusDB",
@@ -14,8 +14,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $AppName    = "Darius DB"
-$FullTitle  = "Darius DB (Lite Version 0.1.0)"
-$AppVersion = "0.1.0"
+$FullTitle  = "Darius DB (Lite Version 0.1.1)"
+$AppVersion = "0.1.1"
 $Author     = "Darius Cumpio"
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot   = Split-Path -Parent $ScriptDir

@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Builds Darius DB (GUI + Launcher + Uninstaller), portable ZIP, and optional Inno Setup installer.
-  Created by Darius Cumpio - November 19, 2026 - v0.1.0
+  Created by Darius Cumpio - November 19, 2026 - v0.1.1
 #>
 param(
     [switch]$SkipTests
@@ -9,7 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version = "0.1.0"
+$Version = "0.1.1"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Push-Location $RepoRoot
 

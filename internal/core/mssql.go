@@ -239,15 +239,63 @@ func mssqlServerTarget(s EngineSettings) string {
 	if s.Port > 0 && portInUse(s.Port) {
 		return fmt.Sprintf("127.0.0.1,%d", s.Port)
 	}
-	if findSqlLocalDB() != "" {
+	if localDB := findSqlLocalDB(); localDB != "" {
+		if pipe := resolveLocalDBPipe(localDB); pipe != "" {
+			return pipe
+		}
 		return `(localdb)\` + mssqlInstance
 	}
 	return fmt.Sprintf("127.0.0.1,%d", s.Port)
 }
 
+func resolveLocalDBPipe(localDB string) string {
+	readPipe := func() (pipe string, running bool, exists bool) {
+		cmd := exec.Command(localDB, "info", mssqlInstance)
+		hideWindow(cmd)
+		out, err := cmd.CombinedOutput()
+		if err != nil && len(out) == 0 {
+			return "", false, false
+		}
+		text := string(out)
+		low := strings.ToLower(text)
+		if strings.Contains(low, "not exist") || strings.Contains(low, "not created") || strings.Contains(low, "doesn't exist") {
+			return "", false, false
+		}
+		exists = true
+		running = strings.Contains(low, "state:") && strings.Contains(low, "running")
+		for _, line := range strings.Split(text, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(strings.ToLower(line), "instance pipe name:") {
+				p := strings.TrimSpace(line[len("instance pipe name:"):])
+				if p != "" {
+					pipe = p
+				}
+			}
+		}
+		return pipe, running, exists
+	}
+
+	pipe, running, exists := readPipe()
+	if pipe != "" && running {
+		return pipe
+	}
+	if !exists {
+		c := exec.Command(localDB, "create", mssqlInstance)
+		hideWindow(c)
+		_ = c.Run()
+	}
+	st := exec.Command(localDB, "start", mssqlInstance)
+	hideWindow(st)
+	_ = st.Run()
+
+	pipe, _, _ = readPipe()
+	return pipe
+}
+
 func mssqlAuthArgs(target string, s EngineSettings) []string {
+	low := strings.ToLower(target)
 	// LocalDB instances authenticate the current Windows PC user natively via -E
-	if strings.HasPrefix(strings.ToLower(target), "(localdb)") {
+	if strings.HasPrefix(low, "(localdb)") || strings.Contains(low, "localdb#") {
 		return []string{"-E"}
 	}
 	if s.User != "" && s.Password != "" {

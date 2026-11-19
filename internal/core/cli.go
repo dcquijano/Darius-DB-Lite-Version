@@ -551,10 +551,16 @@ func buildConnectionURI(engine string, es EngineSettings, dbName string) (string
 		if dbName == "" {
 			dbName = "master"
 		}
-		if es.User != "" && es.Password != "" {
-			return fmt.Sprintf("Server=127.0.0.1,%d;Database=%s;User Id=%s;Password=%s;TrustServerCertificate=True;", es.Port, dbName, es.User, es.Password), nil
+		srv := MSSQLServerName()
+		u := es.User
+		if u == "" {
+			u = "dbdarius"
 		}
-		return fmt.Sprintf("Server=(localdb)\\MSSQLLocalDB;Database=%s;Trusted_Connection=True;", dbName), nil
+		pw := es.Password
+		if pw == "" {
+			pw = "admin"
+		}
+		return fmt.Sprintf("Server=%s;Database=%s;User Id=%s;Password=%s;TrustServerCertificate=True;", srv, dbName, u, pw), nil
 	case "redis":
 		if es.Password != "" {
 			return fmt.Sprintf("redis://:%s@127.0.0.1:%d/0", url.QueryEscape(es.Password), es.Port), nil
@@ -584,15 +590,22 @@ func buildIDECredentialsSnippet(engine string, es EngineSettings, dbName string)
 		fmt.Fprintf(&b, "[VS Code / .env]\nAPP_URL=%q\nPORT=%d\n", strings.TrimRight(uri, "/"), es.Port)
 
 	case "mssql":
+		srv := MSSQLServerName()
+		u := es.User
+		if u == "" {
+			u = "dbdarius"
+		}
+		pw := es.Password
+		if pw == "" {
+			pw = "admin"
+		}
 		dotnet := uri
+		fmt.Fprintf(&b, "[MS SQL Server Connection Info]\n")
+		fmt.Fprintf(&b, "Server Name: %s\nUsername:    %s\nPassword:    %s\nPort:        %d\n\n", srv, u, pw, es.Port)
 		fmt.Fprintf(&b, "[Visual Studio / .NET appsettings.json]\n")
 		fmt.Fprintf(&b, "{\n  \"ConnectionStrings\": {\n    \"DefaultConnection\": %q\n  }\n}\n\n", dotnet)
 		fmt.Fprintf(&b, "[VS Code / .env (Prisma / Node / Python)]\n")
-		if es.User != "" && es.Password != "" {
-			fmt.Fprintf(&b, "DATABASE_URL=\"sqlserver://127.0.0.1:%d;database=%s;user=%s;password=%s;trustServerCertificate=true\"\n\n", es.Port, dbName, es.User, es.Password)
-		} else {
-			fmt.Fprintf(&b, "DATABASE_URL=\"sqlserver://localhost:%d;database=%s;integratedSecurity=true;trustServerCertificate=true\"\n\n", es.Port, dbName)
-		}
+		fmt.Fprintf(&b, "DATABASE_URL=\"sqlserver://%s:%d;database=%s;user=%s;password=%s;trustServerCertificate=true\"\n\n", srv, es.Port, dbName, u, pw)
 		fmt.Fprintf(&b, "[Terminal / Package Manager Console]\n")
 		fmt.Fprintf(&b, "darius sql mssql \"SELECT @@VERSION\" -d %s\n", dbName)
 

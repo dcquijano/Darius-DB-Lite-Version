@@ -36,6 +36,8 @@ type ServiceStatus struct {
 	DataDir       string         `json:"dataDir"`
 	ConfigFile    string         `json:"configFile"`
 	PortBusy      bool           `json:"portBusy"` // port used by another program
+	ServerName    string         `json:"serverName,omitempty"`
+	User          string         `json:"user,omitempty"`
 }
 
 type service struct {
@@ -161,6 +163,13 @@ func (m *Manager) status(id string) ServiceStatus {
 	st := ServiceStatus{
 		Engine: id, Name: eng.Name(), IsSQL: eng.IsSQL(), State: s.state, Message: s.message,
 		Pid: s.pid, Port: es.Port, Enabled: es.Enabled, Active: es.Version, Installations: insts,
+		User: es.User,
+	}
+	if id == "mssql" {
+		st.ServerName = MSSQLServerName()
+		if st.User == "" {
+			st.User = "dbdarius"
+		}
 	}
 	if inst, ok := FindInstallation(m.p, id, es.Version); ok {
 		st.DataDir = eng.DataDir(m.p, inst)

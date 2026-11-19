@@ -196,18 +196,15 @@ func mssqlImportSQL(s EngineSettings, sqlPath, targetDB string) error {
 		targetDB = "master"
 	}
 
+	target := mssqlServerTarget(s)
 	args := []string{
-		"-S", mssqlServerTarget(s),
+		"-S", target,
 		"-d", targetDB,
 		"-I",
 		"-b",
 		"-i", sqlPath,
 	}
-	if s.User != "" && s.Password != "" {
-		args = append(args, "-U", s.User, "-P", s.Password)
-	} else {
-		args = append(args, "-E")
-	}
+	args = append(args, mssqlAuthArgs(target, s)...)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()

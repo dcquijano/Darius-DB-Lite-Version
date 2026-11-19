@@ -488,10 +488,10 @@ func (a *App) ConnectionString(engine, dbName string) string {
 		if dbName == "" {
 			dbName = "master"
 		}
-		if es.User != "" && es.Password != "" {
-			return fmt.Sprintf("Server=127.0.0.1,%d;Database=%s;User Id=%s;Password=%s;TrustServerCertificate=True;", es.Port, dbName, es.User, es.Password)
-		}
-		return fmt.Sprintf("Server=(localdb)\\MSSQLLocalDB;Database=%s;Trusted_Connection=True;", dbName)
+		srv := core.MSSQLServerName()
+		u := fallback(es.User, "dbdarius")
+		pw := fallback(es.Password, "admin")
+		return fmt.Sprintf("Server=%s;Database=%s;User Id=%s;Password=%s;TrustServerCertificate=True;", srv, dbName, u, pw)
 	case "redis":
 		if es.Password != "" {
 			return fmt.Sprintf("redis://:%s@127.0.0.1:%d/0", url.QueryEscape(es.Password), es.Port)

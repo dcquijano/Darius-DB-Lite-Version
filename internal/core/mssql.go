@@ -51,13 +51,28 @@ func (m *mssqlEngine) ConfigFile(p *Paths, _ Installation) string {
 }
 
 const mssqlConf = `# Darius DB (Lite Version 0.1.2) - MS SQL Server configuration
-# Supports Microsoft SQL Server LocalDB ((localdb)\MSSQLLocalDB) and TCP (127.0.0.1,1433).
+# Default Server Name uses the PC User name; default credentials: dbdarius / admin
 instance = MSSQLLocalDB
 server = (localdb)\MSSQLLocalDB
 tcp_port = 1433
-auth = windows
+default_user = dbdarius
+default_password = admin
 query_timeout = 30
 `
+
+// MSSQLServerName returns the Windows PC User name (or computer hostname) used as the MS SQL Server Name.
+func MSSQLServerName() string {
+	if u := strings.TrimSpace(os.Getenv("USERNAME")); u != "" {
+		return u
+	}
+	if c := strings.TrimSpace(os.Getenv("COMPUTERNAME")); c != "" {
+		return c
+	}
+	if h, err := os.Hostname(); err == nil && strings.TrimSpace(h) != "" {
+		return strings.TrimSpace(h)
+	}
+	return "localhost"
+}
 
 func (m *mssqlEngine) Prepare(ctx context.Context, p *Paths, inst Installation, s EngineSettings, logf func(string)) error {
 	if err := writeIfMissing(m.ConfigFile(p, inst), mssqlConf); err != nil {
@@ -230,6 +245,17 @@ func mssqlServerTarget(s EngineSettings) string {
 	return fmt.Sprintf("127.0.0.1,%d", s.Port)
 }
 
+func mssqlAuthArgs(target string, s EngineSettings) []string {
+	// LocalDB instances authenticate the current Windows PC user natively via -E
+	if strings.HasPrefix(strings.ToLower(target), "(localdb)") {
+		return []string{"-E"}
+	}
+	if s.User != "" && s.Password != "" {
+		return []string{"-U", s.User, "-P", s.Password}
+	}
+	return []string{"-E"}
+}
+
 var affectedRe = regexp.MustCompile(`^\((\d+) rows? affected\)$`)
 
 func mssqlRunQuery(s EngineSettings, dbName, q string) (*QueryResult, error) {
@@ -255,8 +281,9 @@ func mssqlRunQuery(s EngineSettings, dbName, q string) (*QueryResult, error) {
 	tmpFile.Close()
 
 	const sep = "\t"
-	args := []string{
-		"-S", mssqlServerTarget(s),
+	target := mssqlServerTarget(s)
+	baseArgs := []string{
+		"-S", target,
 		"-d", dbName,
 		"-I",
 		"-W",
@@ -264,11 +291,8 @@ func mssqlRunQuery(s EngineSettings, dbName, q string) (*QueryResult, error) {
 		"-b",
 		"-i", tmpPath,
 	}
-	if s.User != "" && s.Password != "" {
-		args = append(args, "-U", s.User, "-P", s.Password)
-	} else {
-		args = append(args, "-E")
-	}
+	authArgs := mssqlAuthArgs(target, s)
+	args := append(append([]string{}, baseArgs...), authArgs...)
 
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -276,6 +300,13 @@ func mssqlRunQuery(s EngineSettings, dbName, q string) (*QueryResult, error) {
 	cmd := exec.CommandContext(ctx, sqlcmd, args...)
 	hideWindow(cmd)
 	out, err := cmd.CombinedOutput()
+	// Automatic fallback to Windows Auth (-E) if SQL Login fails on local instance
+	if err != nil && len(authArgs) > 1 && strings.Contains(strings.ToLower(string(out)), "login failed") {
+		retryArgs := append(append([]string{}, baseArgs...), "-E")
+		retryCmd := exec.CommandContext(ctx, sqlcmd, retryArgs...)
+		hideWindow(retryCmd)
+		out, err = retryCmd.CombinedOutput()
+	}
 	dur := float64(time.Since(start).Microseconds()) / 1000.0
 	text := strings.ReplaceAll(string(out), "\r\n", "\n")
 

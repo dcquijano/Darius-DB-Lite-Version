@@ -50,7 +50,7 @@ func (m *mssqlEngine) ConfigFile(p *Paths, _ Installation) string {
 	return filepath.Join(p.EngineEtc("mssql"), "mssql.conf")
 }
 
-const mssqlConf = `# Darius DB (Lite Version 0.1.2) - MS SQL Server configuration
+const mssqlConf = `# Darius DB (Lite Version 0.1.3) - MS SQL Server configuration
 # Default Server Name uses the PC User name; default credentials: dbdarius / admin
 instance = MSSQLLocalDB
 server = (localdb)\MSSQLLocalDB

@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	CLIAppTitle        = "Darius DB (Lite Version 0.1.2)"
-	CLIAppVersion      = "0.1.2"
+	CLIAppTitle        = "Darius DB (Lite Version 0.1.3)"
+	CLIAppVersion      = "0.1.3"
 	CLIAppAuthor       = "Darius Cumpio"
 	CLIAppCreated      = "November 19, 2026"
 	CLIAppRepo         = "https://github.com/dcquijano/Darius-DB-Lite-Version"

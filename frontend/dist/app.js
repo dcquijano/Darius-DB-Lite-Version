@@ -1357,14 +1357,50 @@
         $("announceUpdateInfo").textContent = `Latest GitHub Update [${up.latestCommitSha}]: ${up.latestCommitMsg} (${up.latestCommitDate})`;
       }
     };
-    const refreshSystemUpdateModal = async () => {
+    const setFetchProgress = (mode, pct, title, subHtml) => {
+      const box = $("sysUpFetchBox");
+      if (!box) return;
+      box.hidden = false;
+      box.className = "sysup-fetch-box" + (mode === "success" ? " success" : mode === "error" ? " error" : "");
+      const sp = $("sysUpFetchSpinner");
+      if (sp) sp.hidden = mode !== "loading";
+      if ($("sysUpFetchTitle")) $("sysUpFetchTitle").textContent = title;
+      if ($("sysUpFetchPct")) $("sysUpFetchPct").textContent = `${pct}%`;
+      if ($("sysUpFetchBar")) $("sysUpFetchBar").style.width = `${pct}%`;
+      if ($("sysUpFetchSub")) $("sysUpFetchSub").innerHTML = subHtml;
+    };
+
+    const refreshSystemUpdateModal = async (showLoadingBanner = false) => {
       const btn = $("btnSysUpCheckNow");
       btn.disabled = true;
-      btn.textContent = "Checking...";
+      btn.textContent = "⏳ Checking...";
+      if (showLoadingBanner) {
+        setFetchProgress(
+          "loading",
+          35,
+          "⏳ Loading & checking online GitHub release...",
+          "Querying <code>dcquijano/Darius-DB-Lite-Version</code> version.json &amp; commits..."
+        );
+      }
       try {
         const up = await api().CheckSystemUpdate();
         applyUpdateInfoToUI(up);
+        if (showLoadingBanner) {
+          setFetchProgress(
+            "success",
+            100,
+            "✅ Successfully Checked Online GitHub Release!",
+            `Latest Release: <strong>Lite Version ${esc(up.latestVersion)}</strong>` +
+              (up.latestCommitSha
+                ? ` · Commit <code>${esc(up.latestCommitSha)}</code>: "${esc(up.latestCommitMsg)}"`
+                : "")
+          );
+          toast(`✅ Successfully checked online release (Lite Version ${up.latestVersion})`, "ok");
+        }
       } catch (e) {
+        if (showLoadingBanner) {
+          setFetchProgress("error", 100, "⚠️ Failed to check online updates", esc(errMsg(e)));
+        }
         toast(errMsg(e), "err");
       } finally {
         btn.disabled = false;
@@ -1375,39 +1411,72 @@
       $("btnSysUpSyncGithub").onclick = async () => {
         const btn = $("btnSysUpSyncGithub");
         btn.disabled = true;
-        btn.textContent = "Fetching from GitHub...";
+        btn.textContent = "⏳ Loading & Fetching...";
+        setFetchProgress(
+          "loading",
+          25,
+          "⏳ Loading & fetching latest updates from GitHub...",
+          "Step 1/3: Connecting to <code>github.com/dcquijano/Darius-DB-Lite-Version</code>..."
+        );
+        const stepTimer = setTimeout(() => {
+          setFetchProgress(
+            "loading",
+            68,
+            "⏳ Fetching version.json, recent commits & engine catalog...",
+            "Step 2/3: Downloading latest commit history &amp; portable catalog.json..."
+          );
+        }, 280);
         try {
           const up = await api().SyncFromGitHub();
+          clearTimeout(stepTimer);
           applyUpdateInfoToUI(up);
           state.catalog = await api().Catalog();
           if (state.tab === "versions") renderVersions();
+          setFetchProgress(
+            "success",
+            100,
+            "✅ Successfully Fetched Latest Updates from GitHub!",
+            `Synced <strong>Darius DB (Lite Version ${esc(up.latestVersion)})</strong>` +
+              (up.latestCommitSha
+                ? ` · Latest Commit <code>${esc(up.latestCommitSha)}</code>: <strong>${esc(
+                    up.latestCommitMsg
+                  )}</strong> (${esc(up.latestCommitDate)})`
+                : " · Engine catalog &amp; version.json synced!")
+          );
+          btn.textContent = "✅ Successfully Fetched!";
           toast(
             up.latestCommitSha
-              ? `Fetched latest GitHub commit [${up.latestCommitSha}]: ${up.latestCommitMsg}`
-              : "Fetched latest version.json and catalog from GitHub!",
+              ? `✅ Successfully fetched latest GitHub update [${up.latestCommitSha}]: ${up.latestCommitMsg}`
+              : "✅ Successfully fetched latest version.json and catalog from GitHub!",
             "ok"
           );
           if (up.hasUpdate && up.directSetupUrl) {
             const msg = await api().ApplySystemUpdateFromURL(up.directSetupUrl);
             if (msg) toast(msg, "ok");
           }
+          setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = "🔄 Fetch Latest from GitHub";
+          }, 2200);
         } catch (e) {
+          clearTimeout(stepTimer);
+          setFetchProgress("error", 100, "⚠️ Failed to fetch from GitHub", esc(errMsg(e)));
           toast(errMsg(e), "err");
-        } finally {
           btn.disabled = false;
           btn.textContent = "🔄 Fetch Latest from GitHub";
         }
       };
     }
     const openSysUpdater = () => {
+      if ($("sysUpFetchBox")) $("sysUpFetchBox").hidden = true;
       $("modalSysUpdater").hidden = false;
-      refreshSystemUpdateModal();
+      refreshSystemUpdateModal(false);
     };
     $("btnOpenSysUpdater").onclick = openSysUpdater;
     if ($("btnAnnounceSysUpdate")) $("btnAnnounceSysUpdate").onclick = openSysUpdater;
     $("btnCloseSysUpdater").onclick = closeSysUpdater;
     $("btnCancelSysUpdater").onclick = closeSysUpdater;
-    $("btnSysUpCheckNow").onclick = refreshSystemUpdateModal;
+    $("btnSysUpCheckNow").onclick = () => refreshSystemUpdateModal(true);
     $("btnSysUpOpenDrive").onclick = () => {
       const url =
         state.info?.installerUrl ||

@@ -238,7 +238,7 @@ func mssqlExportSQL(s EngineSettings, dbName, outPath string) error {
 		return err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.2) MS SQL Server SQL Dump\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) MS SQL Server SQL Dump\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
 		dbName, time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(&b, "IF DB_ID(N'%s') IS NULL CREATE DATABASE %s;\r\nGO\r\nUSE %s;\r\nGO\r\n\r\n",
 		strings.ReplaceAll(dbName, "'", "''"), mssqlBracket(dbName), mssqlBracket(dbName))
@@ -427,7 +427,7 @@ func mysqlBackupSQL(p *Paths, engine string, s EngineSettings, dbName, outPath s
 		return err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.2) SQL Dump\n-- Engine: %s  Database: %s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", engine, dbName)
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) SQL Dump\n-- Engine: %s  Database: %s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", engine, dbName)
 	for _, t := range tables {
 		var tbl, createSQL string
 		if err := db.QueryRow("SHOW CREATE TABLE "+quoteIdent(engine, t.Name)).Scan(&tbl, &createSQL); err == nil {

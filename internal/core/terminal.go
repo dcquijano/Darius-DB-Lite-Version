@@ -105,7 +105,7 @@ func (t *Terminal) stateLocked() TerminalState {
 // Banner returns the welcome message shown when the built-in terminal opens.
 func (t *Terminal) Banner() string {
 	var b strings.Builder
-	b.WriteString("Darius DB (Lite Version 0.1.2) Built-in Terminal (Created by Darius Cumpio)\n")
+	b.WriteString("Darius DB (Lite Version 0.1.3) Built-in Terminal (Created by Darius Cumpio)\n")
 	b.WriteString("Type 'help' for built-in commands, 'status' for services, or switch modes above.\n")
 	b.WriteString("--------------------------------------------------------------------------------\n")
 	statuses := t.mgr.Status()

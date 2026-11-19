@@ -1,18 +1,18 @@
-# Darius DB (Lite Version 0.1.2)
+# Darius DB (Lite Version 0.1.3)
 
 A fast, lightweight, portable open-source database environment manager for Windows — built to make local database development simple, clean, and zero-bloat.
 
 Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** from a single ~13 MB native Windows app with a system tray icon, local `www/` website hosting, built-in multi-mode terminal, native launcher, clean uninstaller, and zero runtime bloat.
 
 - **Repository:** [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version)
-- 📥 **Official Installer & Portable Download (Google Drive):** [**Download DariusDB-Setup-0.1.2.exe**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing)
+- 📥 **Official Installer & Portable Download (Google Drive):** [**Download DariusDB-Setup-0.1.3.exe**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing)
 - 📖 **Full Step-by-Step Guide:** [**GUIDE.md**](GUIDE.md)
 
 ---
 
 ## Features
 
-- **100% Portable or Standard `.exe` Install** — Run directly out of any folder (`www/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`, `settings.json`) or install using the standalone Windows Setup Wizard **`DariusDB-Setup-0.1.2.exe`** (with automatic double-installation protection and built-in **Repair Mode**).
+- **100% Portable or Standard `.exe` Install** — Run directly out of any folder (`www/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`, `settings.json`) or install using the standalone Windows Setup Wizard **`DariusDB-Setup-0.1.3.exe`** (with automatic double-installation protection and built-in **Repair Mode**).
 - **Apache Web Server with Drag & Drop Website Hosting (`www/`)** — Host local websites at `http://localhost:8080/` and drag & drop project folders, `.zip` bundles, or `.html` files directly onto the browser dashboard (or click **`Deploy .zip`** on the Apache card).
 - **One-Click Start/Stop & Native System Tray** — Start All / Stop All, per-engine controls, live PID & port-conflict detection, single-instance wake, close-to-tray, and right-click tray menu.
 - **Database Restore & Backup (`.bak` & `.sql`)** — Restore MS SQL Server `.bak` files (with automatic `RESTORE FILELISTONLY` logical-file relocation into `data/mssql/`), import `.sql` scripts into MariaDB, MySQL, PostgreSQL, or MS SQL Server, and export `.bak` / `.sql` backups in one click or via CLI (`darius restore` / `darius backup`).
@@ -33,13 +33,13 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 ## Quick Start
 
 ### Option 1: Install on Windows (Recommended)
-1. Download **`DariusDB-Setup-0.1.2.exe`** from the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.2.exe` / `dist\DariusDB-Setup-0.1.2.exe`).
-2. Double-click **`DariusDB-Setup-0.1.2.exe`**, choose **`C:\DariusDB`** (default), and complete the 3-step Setup Wizard.
-3. Launch **Darius DB (Lite Version 0.1.2)** from the Desktop or Start Menu.
+1. Download **`DariusDB-Setup-0.1.3.exe`** from the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.3.exe` / `dist\DariusDB-Setup-0.1.3.exe`).
+2. Double-click **`DariusDB-Setup-0.1.3.exe`**, choose **`C:\DariusDB`** (default), and complete the 3-step Setup Wizard.
+3. Launch **Darius DB (Lite Version 0.1.3)** from the Desktop or Start Menu.
 4. Open **Versions** to download MariaDB, MySQL, PostgreSQL, or Redis (or start **Apache Web Server** and **MS SQL Server** immediately), then click **Start All**.
 
 ### Option 2: Portable (No Install)
-1. Download `DariusDB-0.1.2-portable-windows-amd64.zip` from [**Google Drive**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or `dist\DariusDB-0.1.2-portable-windows-amd64.zip`) and extract into any folder, e.g. `C:\DariusDB\`.
+1. Download `DariusDB-0.1.3-portable-windows-amd64.zip` from [**Google Drive**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or `dist\DariusDB-0.1.3-portable-windows-amd64.zip`) and extract into any folder, e.g. `C:\DariusDB\`.
 2. Double-click `DariusDB-Launcher.exe` (or `DariusDB.exe`).
 
 ---
@@ -109,7 +109,7 @@ C:\DariusDB\
 - Windows 10/11 (x64) with Microsoft Edge WebView2 (pre-installed on Windows 10/11)
 - [Go 1.24+](https://go.dev/dl/)
 - [Wails CLI v2](https://wails.io/): `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
-- *(Optional, for `DariusDB-Setup-0.1.2.exe`)* [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`
+- *(Optional, for `DariusDB-Setup-0.1.3.exe`)* [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`
 
 No C compiler (CGO) and no Node.js build step required!
 
@@ -132,12 +132,12 @@ wails build -clean -ldflags "-s -w"
 
 | | |
 |---|---|
-| **Application** | **Darius DB (Lite Version 0.1.2)** |
+| **Application** | **Darius DB (Lite Version 0.1.3)** |
 | **Creator / Author** | **Darius Cumpio** |
 | **Built By** | Darius Cumpio |
 | **Created Date** | November 19, 2026 |
 | **Year** | 2026 |
-| **Version** | `Lite Version 0.1.2` |
+| **Version** | `Lite Version 0.1.3` |
 | **Repository** | [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version) |
 | **Installer Download** | [https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) |
 | **License** | [MIT License](LICENSE) — Copyright © 2026 Darius Cumpio |

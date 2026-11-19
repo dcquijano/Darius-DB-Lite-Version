@@ -57,7 +57,7 @@ func getJSONNoCache(client *http.Client, rawURL string, dest interface{}) error 
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.2")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.3")
 	req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	req.Header.Set("Pragma", "no-cache")
 	resp, err := client.Do(req)
@@ -91,14 +91,14 @@ func CheckSystemUpdate(currentVersion string) (*SystemUpdateInfo, error) {
 		Author:         CLIAppAuthor,
 		InstallerURL:   defaultDriveFolderURL,
 		RepoURL:        CLIAppRepo,
-		Announcement:   "Darius DB (Lite Version 0.1.2) — Live GitHub Sync enabled! Includes MS SQL Server default PC User Server Name & dbdarius/admin credentials, Apache Drag & Drop Hosting with Trust Author & Folder Permissions, PHP 8.4/8.3/8.2, Mailpit (:8025 / SMTP :1025), .bak/.sql Restore & Backup, and 1-Click Self-Repair.",
+		Announcement:   "Darius DB (Lite Version 0.1.3) — Unified Full-Stack Apache 2.4 + PHP 8.x + MySQL / MariaDB (:3306) Release! Includes 5th-Picture Toggle-Switch Dashboard, Zend OPcache + PDO utf8mb4 + Security Headers, Unified MySQL/MariaDB Tabs, Live GitHub Updater Progress Bar, and Apache 2.4.66 Portable Provisioning.",
 		Changelog: []string{
-			"Set default MS SQL Server Name to Windows PC User Name and default credentials to dbdarius / admin",
-			"Added Trust Author & Folder Permissions dialog and 40-file chunked batch uploader for Apache Drag & Drop Hosting",
-			"Added built-in System Version Updater with live GitHub commit & version.json fetching",
-			"Added PHP (8.4.4, 8.3.17 LTS, 8.2.27 LTS, 8.1.31) and Mailpit (:8025 Web Inbox + :1025 SMTP Capture)",
-			"Added MS SQL Server 2025 (17.x) .bak & .sql Database Restore and Backup",
-			"Added 1-Click Self-Repair & Diagnostics and 3-Step Win32 Uninstall & Maintenance Wizard",
+			"Unified Apache 2.4 + PHP 8.x and MySQL / MariaDB (:3306) across Dashboard, Database, Versions, Config & Logs, and Settings",
+			"Redesigned Services Dashboard with 5th-picture Toggle-Switch rows and interactive Full-Stack Architecture guide",
+			"Hardened PHP (Zend OPcache, PDO utf8mb4, secure sessions), Apache security headers, and MariaDB/MySQL InnoDB 256M configs",
+			"Added live Loading & 'Successfully Fetched!' progress banner to Darius DB System Version Updater",
+			"Fixed Apache 2.4.66 portable provisioning when upstream mirrors return HTML redirects",
+			"Added MS SQL Server Windows PC User Server Name (Dendo) and clean Windows Auth connection string",
 		},
 		RecentCommits: []GitHubCommitInfo{},
 		CheckedAt:     time.Now().Format("2006-01-02 15:04:05"),
@@ -260,7 +260,7 @@ func ApplySystemUpdateFromURL(p *Paths, downloadURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.2")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.3")
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("download failed: %w", err)

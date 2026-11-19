@@ -4,7 +4,8 @@
 
   const SYSTEM_DBS = new Set([
     "mysql", "information_schema", "performance_schema", "sys",
-    "postgres", "template0", "template1"
+    "postgres", "template0", "template1",
+    "master", "tempdb", "model", "msdb"
   ]);
 
   const state = {
@@ -737,6 +738,7 @@
     mariadb: ["SHOW DATABASES;", "SHOW TABLES;", "SELECT VERSION();", "STATUS;", "exit"],
     mysql: ["SHOW DATABASES;", "SHOW TABLES;", "SELECT VERSION();", "STATUS;", "exit"],
     postgresql: ["\\l", "\\dt", "\\du", "\\conninfo", "SELECT version();", "\\q"],
+    mssql: ["sp_databases", "sp_tables", "SELECT @@VERSION;", "STATUS;", "exit"],
     redis: ["PING", "INFO server", "DBSIZE", "KEYS *", "exit"],
   };
 
@@ -839,11 +841,18 @@
   async function loadSettingsForm() {
     const s = await api().GetSettings();
     state.settings = s;
-    const labels = { mariadb: "MariaDB", mysql: "MySQL", postgresql: "PostgreSQL", redis: "Redis" };
-    $("settingsEngineRows").innerHTML = ["mariadb", "mysql", "postgresql", "redis"]
+    const labels = {
+      mariadb: "MariaDB",
+      mysql: "MySQL",
+      postgresql: "PostgreSQL",
+      mssql: "MS SQL Server",
+      redis: "Redis",
+    };
+    $("settingsEngineRows").innerHTML = ["mariadb", "mysql", "postgresql", "mssql", "redis"]
       .map((id) => {
         const es = s.engines[id] || {};
         const isRedis = id === "redis";
+        const isMSSQL = id === "mssql";
         return `<tr data-eng-row="${id}">
           <td><strong>${labels[id]}</strong></td>
           <td><input type="checkbox" class="eng-enabled" ${es.enabled ? "checked" : ""} /></td>
@@ -851,10 +860,12 @@
           <td>${
             isRedis
               ? `<span class="muted">—</span>`
-              : `<input type="text" class="input sm eng-user" value="${esc(es.user || "")}" />`
+              : `<input type="text" class="input sm eng-user" value="${esc(es.user || "")}" placeholder="${
+                  isMSSQL ? "blank = Windows Auth / LocalDB" : ""
+                }" />`
           }</td>
           <td><input type="password" class="input sm eng-pass" value="${esc(es.password || "")}" placeholder="${
-            isRedis ? "optional" : "blank = no password"
+            isRedis ? "optional" : isMSSQL ? "blank = Windows Auth" : "blank = no password"
           }" /></td>
         </tr>`;
       })

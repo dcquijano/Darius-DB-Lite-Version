@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-var EngineIDs = []string{"mariadb", "mysql", "postgresql", "redis"}
+var EngineIDs = []string{"mariadb", "mysql", "postgresql", "mssql", "redis"}
 
 // Installation is one engine version found in bin/<engine>/<folder>.
 type Installation struct {
@@ -55,6 +55,7 @@ var engines = map[string]Engine{
 	"mariadb":    &mysqlFamily{id: "mariadb", name: "MariaDB"},
 	"mysql":      &mysqlFamily{id: "mysql", name: "MySQL"},
 	"postgresql": &postgres{},
+	"mssql":      &mssqlEngine{},
 	"redis":      &redis{},
 }
 
@@ -123,6 +124,12 @@ func ListInstallations(p *Paths, engineID string) []Installation {
 			continue
 		}
 		out = append(out, Installation{Engine: engineID, Name: e.Name(), Version: parseVersion(e.Name()), Dir: dir})
+	}
+	// For MS SQL Server, also detect Windows-installed SQL Server LocalDB / sqlcmd tools
+	if engineID == "mssql" {
+		if sysInst, ok := detectSystemMSSQL(); ok {
+			out = append(out, sysInst)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return compareVersions(out[i].Version, out[j].Version) > 0 })
 	return out

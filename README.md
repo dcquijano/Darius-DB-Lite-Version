@@ -2,7 +2,7 @@
 
 A fast, lightweight, portable open-source database environment manager for Windows — built to make local database development simple, clean, and zero-bloat.
 
-Manage **MariaDB**, **MySQL**, **PostgreSQL**, and **Redis** from a single ~13 MB native Windows app with a system tray icon, built-in multi-mode terminal, native launcher, clean uninstaller, and zero runtime bloat.
+Manage **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** from a single ~13 MB native Windows app with a system tray icon, built-in multi-mode terminal, native launcher, clean uninstaller, and zero runtime bloat.
 
 - **Repository:** [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version)
 - 📖 **Full Step-by-Step Guide:** [**GUIDE.md**](GUIDE.md)
@@ -15,7 +15,7 @@ Manage **MariaDB**, **MySQL**, **PostgreSQL**, and **Redis** from a single ~13 M
 - **One-Click Start/Stop & Native System Tray** — Start All / Stop All, per-engine controls, live PID & port-conflict detection, single-instance wake, close-to-tray, and right-click tray menu.
 - **Portable Engine Downloader & Version Switcher** — Download official portable builds (MariaDB, MySQL, PostgreSQL, Redis) or import any local `.zip`, keep multiple versions side-by-side, and switch active versions in one click without touching `data/`.
 - **Built-in Lightweight Database Browser**
-  - **SQL (MariaDB / MySQL / PostgreSQL):** browse databases & tables, quick-create database + user with privileges, drop databases, run SQL (`Ctrl+Enter`), copy connection URIs.
+  - **SQL (MariaDB / MySQL / PostgreSQL / MS SQL Server):** browse databases & tables, quick-create database + user/login with privileges, drop databases, run SQL / T-SQL (`Ctrl+Enter`), copy connection strings.
   - **Redis:** switch logical DBs (`db0`–`db15`), scan & filter keys, inspect values (with automatic JSON formatting & TTL), delete keys, and run interactive Redis CLI commands.
 - **Config Editor & Live Log Viewer** — Edit `my.ini`, `postgresql.conf`, and `redis.conf` inside the app (or Notepad) with *Save & Restart*, plus auto-refreshing logs.
 - **Native Launcher & Clean Uninstaller**

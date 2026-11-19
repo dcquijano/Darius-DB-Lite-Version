@@ -100,6 +100,9 @@ func sqlEscape(s string) string {
 }
 
 func ListDatabases(engine string, s EngineSettings) ([]string, error) {
+	if engine == "mssql" {
+		return mssqlListDatabases(s)
+	}
 	db, err := openSQL(engine, s, "")
 	if err != nil {
 		return nil, err
@@ -126,6 +129,9 @@ func ListDatabases(engine string, s EngineSettings) ([]string, error) {
 }
 
 func ListTables(engine string, s EngineSettings, dbName string) ([]TableInfo, error) {
+	if engine == "mssql" {
+		return mssqlListTables(s, dbName)
+	}
 	db, err := openSQL(engine, s, dbName)
 	if err != nil {
 		return nil, err
@@ -186,6 +192,9 @@ func RunQuery(engine string, s EngineSettings, dbName, q string) (*QueryResult, 
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return nil, errors.New("query is empty")
+	}
+	if engine == "mssql" {
+		return mssqlRunQuery(s, dbName, q)
 	}
 	db, err := openSQL(engine, s, dbName)
 	if err != nil {
@@ -253,10 +262,14 @@ var nameRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_$\-]{0,62}$`)
 var systemDBs = map[string]bool{
 	"mysql": true, "information_schema": true, "performance_schema": true, "sys": true,
 	"postgres": true, "template0": true, "template1": true,
+	"master": true, "tempdb": true, "model": true, "msdb": true,
 }
 
 // CreateDatabase creates a database, and optionally a user with full access to it.
 func CreateDatabase(engine string, s EngineSettings, name, user, password string) error {
+	if engine == "mssql" {
+		return mssqlCreateDatabase(s, name, user, password)
+	}
 	if !nameRe.MatchString(name) {
 		return errors.New("database name may only contain letters, digits, _ $ -")
 	}
@@ -312,6 +325,9 @@ func CreateDatabase(engine string, s EngineSettings, name, user, password string
 }
 
 func DropDatabase(engine string, s EngineSettings, name string) error {
+	if engine == "mssql" {
+		return mssqlDropDatabase(s, name)
+	}
 	if systemDBs[strings.ToLower(name)] {
 		return fmt.Errorf("%q is a system database and cannot be dropped here", name)
 	}

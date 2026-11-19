@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -113,7 +114,7 @@ func (m *Manager) adopt() {
 				pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
 			}
 		}
-		if pid > 0 && processBelongsTo(pid, m.p.Root) {
+		if pid > 0 && (processBelongsTo(pid, m.p.Root) || (id == "mssql" && processAlive(pid))) {
 			s := m.svc[id]
 			s.state, s.pid, s.inst = StateRunning, pid, inst
 		} else {
@@ -298,10 +299,13 @@ func (m *Manager) Start(id string) error {
 		}()
 	}
 
-	// wait for the port to accept connections
+	// wait for the server to accept connections
 	ready := waitFor(90*time.Second, func() bool {
 		if !m.IsRunning(id) {
 			return true // exited, handled above
+		}
+		if id == "mssql" && eng.PidOf(m.p, inst) > 0 {
+			return true
 		}
 		return portInUse(es.Port)
 	})
@@ -444,6 +448,11 @@ func (m *Manager) Uninstall(id, name string) error {
 	inst, ok := FindInstallation(m.p, id, name)
 	if !ok {
 		return fmt.Errorf("%s is not installed", name)
+	}
+	cleanBin := strings.ToLower(filepath.Clean(m.p.Bin)) + string(filepath.Separator)
+	cleanDir := strings.ToLower(filepath.Clean(inst.Dir))
+	if !strings.HasPrefix(cleanDir, cleanBin) {
+		return fmt.Errorf("%s is installed system-wide on Windows and cannot be removed from bin/", name)
 	}
 	m.mu.Lock()
 	s := m.svc[id]

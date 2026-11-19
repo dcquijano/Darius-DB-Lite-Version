@@ -225,6 +225,14 @@ func TestBuiltInTerminal(t *testing.T) {
 	if err != nil || res.State.Mode != "shell" {
 		t.Fatalf("\\q exit failed: %+v err=%v", res, err)
 	}
+	res, err = term.Exec("sqlcmd")
+	if err != nil || res.State.Mode != "mssql" {
+		t.Fatalf("sqlcmd mode switch failed: %+v err=%v", res, err)
+	}
+	res, err = term.Exec("exit")
+	if err != nil || res.State.Mode != "shell" {
+		t.Fatalf("mssql exit failed: %+v err=%v", res, err)
+	}
 
 	// External shell command execution
 	res, err = term.Exec("echo hello-darius-terminal")

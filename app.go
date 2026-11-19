@@ -430,6 +430,8 @@ func (a *App) OpenTerminal() error {
 			cli = fmt.Sprintf("mysql -u %s -P %d", fallback(s.Engines["mysql"].User, "root"), st.Port)
 		case "postgresql":
 			cli = fmt.Sprintf("psql -U %s -p %d", fallback(s.Engines["postgresql"].User, "postgres"), st.Port)
+		case "mssql":
+			cli = "sqlcmd -S (localdb)\\MSSQLLocalDB -E"
 		case "redis":
 			cli = fmt.Sprintf("redis-cli -p %d", st.Port)
 		}
@@ -459,6 +461,14 @@ func (a *App) ConnectionString(engine, dbName string) string {
 			dbName = "postgres"
 		}
 		return fmt.Sprintf("postgresql://%s@127.0.0.1:%d/%s", auth, es.Port, dbName)
+	case "mssql":
+		if dbName == "" {
+			dbName = "master"
+		}
+		if es.User != "" && es.Password != "" {
+			return fmt.Sprintf("Server=127.0.0.1,%d;Database=%s;User Id=%s;Password=%s;TrustServerCertificate=True;", es.Port, dbName, es.User, es.Password)
+		}
+		return fmt.Sprintf("Server=(localdb)\\MSSQLLocalDB;Database=%s;Trusted_Connection=True;", dbName)
 	case "redis":
 		if es.Password != "" {
 			return fmt.Sprintf("redis://:%s@127.0.0.1:%d/0", url.QueryEscape(es.Password), es.Port)

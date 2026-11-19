@@ -50,7 +50,7 @@ func NewTerminal(p *Paths, st *SettingsStore, mgr *Manager, emit func(chunk stri
 		emit:  emit,
 		mode:  "shell",
 		cwd:   p.Root,
-		sqlDB: map[string]string{"mariadb": "", "mysql": "", "postgresql": "postgres"},
+		sqlDB: map[string]string{"mariadb": "", "mysql": "", "postgresql": "postgres", "mssql": "master"},
 	}
 }
 
@@ -81,6 +81,13 @@ func (t *Terminal) stateLocked() TerminalState {
 		}
 		st.Target = db
 		st.Prompt = fmt.Sprintf("%s=#", db)
+	case "mssql":
+		db := t.sqlDB["mssql"]
+		if db == "" {
+			db = "master"
+		}
+		st.Target = db
+		st.Prompt = fmt.Sprintf("mssql [%s]>", db)
 	case "redis":
 		es := t.st.Engine("redis")
 		st.Target = strconv.Itoa(t.redDB)
@@ -116,11 +123,11 @@ func (t *Terminal) Banner() string {
 	return b.String()
 }
 
-// SetMode switches the active terminal mode ("shell", "mariadb", "mysql", "postgresql", "redis").
+// SetMode switches the active terminal mode ("shell", "mariadb", "mysql", "postgresql", "mssql", "redis").
 func (t *Terminal) SetMode(mode string) (*TerminalExecResult, error) {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	switch mode {
-	case "shell", "mariadb", "mysql", "postgresql", "redis":
+	case "shell", "mariadb", "mysql", "postgresql", "mssql", "redis":
 	default:
 		return nil, fmt.Errorf("unknown terminal mode %q", mode)
 	}
@@ -147,6 +154,13 @@ func (t *Terminal) SetMode(mode string) (*TerminalExecResult, error) {
 			msg = fmt.Sprintf("Switched to PostgreSQL (psql) shell (port %d). Note: PostgreSQL is currently stopped — type 'start postgresql' or start it from Dashboard.", es.Port)
 		} else {
 			msg = fmt.Sprintf("Connected to PostgreSQL on 127.0.0.1:%d/%s as %s. Supports SQL, \\l, \\c <db>, \\dt, \\du, or \\q.", es.Port, state.Target, es.User)
+		}
+	case "mssql":
+		es := t.st.Engine("mssql")
+		if !t.mgr.IsRunning("mssql") {
+			msg = "Switched to MS SQL Server (sqlcmd) shell. Note: MS SQL Server is currently stopped — type 'start mssql' or start it from Dashboard."
+		} else {
+			msg = fmt.Sprintf("Connected to MS SQL Server (%s, db: %s). Supports T-SQL, USE <db>, sp_databases, sp_tables, or exit.", mssqlServerTarget(es), state.Target)
 		}
 	case "redis":
 		es := t.st.Engine("redis")
@@ -196,6 +210,8 @@ func (t *Terminal) Exec(rawLine string) (*TerminalExecResult, error) {
 		return t.execMySQLMode(mode, line)
 	case "postgresql":
 		return t.execPostgresMode(line)
+	case "mssql":
+		return t.execMSSQLMode(line)
 	case "redis":
 		return t.execRedisMode(line)
 	default:
@@ -228,9 +244,11 @@ func (t *Terminal) tryServiceCommand(line string) (*TerminalExecResult, bool) {
 				return &TerminalExecResult{State: t.State(), Output: "Error: " + err.Error()}, true
 			}
 			return &TerminalExecResult{State: t.State(), Output: t.formatStatusTable()}, true
-		case "mariadb", "mysql", "postgresql", "postgres", "redis":
+		case "mariadb", "mysql", "postgresql", "postgres", "mssql", "sqlserver", "redis":
 			if target == "postgres" {
 				target = "postgresql"
+			} else if target == "sqlserver" {
+				target = "mssql"
 			}
 			var err error
 			switch verb {
@@ -344,6 +362,8 @@ func (t *Terminal) execShellMode(line string) (*TerminalExecResult, error) {
 			return t.SetMode("mysql")
 		case "psql":
 			return t.SetMode("postgresql")
+		case "sqlcmd", "mssql":
+			return t.SetMode("mssql")
 		case "redis-cli":
 			return t.SetMode("redis")
 		}
@@ -423,6 +443,13 @@ func isInteractiveDBInvoke(cmd0 string, args []string) bool {
 	case "psql":
 		for _, a := range args {
 			if a == "-c" || strings.HasPrefix(a, "--command") || a == "-V" || a == "--version" || a == "--help" || a == "-?" || a == "-l" || a == "--list" || a == "-f" {
+				return false
+			}
+		}
+		return true
+	case "sqlcmd", "mssql":
+		for _, a := range args {
+			if a == "-Q" || a == "-q" || a == "-i" || a == "-?" || a == "--version" || a == "--help" {
 				return false
 			}
 		}
@@ -598,6 +625,52 @@ func (t *Terminal) execPostgresMode(line string) (*TerminalExecResult, error) {
 	t.mu.Unlock()
 
 	res, err := RunQuery("postgresql", t.st.Engine("postgresql"), activeDB, line)
+	if err != nil {
+		return &TerminalExecResult{State: t.State(), Output: "ERROR: " + err.Error()}, nil
+	}
+	return &TerminalExecResult{State: t.State(), Output: formatSQLResult(res)}, nil
+}
+
+// ---------------------------------------------------------------- MS SQL Server (sqlcmd) interactive shell
+
+func (t *Terminal) execMSSQLMode(line string) (*TerminalExecResult, error) {
+	trimmed := strings.TrimSpace(strings.TrimRight(line, ";"))
+	low := strings.ToLower(trimmed)
+	switch {
+	case low == "exit" || low == "quit" || low == `\q`:
+		return t.SetMode("shell")
+	case low == "status" || low == `\conninfo`:
+		es := t.st.Engine("mssql")
+		t.mu.Lock()
+		db := t.sqlDB["mssql"]
+		state := t.stateLocked()
+		t.mu.Unlock()
+		return &TerminalExecResult{
+			State:  state,
+			Output: fmt.Sprintf("MS SQL Server  %s  current database: %s", mssqlServerTarget(es), db),
+		}, nil
+	case low == "show databases" || low == "sp_databases":
+		line = "SELECT name AS [Database], database_id AS [ID], create_date AS [Created] FROM sys.databases ORDER BY database_id;"
+	case low == "show tables" || low == "sp_tables":
+		line = "SELECT TABLE_SCHEMA AS [Schema], TABLE_NAME AS [Table], TABLE_TYPE AS [Type] FROM INFORMATION_SCHEMA.TABLES ORDER BY 1, 2;"
+	case strings.HasPrefix(low, "use "):
+		dbName := strings.Trim(strings.TrimSpace(trimmed[3:]), "[]\"' ")
+		es := t.st.Engine("mssql")
+		if _, err := mssqlRunQuery(es, dbName, "SELECT 1;"); err != nil {
+			return &TerminalExecResult{State: t.State(), Output: "ERROR: " + err.Error()}, nil
+		}
+		t.mu.Lock()
+		t.sqlDB["mssql"] = dbName
+		state := t.stateLocked()
+		t.mu.Unlock()
+		return &TerminalExecResult{State: state, Output: fmt.Sprintf("Changed database context to '%s'.", dbName)}, nil
+	}
+
+	t.mu.Lock()
+	activeDB := t.sqlDB["mssql"]
+	t.mu.Unlock()
+
+	res, err := mssqlRunQuery(t.st.Engine("mssql"), activeDB, line)
 	if err != nil {
 		return &TerminalExecResult{State: t.State(), Output: "ERROR: " + err.Error()}, nil
 	}

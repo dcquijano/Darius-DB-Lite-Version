@@ -296,6 +296,8 @@ func EnsureConfig(p *Paths, engineID string) error {
 		return writeIfMissing(filepath.Join(p.EngineEtc("mariadb"), "my.ini"), mariadbIni)
 	case "mysql":
 		return writeIfMissing(filepath.Join(p.EngineEtc("mysql"), "my.ini"), mysqlIni)
+	case "mssql":
+		return writeIfMissing(filepath.Join(p.EngineEtc("mssql"), "mssql.conf"), mssqlConf)
 	case "redis":
 		return writeIfMissing(filepath.Join(p.EngineEtc("redis"), "redis.conf"), redisConf)
 	default:

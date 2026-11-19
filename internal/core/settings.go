@@ -32,6 +32,7 @@ func DefaultSettings() *Settings {
 			"mariadb":    {Enabled: true, Port: 3306, User: "root"},
 			"mysql":      {Enabled: false, Port: 3307, User: "root"},
 			"postgresql": {Enabled: true, Port: 5432, User: "postgres"},
+			"mssql":      {Enabled: true, Port: 1433, User: ""},
 			"redis":      {Enabled: true, Port: 6379},
 		},
 		StopOnExit:  true,

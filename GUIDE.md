@@ -88,7 +88,7 @@ No Inno Setup required — works on any Windows 10/11 PC right away:
 ### Step 1: Download Your Database Engines
 
 1. Open Darius DB and click **Versions** in the left sidebar (or click **Install Engines** on the welcome banner).
-2. Select an engine tab at the top: **MariaDB**, **MySQL**, **PostgreSQL**, or **Redis**.
+2. Select an engine tab at the top: **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, or **Redis**.
 3. Click **Download** next to the version you want (e.g., MariaDB `11.4.14` LTS, PostgreSQL `17.12`, Redis `8.10.3`).
    - Prefer an offline archive? Click **Install .zip** and select any official Windows portable `.zip` you already downloaded.
 4. Wait for the progress bar to finish downloading and extracting into `bin/<engine>/`.
@@ -103,8 +103,8 @@ No Inno Setup required — works on any Windows 10/11 PC right away:
 ### Step 3: Browse Databases, Create Users & Run SQL / Redis Commands
 
 1. Click **Browse** on any running engine card (or open the **Database** tab).
-2. **For MariaDB, MySQL, and PostgreSQL:**
-   - Click **+ New** to create a database (and optionally create a dedicated user with password and full privileges on that database in one step!).
+2. **For MariaDB, MySQL, PostgreSQL, and MS SQL Server:**
+   - Click **+ New** to create a database (and optionally create a dedicated user/login with password and full privileges on that database in one step!).
    - Click any database on the left to list its tables and views.
    - Click any table to preview `SELECT * FROM ... LIMIT 100;`.
    - Write any SQL query in the editor and press **`Ctrl + Enter`** to run it.

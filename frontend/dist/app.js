@@ -145,12 +145,28 @@
     }
   }
 
+  function primaryMySQLFamilyEngine() {
+    const mariaSvc = getStatus("mariadb");
+    const mysqlSvc = getStatus("mysql");
+    if (mysqlSvc?.state === "running") return "mysql";
+    if (mariaSvc?.state === "running") return "mariadb";
+    const mariaInsts = mariaSvc?.installations || [];
+    const mysqlInsts = mysqlSvc?.installations || [];
+    if (mysqlInsts.length > 0 && mariaInsts.length === 0) return "mysql";
+    return "mariadb";
+  }
+
   function pickBestDbEngine() {
+    if (state.dbEngine === "mysql" || state.dbEngine === "mariadb") {
+      state.dbEngine = primaryMySQLFamilyEngine();
+    }
     const cur = getStatus(state.dbEngine);
-    if (cur && cur.engine !== "apache" && cur.state === "running") return;
-    const running = state.statuses.find((s) => s.engine !== "apache" && s.state === "running");
+    if (cur && cur.engine !== "apache" && cur.engine !== "php" && cur.state === "running") return;
+    const running = state.statuses.find(
+      (s) => s.engine !== "apache" && s.engine !== "php" && s.engine !== "mailpit" && s.state === "running"
+    );
     if (running) state.dbEngine = running.engine;
-    else if (state.dbEngine === "apache") state.dbEngine = "mariadb";
+    else if (state.dbEngine === "apache" || state.dbEngine === "php") state.dbEngine = primaryMySQLFamilyEngine();
   }
 
   // ---- Dashboard (5th-Picture Unified Row Layout: Apache + PHP Unified with MariaDB/MySQL & Mailpit) ----
@@ -438,16 +454,23 @@
       .join("");
   }
 
-  // ---- Engine segmented tab helper ----
+  // ---- Engine segmented tab helper (unifies MariaDB & MySQL into one tab) ----
   function renderSegTabs(containerId, activeEngine, onSelect) {
     const el = $(containerId);
+    const primaryMySQL = primaryMySQLFamilyEngine();
+    const hiddenMySQL = primaryMySQL === "mysql" ? "mariadb" : "mysql";
+    const isMySQLActive = activeEngine === "mysql" || activeEngine === "mariadb";
+
     el.innerHTML = state.statuses
-      .map(
-        (s) =>
-          `<button class="seg ${s.engine === activeEngine ? "active" : ""}" data-engine="${s.engine}">
-            <span class="dot ${s.state}"></span>${esc(s.name)}
-          </button>`
-      )
+      .filter((s) => s.engine !== hiddenMySQL)
+      .map((s) => {
+        const isMySQLPair = s.engine === "mysql" || s.engine === "mariadb";
+        const label = isMySQLPair ? "MySQL / MariaDB" : s.name;
+        const active = isMySQLPair ? isMySQLActive : s.engine === activeEngine;
+        return `<button class="seg ${active ? "active" : ""}" data-engine="${s.engine}">
+            <span class="dot ${s.state}"></span>${esc(label)}
+          </button>`;
+      })
       .join("");
     el.querySelectorAll(".seg").forEach((btn) =>
       btn.addEventListener("click", () => onSelect(btn.dataset.engine))
@@ -457,14 +480,23 @@
   // ---- Database Browser ----
   function renderDbEngineTabs() {
     const el = $("dbEngineTabs");
+    const primaryMySQL = primaryMySQLFamilyEngine();
+    const hiddenMySQL = primaryMySQL === "mysql" ? "mariadb" : "mysql";
+    if (state.dbEngine === hiddenMySQL) {
+      state.dbEngine = primaryMySQL;
+    }
     el.innerHTML = state.statuses
-      .filter((s) => s.isSql || s.engine === "redis")
-      .map(
-        (s) =>
-          `<button class="seg ${s.engine === state.dbEngine ? "active" : ""}" data-engine="${s.engine}">
-            <span class="dot ${s.state}"></span>${esc(s.name)}
-          </button>`
-      )
+      .filter((s) => (s.isSql || s.engine === "redis") && s.engine !== hiddenMySQL)
+      .map((s) => {
+        const isMySQLPair = s.engine === "mysql" || s.engine === "mariadb";
+        const label = isMySQLPair ? "MySQL / MariaDB" : s.name;
+        const active = isMySQLPair
+          ? state.dbEngine === "mysql" || state.dbEngine === "mariadb"
+          : s.engine === state.dbEngine;
+        return `<button class="seg ${active ? "active" : ""}" data-engine="${s.engine}">
+            <span class="dot ${s.state}"></span>${esc(label)}
+          </button>`;
+      })
       .join("");
     el.querySelectorAll(".seg").forEach((btn) =>
       btn.addEventListener("click", () => {
@@ -769,51 +801,77 @@
   }
 
   function renderVersions() {
+    const isMySQLPair = state.verEngine === "mysql" || state.verEngine === "mariadb";
+    if (isMySQLPair) {
+      state.verEngine = primaryMySQLFamilyEngine();
+    }
     const s = getStatus(state.verEngine);
-    const insts = s ? s.installations || [] : [];
-    const instSet = new Set(insts.map((i) => i.version));
-    const entries = state.catalog[state.verEngine] || [];
-    const newestEntry = entries[0] || null;
+    const mysqlSvc = getStatus("mysql");
+    const mariaSvc = getStatus("mariadb");
+
+    const insts = isMySQLPair
+      ? [
+          ...(mysqlSvc?.installations || []).map((i) => ({ ...i, engine: "mysql" })),
+          ...(mariaSvc?.installations || []).map((i) => ({ ...i, engine: "mariadb" })),
+        ]
+      : (s ? s.installations || [] : []).map((i) => ({ ...i, engine: state.verEngine }));
+
+    const instSet = new Set(insts.map((i) => `${i.engine}@${i.version}`));
+    const entries = isMySQLPair
+      ? [
+          ...(state.catalog.mysql || []).map((e) => ({ ...e, engine: "mysql", familyLabel: "MySQL" })),
+          ...(state.catalog.mariadb || []).map((e) => ({ ...e, engine: "mariadb", familyLabel: "MariaDB" })),
+        ]
+      : (state.catalog[state.verEngine] || []).map((e) => ({ ...e, engine: state.verEngine, familyLabel: "" }));
 
     const instList = $("installedList");
     if (!insts.length) {
-      instList.innerHTML = `<div class="empty-note">No ${s ? esc(s.name) : ""} versions installed yet. Pick one below, check newest versions, or import a local .zip.</div>`;
+      const displayName = isMySQLPair ? "MySQL / MariaDB" : s ? s.name : "";
+      instList.innerHTML = `<div class="empty-note">No ${esc(displayName)} versions installed yet. Pick a MySQL or MariaDB build below, check newest versions, or import a local .zip.</div>`;
     } else {
       instList.innerHTML = insts
         .map((inst) => {
-          const isActive = s && inst.name === s.active;
-          const newestDl = newestEntry ? state.downloads[`${state.verEngine}@${newestEntry.version}`] : null;
+          const itemEng = inst.engine || state.verEngine;
+          const itemSvc = getStatus(itemEng);
+          const isActive =
+            isMySQLPair
+              ? itemEng === primaryMySQLFamilyEngine() && itemSvc && inst.name === itemSvc.active
+              : itemSvc && inst.name === itemSvc.active;
+          const engEntries = state.catalog[itemEng] || [];
+          const newestForEng = engEntries[0] || null;
+          const newestDl = newestForEng ? state.downloads[`${itemEng}@${newestForEng.version}`] : null;
           const newestInProgress =
             newestDl && (newestDl.phase === "downloading" || newestDl.phase === "extracting");
           const canUpdate =
-            newestEntry &&
-            !instSet.has(newestEntry.version) &&
+            newestForEng &&
+            !instSet.has(`${itemEng}@${newestForEng.version}`) &&
             !newestInProgress &&
-            compareVer(newestEntry.version, inst.version) > 0;
+            compareVer(newestForEng.version, inst.version) > 0;
           return `
           <div class="ver-row">
             <div class="ver-info">
               <div class="ver-title">
                 <span>${esc(inst.name)}</span>
+                ${isMySQLPair ? `<span class="pill accent">${itemEng === "mysql" ? "MySQL · :3306" : "MariaDB · :3306"}</span>` : ""}
                 ${isActive ? `<span class="pill running">Active</span>` : ""}
-                ${canUpdate ? `<span class="pill warn">Newer: ${esc(newestEntry.version)}</span>` : ""}
+                ${canUpdate ? `<span class="pill warn">Newer: ${esc(newestForEng.version)}</span>` : ""}
               </div>
               <div class="ver-sub">${esc(inst.dir)}</div>
             </div>
             <div class="ver-actions">
               ${canUpdate
-              ? `<button class="btn sm primary" data-dl-ver="${esc(newestEntry.version)}" data-dl-url="${esc(
-                newestEntry.url
-              )}" title="Download and install newest version ${esc(newestEntry.version)}">↑ Update to ${esc(
-                newestEntry.version
+              ? `<button class="btn sm primary" data-dl-eng="${esc(itemEng)}" data-dl-ver="${esc(newestForEng.version)}" data-dl-url="${esc(
+                newestForEng.url
+              )}" title="Download and install newest version ${esc(newestForEng.version)}">↑ Update to ${esc(
+                newestForEng.version
               )}</button>`
               : ""
             }
               ${isActive
               ? ""
-              : `<button class="btn sm accent" data-use-ver="${esc(inst.name)}">Use Version</button>`
+              : `<button class="btn sm accent" data-item-eng="${esc(itemEng)}" data-use-ver="${esc(inst.name)}">Use Version</button>`
             }
-              <button class="btn sm danger-ghost" data-del-ver="${esc(inst.name)}">Remove</button>
+              <button class="btn sm danger-ghost" data-item-eng="${esc(itemEng)}" data-del-ver="${esc(inst.name)}">Remove</button>
             </div>
           </div>`;
         })
@@ -827,9 +885,10 @@
     }
     catList.innerHTML = entries
       .map((entry, idx) => {
-        const dl = state.downloads[`${state.verEngine}@${entry.version}`];
+        const itemEng = entry.engine || state.verEngine;
+        const dl = state.downloads[`${itemEng}@${entry.version}`];
         const inProgress = dl && (dl.phase === "downloading" || dl.phase === "extracting");
-        const isInstalled = instSet.has(entry.version);
+        const isInstalled = instSet.has(`${itemEng}@${entry.version}`);
         let host = "";
         try {
           host = new URL(entry.url).host;
@@ -846,19 +905,23 @@
           return `
           <div class="progress-card">
             <div class="progress-top">
-              <span><strong>${esc(state.verEngine)}-${esc(entry.version)}</strong> — ${label}</span>
-              <button class="btn xs danger-ghost" data-cancel-dl="${esc(state.verEngine)}|${esc(entry.version)}">Cancel</button>
+              <span><strong>${esc(itemEng)}-${esc(entry.version)}</strong> — ${label}</span>
+              <button class="btn xs danger-ghost" data-cancel-dl="${esc(itemEng)}|${esc(entry.version)}">Cancel</button>
             </div>
             <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
           </div>`;
         }
 
+        const isFirstOfEngine =
+          idx === 0 || (isMySQLPair && entries.findIndex((x) => x.engine === itemEng) === idx);
+
         return `
         <div class="ver-row">
           <div class="ver-info">
             <div class="ver-title">
-              <span>${esc(state.verEngine)}-${esc(entry.version)}</span>
-              ${idx === 0 ? `<span class="pill running">Newest</span>` : ""}
+              <span>${esc(itemEng)}-${esc(entry.version)}</span>
+              ${entry.familyLabel ? `<span class="pill accent">${esc(entry.familyLabel)}</span>` : ""}
+              ${isFirstOfEngine ? `<span class="pill running">Newest</span>` : ""}
               ${entry.note ? `<span class="pill accent">${esc(entry.note)}</span>` : ""}
               ${isInstalled ? `<span class="pill running">Installed</span>` : ""}
             </div>
@@ -868,7 +931,7 @@
             ${isInstalled
             ? `<button class="btn sm ghost" disabled title="Already installed — remove first if you want to reinstall">✓ Installed</button>`
             : `<button class="btn sm ghost" data-manual-url="${esc(entry.url)}" title="Download .zip manually in your web browser">Manual (.zip)</button>
-                   <button class="btn sm primary" data-dl-ver="${esc(entry.version)}" data-dl-url="${esc(entry.url)}">Download</button>`
+                   <button class="btn sm primary" data-dl-eng="${esc(itemEng)}" data-dl-ver="${esc(entry.version)}" data-dl-url="${esc(entry.url)}">Download</button>`
           }
           </div>
         </div>`;
@@ -878,6 +941,9 @@
 
   // ---- Config & Logs ----
   function renderCfgEngineTabs() {
+    if (state.cfgEngine === "mysql" || state.cfgEngine === "mariadb") {
+      state.cfgEngine = primaryMySQLFamilyEngine();
+    }
     renderSegTabs("cfgEngineTabs", state.cfgEngine, (eng) => {
       state.cfgEngine = eng;
       renderCfgEngineTabs();
@@ -1074,17 +1140,20 @@
   async function loadSettingsForm() {
     const s = await api().GetSettings();
     state.settings = s;
+    const primaryMySQL = primaryMySQLFamilyEngine();
+    const hiddenMySQL = primaryMySQL === "mysql" ? "mariadb" : "mysql";
     const labels = {
-      apache: "Apache Web Server",
-      php: "PHP",
-      mariadb: "MariaDB",
-      mysql: "MySQL",
+      apache: "Apache Web Server (+ PHP)",
+      php: "PHP (Standalone Server)",
+      mariadb: "MySQL / MariaDB",
+      mysql: "MySQL / MariaDB",
       postgresql: "PostgreSQL",
       mssql: "MS SQL Server",
       redis: "Redis",
       mailpit: "Mailpit",
     };
     $("settingsEngineRows").innerHTML = ["apache", "php", "mariadb", "mysql", "postgresql", "mssql", "redis", "mailpit"]
+      .filter((id) => id !== hiddenMySQL)
       .map((id) => {
         const es = s.engines[id] || {};
         const isWebRoot = id === "apache" || id === "php";
@@ -1181,6 +1250,15 @@
       const pw = tr.querySelector(".eng-pass");
       if (pw) cur.password = pw.value;
       next.engines[id] = cur;
+      // Sync unified MySQL / MariaDB settings across both engines
+      if (id === "mysql" || id === "mariadb") {
+        const siblingId = id === "mysql" ? "mariadb" : "mysql";
+        const sib = next.engines[siblingId] || {};
+        sib.port = cur.port;
+        sib.user = cur.user;
+        sib.password = cur.password;
+        next.engines[siblingId] = sib;
+      }
     });
     next.runOnBoot = $("setRunOnBoot").checked;
     next.autoStartServices = $("setAutoStart").checked;
@@ -1854,10 +1932,11 @@ try {
     $("installedList").addEventListener("click", async (e) => {
       const dlBtn = e.target.closest("[data-dl-ver]");
       if (dlBtn) {
+        const targetEng = dlBtn.dataset.dlEng || state.verEngine;
         try {
-          await api().Install(state.verEngine, dlBtn.dataset.dlVer, dlBtn.dataset.dlUrl);
-          state.downloads[`${state.verEngine}@${dlBtn.dataset.dlVer}`] = {
-            engine: state.verEngine,
+          await api().Install(targetEng, dlBtn.dataset.dlVer, dlBtn.dataset.dlUrl);
+          state.downloads[`${targetEng}@${dlBtn.dataset.dlVer}`] = {
+            engine: targetEng,
             version: dlBtn.dataset.dlVer,
             phase: "downloading",
             received: 0,
@@ -1865,7 +1944,7 @@ try {
           };
           renderActiveDownloads();
           renderVersions();
-          toast(`Updating ${state.verEngine} to ${dlBtn.dataset.dlVer}...`, "info");
+          toast(`Updating ${targetEng} to ${dlBtn.dataset.dlVer}...`, "info");
         } catch (err) {
           toast(errMsg(err), "err");
         }
@@ -1873,8 +1952,16 @@ try {
       }
       const use = e.target.closest("[data-use-ver]");
       if (use) {
+        const targetEng = use.dataset.itemEng || state.verEngine;
         try {
-          await api().SetActive(state.verEngine, use.dataset.useVer);
+          if (targetEng === "mysql" || targetEng === "mariadb") {
+            const otherEng = targetEng === "mysql" ? "mariadb" : "mysql";
+            const otherSvc = getStatus(otherEng);
+            if (otherSvc && otherSvc.state === "running") {
+              await api().Stop(otherEng);
+            }
+          }
+          await api().SetActive(targetEng, use.dataset.useVer);
           state.statuses = (await api().Status()) || [];
           renderVerEngineTabs();
           renderVersions();
@@ -1888,6 +1975,7 @@ try {
       const del = e.target.closest("[data-del-ver]");
       if (del) {
         const name = del.dataset.delVer;
+        const targetEng = del.dataset.itemEng || state.verEngine;
         if (
           !(await askConfirm(
             "Remove Engine Version?",
@@ -1897,7 +1985,7 @@ try {
         )
           return;
         try {
-          await api().Uninstall(state.verEngine, name);
+          await api().Uninstall(targetEng, name);
           state.statuses = (await api().Status()) || [];
           renderVerEngineTabs();
           renderVersions();
@@ -1922,11 +2010,12 @@ try {
       }
       const btn = e.target.closest("[data-dl-ver]");
       if (!btn || btn.disabled) return;
+      const targetEng = btn.dataset.dlEng || state.verEngine;
       btn.disabled = true;
       try {
-        await api().Install(state.verEngine, btn.dataset.dlVer, btn.dataset.dlUrl);
-        state.downloads[`${state.verEngine}@${btn.dataset.dlVer}`] = {
-          engine: state.verEngine,
+        await api().Install(targetEng, btn.dataset.dlVer, btn.dataset.dlUrl);
+        state.downloads[`${targetEng}@${btn.dataset.dlVer}`] = {
+          engine: targetEng,
           version: btn.dataset.dlVer,
           phase: "downloading",
           received: 0,

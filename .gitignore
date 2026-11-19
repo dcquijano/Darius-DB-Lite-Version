@@ -7,6 +7,7 @@
 /frontend/wailsjs/
 *.exe
 *.syso
+!cmd/*/rsrc_windows_amd64.syso
 
 # Runtime portable data (when running from repo root)
 /bin/

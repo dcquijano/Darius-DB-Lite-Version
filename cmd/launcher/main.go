@@ -7,9 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
+	"strings"
+	"syscall"
 
-	"dariusdb/internal/core"
 	"dariusdb/internal/winui"
 )
 
@@ -22,8 +22,26 @@ const (
 	webview2URL = "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
 )
 
+func resolveRoot() string {
+	if h := os.Getenv("DARIUSDB_HOME"); h != "" {
+		if abs, err := filepath.Abs(h); err == nil {
+			return abs
+		}
+		return h
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		wd, _ := os.Getwd()
+		return wd
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	return filepath.Dir(exe)
+}
+
 func main() {
-	root := core.ResolveRoot()
+	root := resolveRoot()
 	args := os.Args[1:]
 
 	for _, a := range args {
@@ -38,11 +56,8 @@ func main() {
 		case "--terminal", "-t":
 			openTerminal(root)
 			return
-		case "--start-all":
-			runHeadless(root, true)
-			return
 		case "--stop-all":
-			runHeadless(root, false)
+			winui.KillProcessesInDir(filepath.Join(root, "bin"), uint32(os.Getpid()))
 			return
 		}
 	}
@@ -78,12 +93,11 @@ func main() {
 }
 
 func findAppExe(root string) string {
-	candidates := []string{
+	for _, p := range []string{
 		filepath.Join(root, "DariusDB.exe"),
 		filepath.Join(root, "app", "DariusDB.exe"),
 		filepath.Join(root, "build", "bin", "DariusDB.exe"),
-	}
-	for _, p := range candidates {
+	} {
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
 			return p
 		}
@@ -92,53 +106,45 @@ func findAppExe(root string) string {
 }
 
 func openTerminal(root string) {
-	paths := core.NewPaths(root)
-	_ = paths.Ensure()
-	st := core.LoadSettings(root)
-	mgr := core.NewManager(paths, st, nil)
-	s := st.Get()
-
-	env := map[string]string{"DARIUSDB_HOME": root}
-	if pg := s.Engines["postgresql"]; pg != nil {
-		env["PGHOST"] = "127.0.0.1"
-		env["PGPORT"] = strconv.Itoa(pg.Port)
-		if pg.User != "" {
-			env["PGUSER"] = pg.User
+	var binDirs []string
+	for _, eng := range []string{"mariadb", "mysql", "postgresql", "mssql", "redis"} {
+		base := filepath.Join(root, "bin", eng)
+		entries, _ := os.ReadDir(base)
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			sub := filepath.Join(base, e.Name(), "bin")
+			if st, err := os.Stat(sub); err == nil && st.IsDir() {
+				binDirs = append(binDirs, sub)
+			} else {
+				binDirs = append(binDirs, filepath.Join(base, e.Name()))
+			}
 		}
 	}
-	if m := s.Engines["mariadb"]; m != nil && m.Version != "" {
-		env["MYSQL_HOST"] = "127.0.0.1"
-		env["MYSQL_TCP_PORT"] = strconv.Itoa(m.Port)
-	} else if m := s.Engines["mysql"]; m != nil && m.Version != "" {
-		env["MYSQL_HOST"] = "127.0.0.1"
-		env["MYSQL_TCP_PORT"] = strconv.Itoa(m.Port)
-	}
 
-	banner := []string{
-		fmt.Sprintf("Darius DB (Lite Version %s) Terminal - by %s", appVersion, appAuthor),
-	}
-	for _, info := range mgr.Status() {
-		if info.Active != "" {
-			banner = append(banner, fmt.Sprintf("  %-11s %-18s port %-5d", info.Name, info.Active, info.Port))
+	initDir := filepath.Join(root, "tmp")
+	_ = os.MkdirAll(initDir, 0o755)
+	initCmd := filepath.Join(initDir, "terminal-init.cmd")
+	script := fmt.Sprintf("@echo off\r\ntitle Darius DB (Lite Version %s) Terminal\r\necho Darius DB (Lite Version %s) Terminal - by %s\r\necho.\r\n", appVersion, appVersion, appAuthor)
+	_ = os.WriteFile(initCmd, []byte(script), 0o644)
+
+	newPath := strings.Join(append(binDirs, os.Getenv("PATH")), ";")
+	envList := os.Environ()
+	out := make([]string, 0, len(envList)+2)
+	for _, kv := range envList {
+		if !strings.EqualFold(strings.SplitN(kv, "=", 2)[0], "PATH") {
+			out = append(out, kv)
 		}
 	}
-	if err := core.OpenTerminal(root, mgr.ClientPaths(), env, banner); err != nil {
+	out = append(out, "PATH="+newPath, "DARIUSDB_HOME="+root)
+
+	cmdExe := filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
+	cmd := exec.Command(cmdExe, "/C", "start", "Darius DB Terminal", cmdExe, "/K", initCmd)
+	cmd.Dir = root
+	cmd.Env = out
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	if err := cmd.Start(); err != nil {
 		winui.MessageBox(appTitle, fmt.Sprintf("Failed to open terminal:\n%v", err), winui.MBOK|winui.MBIconError)
-	}
-}
-
-func runHeadless(root string, start bool) {
-	paths := core.NewPaths(root)
-	_ = paths.Ensure()
-	st := core.LoadSettings(root)
-	mgr := core.NewManager(paths, st, nil)
-	var err error
-	if start {
-		err = mgr.StartAll()
-	} else {
-		err = mgr.StopAll()
-	}
-	if err != nil {
-		winui.MessageBox(appTitle, err.Error(), winui.MBOK|winui.MBIconWarning)
 	}
 }

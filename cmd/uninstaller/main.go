@@ -13,7 +13,6 @@ import (
 
 	"golang.org/x/sys/windows/registry"
 
-	"dariusdb/internal/core"
 	"dariusdb/internal/winui"
 )
 
@@ -21,10 +20,29 @@ const (
 	title        = "Uninstall Darius DB (Lite Version 0.1.1)"
 	appVersion   = "0.1.1"
 	uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\DariusDB`
+	runKey       = `Software\Microsoft\Windows\CurrentVersion\Run`
 )
 
+func resolveRoot() string {
+	if h := os.Getenv("DARIUSDB_HOME"); h != "" {
+		if abs, err := filepath.Abs(h); err == nil {
+			return abs
+		}
+		return h
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		wd, _ := os.Getwd()
+		return wd
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	return filepath.Dir(exe)
+}
+
 func main() {
-	root := core.ResolveRoot()
+	root := resolveRoot()
 	selfExe, _ := os.Executable()
 	if real, err := filepath.EvalSymlinks(selfExe); err == nil {
 		selfExe = real
@@ -64,24 +82,21 @@ func main() {
 		keepData = (dataChoice == winui.IDYES)
 	}
 
-	// 1. Gracefully stop managed database engines first
-	paths := core.NewPaths(root)
-	st := core.LoadSettings(root)
-	mgr := core.NewManager(paths, st, nil)
-	_ = mgr.StopAll()
-
-	// 2. Terminate any remaining processes launched from this install folder (except ourselves)
+	// 1. Terminate any processes launched from this install folder (except ourselves)
 	winui.KillProcessesInDir(root, uint32(os.Getpid()))
 	time.Sleep(500 * time.Millisecond)
 
-	// 3. Remove Windows Startup entry and Apps & Features registry key
-	_ = core.SetRunOnBoot(false)
+	// 2. Remove Windows Startup entry and Apps & Features registry key
+	if k, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.SET_VALUE); err == nil {
+		_ = k.DeleteValue("DariusDB")
+		k.Close()
+	}
 	_ = registry.DeleteKey(registry.CURRENT_USER, uninstallKey)
 
-	// 4. Remove Desktop & Start Menu shortcuts
+	// 3. Remove Desktop & Start Menu shortcuts
 	removeShortcuts()
 
-	// 5. Remove program files & directories
+	// 4. Remove program files & directories
 	programItems := []string{
 		"DariusDB.exe",
 		"DariusDB-Launcher.exe",
@@ -89,8 +104,6 @@ func main() {
 		"README.md",
 		"GUIDE.md",
 		"catalog.json",
-		"Install-DariusDB.bat",
-		"Uninstall-DariusDB.bat",
 		"bin",
 		"tmp",
 		"logs",
@@ -112,7 +125,7 @@ func main() {
 		winui.MessageBox(title, msg, winui.MBOK|winui.MBIconInfo)
 	}
 
-	// 6. Schedule self-delete of DariusDB-Uninstall.exe (and empty root folder if purged)
+	// 5. Schedule self-delete of DariusDB-Uninstall.exe (and empty root folder if purged)
 	scheduleSelfDelete(selfExe, root, !keepData)
 }
 

@@ -1,0 +1,46 @@
+{
+  "engines": {
+    "mariadb": {
+      "enabled": true,
+      "version": "",
+      "port": 3306,
+      "user": "root",
+      "password": ""
+    },
+    "mssql": {
+      "enabled": true,
+      "version": "mssql-localdb-2025",
+      "port": 1433,
+      "user": "",
+      "password": ""
+    },
+    "mysql": {
+      "enabled": false,
+      "version": "",
+      "port": 3307,
+      "user": "root",
+      "password": ""
+    },
+    "postgresql": {
+      "enabled": true,
+      "version": "",
+      "port": 5432,
+      "user": "postgres",
+      "password": ""
+    },
+    "redis": {
+      "enabled": true,
+      "version": "",
+      "port": 6379,
+      "user": "",
+      "password": ""
+    }
+  },
+  "autoStartServices": false,
+  "startMinimized": false,
+  "runOnBoot": false,
+  "stopOnExit": true,
+  "closeToTray": true,
+  "catalogUrl": "",
+  "theme": "system"
+}

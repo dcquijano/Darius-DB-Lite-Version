@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Darius DB (Lite Version 0.1.2)</title>
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
   <div class="shell">
     <aside class="sidebar">
@@ -14,15 +16,15 @@
           <svg viewBox="0 0 32 32" width="28" height="28">
             <defs>
               <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#0f2942"/>
-                <stop offset="100%" stop-color="#0d9488"/>
+                <stop offset="0%" stop-color="#0f2942" />
+                <stop offset="100%" stop-color="#0d9488" />
               </linearGradient>
             </defs>
-            <rect width="32" height="32" rx="8" fill="url(#g)"/>
-            <ellipse cx="16" cy="10" rx="8" ry="3" fill="#fff"/>
-            <path d="M8 12v4.5c0 1.65 3.58 3 8 3s8-1.35 8-3V12c0 1.65-3.58 3-8 3s-8-1.35-8-3z" fill="#d7f6f2"/>
-            <path d="M8 18.2v4.3c0 1.65 3.58 3 8 3s8-1.35 8-3v-4.3c0 1.65-3.58 3-8 3s-8-1.35-8-3z" fill="#bcebe5"/>
-            <circle cx="24.8" cy="24.8" r="2.7" fill="#34d399" stroke="#0f172a" stroke-width="1.4"/>
+            <rect width="32" height="32" rx="8" fill="url(#g)" />
+            <ellipse cx="16" cy="10" rx="8" ry="3" fill="#fff" />
+            <path d="M8 12v4.5c0 1.65 3.58 3 8 3s8-1.35 8-3V12c0 1.65-3.58 3-8 3s-8-1.35-8-3z" fill="#d7f6f2" />
+            <path d="M8 18.2v4.3c0 1.65 3.58 3 8 3s8-1.35 8-3v-4.3c0 1.65-3.58 3-8 3s-8-1.35-8-3z" fill="#bcebe5" />
+            <circle cx="24.8" cy="24.8" r="2.7" fill="#34d399" stroke="#0f172a" stroke-width="1.4" />
           </svg>
         </div>
         <div class="brand-text">
@@ -33,40 +35,69 @@
 
       <nav class="nav" id="nav">
         <button class="nav-item active" data-tab="dashboard">
-          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          <svg viewBox="0 0 24 24">
+            <rect x="3" y="3" width="7" height="7" rx="1.5" />
+            <rect x="14" y="3" width="7" height="7" rx="1.5" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" />
+            <rect x="14" y="14" width="7" height="7" rx="1.5" />
+          </svg>
           <span>Dashboard</span>
           <span class="nav-badge" id="runningBadge" hidden>0</span>
         </button>
         <button class="nav-item" data-tab="database">
-          <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
+          <svg viewBox="0 0 24 24">
+            <ellipse cx="12" cy="5" rx="8" ry="3" />
+            <path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
+            <path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" />
+          </svg>
           <span>Database</span>
         </button>
         <button class="nav-item" data-tab="versions">
-          <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+          <svg viewBox="0 0 24 24">
+            <path d="M12 3v12m0 0l-4-4m4 4l4-4" />
+            <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+          </svg>
           <span>Versions</span>
           <span class="nav-badge accent" id="dlBadge" hidden>0</span>
         </button>
         <button class="nav-item" data-tab="config">
-          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+          <svg viewBox="0 0 24 24">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="8" y1="13" x2="16" y2="13" />
+            <line x1="8" y1="17" x2="13" y2="17" />
+          </svg>
           <span>Config &amp; Logs</span>
         </button>
         <button class="nav-item" data-tab="terminal">
-          <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <svg viewBox="0 0 24 24">
+            <polyline points="4 17 10 11 4 5" />
+            <line x1="12" y1="19" x2="20" y2="19" />
+          </svg>
           <span>Terminal</span>
         </button>
         <button class="nav-item" data-tab="settings">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
           <span>Settings</span>
         </button>
       </nav>
 
       <div class="sidebar-footer">
         <button class="side-action" id="btnSideTerminal" title="Open terminal with DB clients in PATH">
-          <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <svg viewBox="0 0 24 24">
+            <polyline points="4 17 10 11 4 5" />
+            <line x1="12" y1="19" x2="20" y2="19" />
+          </svg>
           <span>Terminal</span>
         </button>
         <button class="side-action" id="btnSideRoot" title="Open portable folder in Explorer">
-          <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <svg viewBox="0 0 24 24">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
           <span>Root Folder</span>
         </button>
         <div class="side-row">
@@ -86,11 +117,15 @@
           </div>
           <div class="head-actions">
             <button class="btn primary" id="btnStartAll">
-              <svg viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+              <svg viewBox="0 0 24 24">
+                <polygon points="6 4 20 12 6 20 6 4" />
+              </svg>
               Start All
             </button>
             <button class="btn" id="btnStopAll">
-              <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+              <svg viewBox="0 0 24 24">
+                <rect x="6" y="6" width="12" height="12" rx="1.5" />
+              </svg>
               Stop All
             </button>
           </div>
@@ -99,7 +134,9 @@
         <div class="welcome-banner" id="welcomeBanner" hidden>
           <div>
             <strong>Portable &amp; ready to go!</strong>
-            <p>No database engines are downloaded yet. Pick MariaDB, MySQL, PostgreSQL, or Redis to install cleanly into <code>bin/</code>.</p>
+            <p>No database engines are downloaded yet. Pick MariaDB, MySQL, PostgreSQL, or Redis to install cleanly into
+              <code>bin/</code>.
+            </p>
           </div>
           <button class="btn primary" id="btnGoVersions">Install Engines</button>
         </div>
@@ -114,10 +151,20 @@
         <header class="view-head compact">
           <div class="seg-tabs" id="dbEngineTabs"></div>
           <div class="head-actions">
-            <button class="btn sm primary" id="btnOpenRestore" title="Restore a .bak backup or import a .sql script">Restore (.bak / .sql)</button>
-            <button class="btn sm accent" id="btnBackupBak" title="Back up selected database to .bak file" hidden>Backup .bak</button>
-            <button class="btn sm" id="btnBackupSql" title="Export selected database to .sql script">Export .sql</button>
-            <button class="btn sm" id="btnCopyIDE" title="Copy Visual Studio (appsettings.json) &amp; VS Code (.env) config">VS / .env</button>
+            <button class="btn sm primary" id="btnOpenRestore"
+              title="Restore a .bak backup or import a .sql script">Restore (.bak / .sql)</button>
+            <button class="btn sm accent" id="btnBackupBak" title="Back up selected database to .bak file" hidden>Backup
+              .bak</button>
+            <button class="btn sm" id="btnBackupSql" title="Export selected database to .sql script">Export
+              .sql</button>
+            <button class="btn sm primary" id="btnOpenRestore"
+              title="Restore a .bak backup or import a .sql script">Restore (.bak / .sql)</button>
+            <button class="btn sm accent" id="btnBackupBak" title="Back up selected database to .bak file" hidden>Backup
+              .bak</button>
+            <button class="btn sm" id="btnBackupSql" title="Export selected database to .sql script">Export
+              .sql</button>
+            <button class="btn sm" id="btnCopyIDE"
+              title="Copy Visual Studio (appsettings.json) &amp; VS Code (.env) config">VS / .env</button>
             <button class="btn sm" id="btnCopyConn" title="Copy connection URI">Copy URI</button>
             <button class="btn sm" id="btnDbRefresh">Refresh</button>
           </div>
@@ -150,7 +197,8 @@
                 <button class="btn xs" id="btnSqlClear">Clear</button>
                 <button class="btn xs primary" id="btnSqlRun">Run Query</button>
               </div>
-              <textarea id="sqlEditor" class="code-area" spellcheck="false" placeholder="SELECT 1; -- Click a table on the left or write SQL here..."></textarea>
+              <textarea id="sqlEditor" class="code-area" spellcheck="false"
+                placeholder="SELECT 1; -- Click a table on the left or write SQL here..."></textarea>
             </div>
             <div class="result-box">
               <div class="result-meta" id="sqlMeta">Ready</div>
@@ -183,7 +231,8 @@
               <div class="cli-out" id="redisCliOut"></div>
               <form class="cli-form" id="redisCliForm">
                 <span class="cli-prompt">redis&gt;</span>
-                <input type="text" id="redisCliInput" class="cli-input" placeholder="SET hello world  |  GET hello  |  INFO server" autocomplete="off" />
+                <input type="text" id="redisCliInput" class="cli-input"
+                  placeholder="SET hello world  |  GET hello  |  INFO server" autocomplete="off" />
                 <button class="btn xs primary" type="submit">Send</button>
               </form>
             </div>
@@ -196,8 +245,10 @@
         <header class="view-head compact">
           <div class="seg-tabs" id="verEngineTabs"></div>
           <div class="head-actions">
-            <button class="btn sm primary" id="btnRefreshCatalog" title="Check official upstream releases for newest versions">↻ Check Newest Versions</button>
-            <button class="btn sm accent" id="btnManualModal" title="Manual browser download, custom URL, or import .zip">+ Manual / Custom</button>
+            <button class="btn sm primary" id="btnRefreshCatalog"
+              title="Check official upstream releases for newest versions">↻ Check Newest Versions</button>
+            <button class="btn sm accent" id="btnManualModal"
+              title="Manual browser download, custom URL, or import .zip">+ Manual / Custom</button>
             <button class="btn sm" id="btnInstallZip">Import .zip</button>
             <button class="btn sm" id="btnOpenBin">Open bin/</button>
           </div>
@@ -272,7 +323,8 @@
           <div class="head-actions">
             <button class="btn xs danger" id="btnTermCancel" hidden>Stop (Ctrl+C)</button>
             <button class="btn xs" id="btnTermClear">Clear</button>
-            <button class="btn xs" id="btnTermExternal" title="Open in an external Windows Command Prompt window">External CMD</button>
+            <button class="btn xs" id="btnTermExternal"
+              title="Open in an external Windows Command Prompt window">External CMD</button>
           </div>
         </header>
 
@@ -282,14 +334,9 @@
           <div class="term-output" id="termOutput"></div>
           <form class="term-input-row" id="termForm">
             <span class="term-prompt" id="termPrompt">C:\&gt;</span>
-            <input
-              type="text"
-              id="termInput"
-              class="term-input"
+            <input type="text" id="termInput" class="term-input"
               placeholder="Type a command (help, status, dir, mariadb, psql, redis-cli, SQL...) and press Enter"
-              autocomplete="off"
-              spellcheck="false"
-            />
+              autocomplete="off" spellcheck="false" />
             <button type="submit" class="btn xs primary" id="btnTermRun">Run</button>
           </form>
         </div>
@@ -398,7 +445,9 @@
               <button class="btn sm accent" id="btnRegisterPath">Add CLI &amp; DB Tools to Windows PATH</button>
             </div>
             <p class="muted" style="margin:0">
-              Use <code>darius status</code>, <code>darius start all</code>, <code>darius env mssql MyApp</code>, <code>darius sql mssql "SELECT @@VERSION"</code>, <code>darius createdb</code>, and <code>darius install</code> from any Visual Studio, VS Code, PowerShell, or CMD terminal.
+              Use <code>darius status</code>, <code>darius start all</code>, <code>darius env mssql MyApp</code>,
+              <code>darius sql mssql "SELECT @@VERSION"</code>, <code>darius createdb</code>, and
+              <code>darius install</code> from any Visual Studio, VS Code, PowerShell, or CMD terminal.
             </p>
           </div>
 
@@ -432,7 +481,8 @@
       <form id="formNewDb" class="modal-body">
         <label class="field">
           <span>Database Name *</span>
-          <input type="text" id="newDbName" class="input" required pattern="[A-Za-z0-9_][A-Za-z0-9_$\-]{0,62}" placeholder="my_app" />
+          <input type="text" id="newDbName" class="input" required pattern="[A-Za-z0-9_][A-Za-z0-9_$\-]{0,62}"
+            placeholder="my_app" />
         </label>
         <div class="divider-label">Optional: also create a dedicated user with full access</div>
         <label class="field">
@@ -479,7 +529,8 @@
         <div class="field">
           <span>Option 1: Download from Official Vendor Website</span>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button type="button" class="btn sm accent" id="btnOpenOfficialSite">Open Official Download Page in Browser</button>
+            <button type="button" class="btn sm accent" id="btnOpenOfficialSite">Open Official Download Page in
+              Browser</button>
             <button type="button" class="btn sm" id="btnModalPickZip">Import Downloaded .zip File...</button>
           </div>
         </div>
@@ -515,16 +566,89 @@
         <label class="field">
           <span>Backup or SQL File (<code>.bak</code>, <code>.sql</code>, <code>.backup</code>) *</span>
           <div style="display:flex;gap:6px">
-            <input type="text" id="restoreFilePath" class="input" style="flex:1" required placeholder="C:\path\to\backup.bak or dump.sql" />
+            <input type="text" id="restoreFilePath" class="input" style="flex:1" required
+              placeholder="C:\path\to\backup.bak or dump.sql" />
             <button type="button" class="btn sm accent" id="btnBrowseRestore">Browse...</button>
           </div>
         </label>
         <label class="field">
           <span>Target Database Name *</span>
-          <input type="text" id="restoreDbName" class="input" required pattern="[A-Za-z0-9_][A-Za-z0-9_$\-]{0,62}" placeholder="Auto-filled from file or enter database name" />
+          <input type="text" id="restoreDbName" class="input" required pattern="[A-Za-z0-9_][A-Za-z0-9_$\-]{0,62}"
+            placeholder="Auto-filled from file or enter database name" />
         </label>
         <p class="muted" id="restoreHint" style="margin:0;font-size:11.5px">
-          For MS SQL Server <code>.bak</code> files, logical data &amp; log files are mapped automatically to <code>data/mssql/</code>. If the target database does not exist yet, it will be created automatically.
+          For MS SQL Server <code>.bak</code> files, logical data &amp; log files are mapped automatically to
+          <code>data/mssql/</code>. If the target database does not exist yet, it will be created automatically.
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnCancelRestore">Cancel</button>
+          <button type="submit" class="btn primary" id="btnSubmitRestore">Restore / Import</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Manual Download & Custom Version Modal -->
+  <div class="modal-backdrop" id="modalManual" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modalManualTitle">Manual Download &amp; Custom Version</h3>
+        <button class="icon-btn" id="btnCloseManual" aria-label="Close">✕</button>
+      </div>
+      <form id="formManual" class="modal-body">
+        <div class="field">
+          <span>Option 1: Download from Official Vendor Website</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn sm accent" id="btnOpenOfficialSite">Open Official Download Page in
+              Browser</button>
+            <button type="button" class="btn sm" id="btnModalPickZip">Import Downloaded .zip File...</button>
+          </div>
+        </div>
+        <div class="divider-label">Option 2: Add &amp; Download Any Custom Version URL</div>
+        <label class="field">
+          <span>Version Number *</span>
+          <input type="text" id="manualVer" class="input" required placeholder="e.g. 13.0.2 or 17.0.1000.7" />
+        </label>
+        <label class="field">
+          <span>Direct Portable .zip Download URL *</span>
+          <input type="url" id="manualUrl" class="input" required placeholder="https://.../engine-version-winx64.zip" />
+        </label>
+        <label class="field">
+          <span>Tag / Note (optional)</span>
+          <input type="text" id="manualNote" class="input" placeholder="e.g. Custom / Latest / LTS" />
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnCancelManual">Cancel</button>
+          <button type="submit" class="btn primary">Save &amp; Download</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Restore .bak / Import .sql Modal -->
+  <div class="modal-backdrop" id="modalRestore" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modalRestoreTitle">Restore .bak / Import .sql</h3>
+        <button class="icon-btn" id="btnCloseRestore" aria-label="Close">✕</button>
+      </div>
+      <form id="formRestore" class="modal-body">
+        <label class="field">
+          <span>Backup or SQL File (<code>.bak</code>, <code>.sql</code>, <code>.backup</code>) *</span>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="restoreFilePath" class="input" style="flex:1" required
+              placeholder="C:\path\to\backup.bak or dump.sql" />
+            <button type="button" class="btn sm accent" id="btnBrowseRestore">Browse...</button>
+          </div>
+        </label>
+        <label class="field">
+          <span>Target Database Name *</span>
+          <input type="text" id="restoreDbName" class="input" required pattern="[A-Za-z0-9_][A-Za-z0-9_$\-]{0,62}"
+            placeholder="Auto-filled from file or enter database name" />
+        </label>
+        <p class="muted" id="restoreHint" style="margin:0;font-size:11.5px">
+          For MS SQL Server <code>.bak</code> files, logical data &amp; log files are mapped automatically to
+          <code>data/mssql/</code>. If the target database does not exist yet, it will be created automatically.
         </p>
         <div class="modal-actions">
           <button type="button" class="btn" id="btnCancelRestore">Cancel</button>
@@ -538,4 +662,5 @@
 
   <script src="app.js"></script>
 </body>
+
 </html>

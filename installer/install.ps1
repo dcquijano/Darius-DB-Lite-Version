@@ -6,6 +6,7 @@
 param(
     [string]$InstallDir = "C:\DariusDB",
     [switch]$Silent,
+    [switch]$Force,
     [switch]$AutoStart,
     [switch]$NoDesktop,
     [switch]$NoLaunch
@@ -47,6 +48,23 @@ if (-not $mainExe) {
 }
 $launcherExe  = Find-SourceFile "DariusDB-Launcher.exe"
 $uninstallExe = Find-SourceFile "DariusDB-Uninstall.exe"
+
+# Prevent double installation unless -Force is explicitly passed
+if (-not $Force) {
+    $regExisting = Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DariusDB" -ErrorAction SilentlyContinue
+    $existingLoc = if ($regExisting -and $regExisting.InstallLocation -and (Test-Path (Join-Path $regExisting.InstallLocation "DariusDB.exe"))) {
+        $regExisting.InstallLocation
+    } elseif (Test-Path (Join-Path $InstallDir "DariusDB.exe")) {
+        $InstallDir
+    } else {
+        $null
+    }
+    if ($existingLoc) {
+        Write-Host "Darius DB is already installed in: $existingLoc" -ForegroundColor Yellow
+        Write-Host "Uninstall it first before installing again (or pass -Force to update)." -ForegroundColor Yellow
+        exit 1
+    }
+}
 
 if (-not $Silent) {
     $custom = Read-Host "Install folder [$InstallDir]"

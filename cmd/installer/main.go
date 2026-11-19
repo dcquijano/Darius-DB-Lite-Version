@@ -50,8 +50,27 @@ const (
 )
 
 func main() {
+	// 1. Prevent launching multiple instances of the Setup Wizard simultaneously
+	mutexName, _ := windows.UTF16PtrFromString("Local\\DariusDBSetupWizardMutex")
+	hMutex, err := windows.CreateMutex(nil, false, mutexName)
+	if err == windows.ERROR_ALREADY_EXISTS {
+		if hMutex != 0 {
+			windows.CloseHandle(hMutex)
+		}
+		winui.MessageBox(
+			appFullTitle+" Setup",
+			"The Darius DB Setup Wizard is already running.",
+			winui.MBOK|winui.MBIconInfo,
+		)
+		return
+	}
+	if hMutex != 0 {
+		defer windows.CloseHandle(hMutex)
+	}
+
 	installDir := defaultDir
 	silent := false
+	forceUpdate := false
 	autoStart := false
 	noDesktop := false
 
@@ -60,12 +79,42 @@ func main() {
 		switch {
 		case low == "--silent" || low == "/s" || low == "/verysilent":
 			silent = true
+		case low == "--force" || low == "--update":
+			forceUpdate = true
 		case low == "--autostart":
 			autoStart = true
 		case low == "--no-desktop":
 			noDesktop = true
 		case strings.HasPrefix(low, "--dir="):
 			installDir = strings.Trim(a[6:], `"`)
+		}
+	}
+
+	// 2. Check if Darius DB is already installed on this computer to prevent double installation
+	if !forceUpdate {
+		if existingDir := detectExistingInstallation(installDir); existingDir != "" {
+			if silent {
+				fmt.Fprintf(os.Stderr, "Darius DB is already installed in %s. Uninstall first or pass --force.\n", existingDir)
+				os.Exit(1)
+			}
+			ans := winui.MessageBox(
+				appFullTitle+" Setup — Already Installed",
+				fmt.Sprintf(
+					"%s is already installed on your computer!\n\nInstalled location:\n%s\n\nTo avoid double installation, setup will not install a duplicate copy. If you want to reinstall, please uninstall Darius DB first (via Windows Settings > Apps > Installed Apps or DariusDB-Uninstall.exe).\n\nWould you like to open the installed Darius DB now?",
+					appFullTitle, existingDir,
+				),
+				winui.MBYesNo|winui.MBIconInfo,
+			)
+			if ans == winui.IDYES {
+				launcher := filepath.Join(existingDir, "DariusDB-Launcher.exe")
+				if !fileExists(launcher) {
+					launcher = filepath.Join(existingDir, "DariusDB.exe")
+				}
+				cmd := exec.Command(launcher)
+				cmd.Dir = existingDir
+				_ = cmd.Start()
+			}
+			return
 		}
 	}
 
@@ -571,6 +620,18 @@ func startAsyncInstall() {
 	if dir == "" {
 		dir = defaultDir
 	}
+	// Also block double-installing if the user picked a folder that already has DariusDB.exe
+	if fileExists(filepath.Join(dir, "DariusDB.exe")) {
+		winui.MessageBox(
+			appFullTitle+" Setup — Already Installed",
+			fmt.Sprintf(
+				"Darius DB is already installed in:\n%s\n\nPlease uninstall the existing installation first to avoid double installing.",
+				dir,
+			),
+			winui.MBOK|winui.MBIconWarning,
+		)
+		return
+	}
 	wiz.finalDir = dir
 	opts := installOptions{
 		dir:       dir,
@@ -1000,4 +1061,23 @@ func addInstallDirToUserPath(installDir string) {
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
+}
+
+// detectExistingInstallation returns the existing install directory if Darius DB
+// is already installed (via HKCU Uninstall registry key or target installDir).
+func detectExistingInstallation(targetDir string) string {
+	if k, err := registry.OpenKey(registry.CURRENT_USER, uninstallKey, registry.QUERY_VALUE); err == nil {
+		loc, _, err := k.GetStringValue("InstallLocation")
+		k.Close()
+		if err == nil && loc != "" && fileExists(filepath.Join(loc, "DariusDB.exe")) {
+			return loc
+		}
+	}
+	if targetDir != "" && fileExists(filepath.Join(targetDir, "DariusDB.exe")) {
+		return targetDir
+	}
+	if fileExists(filepath.Join(defaultDir, "DariusDB.exe")) {
+		return defaultDir
+	}
+	return ""
 }

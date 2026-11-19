@@ -614,9 +614,13 @@
       instList.innerHTML = insts
         .map((inst) => {
           const isActive = s && inst.name === s.active;
+          const newestDl = newestEntry ? state.downloads[`${state.verEngine}@${newestEntry.version}`] : null;
+          const newestInProgress =
+            newestDl && (newestDl.phase === "downloading" || newestDl.phase === "extracting");
           const canUpdate =
             newestEntry &&
             !instSet.has(newestEntry.version) &&
+            !newestInProgress &&
             compareVer(newestEntry.version, inst.version) > 0;
           return `
           <div class="ver-row">
@@ -695,10 +699,12 @@
             <div class="ver-sub" title="${esc(entry.url)}">${esc(host)}</div>
           </div>
           <div class="ver-actions">
-            <button class="btn sm ghost" data-manual-url="${esc(entry.url)}" title="Download .zip manually in your web browser">Manual (.zip)</button>
-            <button class="btn sm primary" data-dl-ver="${esc(entry.version)}" data-dl-url="${esc(entry.url)}" ${
-          isInstalled ? "disabled" : ""
-        }>${isInstalled ? "Installed" : "Download"}</button>
+            ${
+              isInstalled
+                ? `<button class="btn sm ghost" disabled title="Already installed — remove first if you want to reinstall">✓ Installed</button>`
+                : `<button class="btn sm ghost" data-manual-url="${esc(entry.url)}" title="Download .zip manually in your web browser">Manual (.zip)</button>
+                   <button class="btn sm primary" data-dl-ver="${esc(entry.version)}" data-dl-url="${esc(entry.url)}">Download</button>`
+            }
           </div>
         </div>`;
       })
@@ -1453,7 +1459,8 @@
         return;
       }
       const btn = e.target.closest("[data-dl-ver]");
-      if (!btn) return;
+      if (!btn || btn.disabled) return;
+      btn.disabled = true;
       try {
         await api().Install(state.verEngine, btn.dataset.dlVer, btn.dataset.dlUrl);
         state.downloads[`${state.verEngine}@${btn.dataset.dlVer}`] = {
@@ -1466,6 +1473,7 @@
         renderActiveDownloads();
         renderVersions();
       } catch (err) {
+        btn.disabled = false;
         toast(errMsg(err), "err");
       }
     });

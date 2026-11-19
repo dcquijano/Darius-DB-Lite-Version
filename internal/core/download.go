@@ -297,12 +297,17 @@ func (d *Downloader) begin(engine, version string) (context.Context, error) {
 	if _, err := GetEngine(engine); err != nil {
 		return nil, err
 	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	name := engine + "-" + version
 	if dirExists(filepath.Join(d.p.EngineBin(engine), name)) {
 		return nil, fmt.Errorf("%s is already installed", name)
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	for _, inst := range ListInstallations(d.p, engine) {
+		if strings.EqualFold(inst.Name, name) || strings.EqualFold(inst.Version, version) {
+			return nil, fmt.Errorf("%s %s is already installed", engine, version)
+		}
+	}
 	k := key(engine, version)
 	if d.active[k] != nil {
 		return nil, fmt.Errorf("%s %s is already being installed", engine, version)

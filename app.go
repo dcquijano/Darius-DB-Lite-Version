@@ -142,14 +142,17 @@ func (a *App) trayTooltipFrom(st []core.ServiceStatus) string {
 		}
 	}
 	if len(running) == 0 {
+		return "Darius DB (Lite Version 0.1.1) — All services stopped"
 		return "Darius DB (Lite Version 0.1.2) — All services stopped"
 	}
+	return fmt.Sprintf("Darius DB (Lite Version 0.1.1) — Running: %s", strings.Join(running, ", "))
 	return fmt.Sprintf("Darius DB (Lite Version 0.1.2) — Running: %s", strings.Join(running, ", "))
 }
 
 func (a *App) buildTrayMenu() []tray.MenuItem {
 	st := a.mgr.Status()
 	items := []tray.MenuItem{
+		{Label: "Open Darius DB (Lite Version 0.1.1)", Default: true, Action: a.ShowWindow},
 		{Label: "Open Darius DB (Lite Version 0.1.2)", Default: true, Action: a.ShowWindow},
 		{Separator: true},
 		{Label: "Start All", Action: func() { _ = a.mgr.StartAll() }},
@@ -191,6 +194,7 @@ func (a *App) buildTrayMenu() []tray.MenuItem {
 		}},
 		tray.MenuItem{Label: "Open Data Folder", Action: func() { _ = a.OpenFolder("data") }},
 		tray.MenuItem{Separator: true},
+		tray.MenuItem{Label: "Quit Darius DB (Lite Version 0.1.1)", Action: a.QuitApp},
 		tray.MenuItem{Label: "Quit Darius DB (Lite Version 0.1.2)", Action: a.QuitApp},
 	)
 	return items
@@ -238,12 +242,12 @@ func (a *App) QuitApp() {
 
 // ---------------------------------------------------------------- Services
 
-func (a *App) Status() []core.ServiceStatus       { return a.mgr.Status() }
-func (a *App) Start(engine string) error          { return a.mgr.Start(engine) }
-func (a *App) Stop(engine string) error           { return a.mgr.Stop(engine) }
-func (a *App) Restart(engine string) error        { return a.mgr.Restart(engine) }
-func (a *App) StartAll() error                    { return a.mgr.StartAll() }
-func (a *App) StopAll() error                     { return a.mgr.StopAll() }
+func (a *App) Status() []core.ServiceStatus        { return a.mgr.Status() }
+func (a *App) Start(engine string) error           { return a.mgr.Start(engine) }
+func (a *App) Stop(engine string) error            { return a.mgr.Stop(engine) }
+func (a *App) Restart(engine string) error         { return a.mgr.Restart(engine) }
+func (a *App) StartAll() error                     { return a.mgr.StartAll() }
+func (a *App) StopAll() error                      { return a.mgr.StopAll() }
 func (a *App) SetActive(engine, name string) error { return a.mgr.SetActive(engine, name) }
 func (a *App) Uninstall(engine, name string) error { return a.mgr.Uninstall(engine, name) }
 
@@ -354,8 +358,8 @@ func (a *App) OpenConfigExternal(engine string) error {
 	return core.OpenInNotepad(path)
 }
 
-func (a *App) ReadLog(engine string) string  { return a.mgr.ReadLog(engine, 64*1024) }
-func (a *App) ClearLog(engine string) error  { return a.mgr.ClearLog(engine) }
+func (a *App) ReadLog(engine string) string { return a.mgr.ReadLog(engine, 64*1024) }
+func (a *App) ClearLog(engine string) error { return a.mgr.ClearLog(engine) }
 
 // ---------------------------------------------------------------- Built-in Terminal
 

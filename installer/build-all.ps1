@@ -1,5 +1,7 @@
 <#
 .SYNOPSIS
+  Builds Darius DB (Lite Version 0.1.1) GUI, Launcher, Uninstaller, Portable ZIP, and Standalone Setup .exe.
+  Created by Darius Cumpio - November 19, 2026 - v0.1.1
   Builds Darius DB (Lite Version 0.1.2) GUI, Launcher, Uninstaller, Portable ZIP, and Standalone Setup .exe.
   Created by Darius Cumpio - November 19, 2026 - v0.1.2
 #>
@@ -9,14 +11,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version  = "0.1.2"
+$Version = "0.1.1"
+$Version = "0.1.2"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Push-Location $RepoRoot
 
 try {
-    $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
+    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
     $goPath = (go env GOPATH).Trim()
     if ($goPath) { $env:Path += ';' + (Join-Path $goPath 'bin') }
+
+    Remove-Item -Force "dist\*", "installer\*.exe", "build\bin\*.exe" -ErrorAction SilentlyContinue
 
     if (-not $SkipTests) {
         Write-Host "==> Running tests..." -ForegroundColor Cyan
@@ -25,8 +30,9 @@ try {
     }
 
     Write-Host "==> Building DariusDB.exe (Wails production build)..." -ForegroundColor Cyan
-    wails build -skipbindings -ldflags "-s -w"
-    if ($LASTEXITCODE -ne 0) { throw "wails build failed" }
+    New-Item -ItemType Directory -Force -Path "build\bin" | Out-Null
+    go build -p 1 -tags "desktop,production" -ldflags "-s -w -H windowsgui" -o "build\bin\DariusDB.exe" .
+    if ($LASTEXITCODE -ne 0) { throw "building DariusDB.exe failed" }
 
     Write-Host "==> Building DariusDB-Launcher.exe..." -ForegroundColor Cyan
     go build -p 1 -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Launcher.exe" ./cmd/launcher
@@ -44,11 +50,12 @@ try {
     $stubExe = "build\bin\DariusDB-Setup-stub.exe"
     go build -p 1 -ldflags "-s -w -H=windowsgui" -o $stubExe ./cmd/installer
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Setup.exe failed" }
+    go clean -cache
 
     Write-Host "==> Packaging portable ZIP & self-contained DariusDB-Setup-$Version.exe..." -ForegroundColor Cyan
-    $distDir  = Join-Path $RepoRoot "dist"
+    $distDir = Join-Path $RepoRoot "dist"
     $stageDir = Join-Path $distDir "DariusDB-$Version-portable"
-    $zipPath  = Join-Path $distDir "DariusDB-$Version-portable-windows-amd64.zip"
+    $zipPath = Join-Path $distDir "DariusDB-$Version-portable-windows-amd64.zip"
     $setupExe = Join-Path $distDir "DariusDB-Setup-$Version.exe"
 
     Remove-Item -Recurse -Force $stageDir -ErrorAction SilentlyContinue
@@ -64,11 +71,12 @@ try {
     Compress-Archive -Path "$stageDir\*" -DestinationPath $zipPath
     Remove-Item -Recurse -Force $stageDir
 
+    # Create self-contained single-file DariusDB-Setup-0.1.1.exe (stub + zip payload + 16-byte trailer)
     # Create self-contained single-file DariusDB-Setup-0.1.2.exe (stub + zip payload + 16-byte trailer)
     Copy-Item -Force $stubExe $setupExe
-    $zipBytes  = [System.IO.File]::ReadAllBytes($zipPath)
+    $zipBytes = [System.IO.File]::ReadAllBytes($zipPath)
     $sizeBytes = [System.BitConverter]::GetBytes([uint64]$zipBytes.Length)
-    $magic     = [System.Text.Encoding]::ASCII.GetBytes("DARIUS01")
+    $magic = [System.Text.Encoding]::ASCII.GetBytes("DARIUS01")
     $fs = [System.IO.File]::Open($setupExe, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write)
     try {
         $fs.Write($zipBytes, 0, $zipBytes.Length)
@@ -80,6 +88,7 @@ try {
     }
     Remove-Item -Force $stubExe -ErrorAction SilentlyContinue
 
+    # Also place DariusDB-Setup-0.1.1.exe and DariusDB-Uninstall.exe in installer\ for direct click access
     # Also place DariusDB-Setup-0.1.2.exe and DariusDB-Uninstall.exe in installer\ for direct click access
     Copy-Item -Force $setupExe "installer\DariusDB-Setup-$Version.exe"
     Copy-Item -Force "build\bin\DariusDB-Uninstall.exe" "installer\DariusDB-Uninstall.exe"
@@ -87,8 +96,8 @@ try {
     Write-Host ""
     Write-Host "==> Build outputs:" -ForegroundColor Green
     Get-ChildItem "build\bin\*.exe", "dist\*", "installer\*.exe" -ErrorAction SilentlyContinue |
-        Select-Object Name, @{N="SizeMB";E={[math]::Round($_.Length/1MB,2)}}, FullName |
-        Format-Table -AutoSize
+    Select-Object Name, @{N = "SizeMB"; E = { [math]::Round($_.Length / 1MB, 2) } }, FullName |
+    Format-Table -AutoSize
 }
 finally {
     Pop-Location

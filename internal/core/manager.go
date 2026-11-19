@@ -167,9 +167,7 @@ func (m *Manager) status(id string) ServiceStatus {
 	}
 	if id == "mssql" {
 		st.ServerName = MSSQLServerName()
-		if st.User == "" {
-			st.User = "dbdarius"
-		}
+		st.User = ""
 	}
 	if inst, ok := FindInstallation(m.p, id, es.Version); ok {
 		st.DataDir = eng.DataDir(m.p, inst)

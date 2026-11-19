@@ -228,7 +228,6 @@
             ${verControl}
             <span class="meta-tag">:${s.port}</span>
             ${s.engine === "mssql" && s.serverName ? `<span class="meta-tag" title="MS SQL Server Name (PC User)">Server: ${esc(s.serverName)}</span>` : ""}
-            ${s.engine === "mssql" ? `<span class="meta-tag" title="Default MS SQL Account">User: ${esc(s.user || "dbdarius")}</span>` : ""}
             ${isMailpit ? `<span class="meta-tag" title="Local SMTP capture port">SMTP :1025</span>` : ""}
             ${running && s.pid ? `<span class="meta-tag">PID ${s.pid}</span>` : ""}
             ${s.portBusy && !running ? `<span class="pill warn" title="Another program is using port ${s.port}">Port busy</span>` : ""}
@@ -937,12 +936,10 @@
         const es = s.engines[id] || {};
         const isWebRoot = id === "apache" || id === "php";
         const isMailpit = id === "mailpit";
-        const noAuth = id === "redis" || isWebRoot || isMailpit;
         const isMSSQL = id === "mssql";
+        const noAuth = id === "redis" || isWebRoot || isMailpit || isMSSQL;
         const mssqlStatus = isMSSQL ? getStatus("mssql") : null;
         const mssqlServer = mssqlStatus?.serverName || "";
-        const userVal = es.user || (isMSSQL ? "dbdarius" : "");
-        const passVal = es.password || (isMSSQL ? "admin" : "");
         return `<tr data-eng-row="${id}">
           <td>
             <strong>${labels[id]}</strong>
@@ -951,12 +948,12 @@
           <td><input type="checkbox" class="eng-enabled" ${es.enabled ? "checked" : ""} /></td>
           <td><input type="number" class="input sm port-input eng-port" min="1" max="65535" value="${es.port || ""}" /></td>
           <td>${noAuth
-            ? `<span class="muted">${isWebRoot ? "www/ (DocumentRoot)" : isMailpit ? "SMTP :1025 / Web UI" : "—"}</span>`
-            : `<input type="text" class="input sm eng-user" value="${esc(userVal)}" placeholder="${isMSSQL ? "dbdarius" : ""}" />`
+            ? `<span class="muted">${isWebRoot ? "www/ (DocumentRoot)" : isMailpit ? "SMTP :1025 / Web UI" : isMSSQL ? `Windows Auth (${esc(mssqlServer || "LocalDB")})` : "—"}</span>`
+            : `<input type="text" class="input sm eng-user" value="${esc(es.user || "")}" />`
           }</td>
-          <td>${isWebRoot || isMailpit
+          <td>${isWebRoot || isMailpit || isMSSQL
             ? `<span class="muted">—</span>`
-            : `<input type="password" class="input sm eng-pass" value="${esc(passVal)}" placeholder="${id === "redis" ? "optional" : isMSSQL ? "admin" : "blank = no password"}" />`
+            : `<input type="password" class="input sm eng-pass" value="${esc(es.password || "")}" placeholder="${id === "redis" ? "optional" : "blank = no password"}" />`
           }</td>
         </tr>`;
       })

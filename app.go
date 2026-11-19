@@ -489,9 +489,7 @@ func (a *App) ConnectionString(engine, dbName string) string {
 			dbName = "master"
 		}
 		srv := core.MSSQLServerName()
-		u := fallback(es.User, "dbdarius")
-		pw := fallback(es.Password, "admin")
-		return fmt.Sprintf("Server=%s;Database=%s;User Id=%s;Password=%s;TrustServerCertificate=True;", srv, dbName, u, pw)
+		return fmt.Sprintf("Server=%s;Database=%s;Trusted_Connection=True;TrustServerCertificate=True;", srv, dbName)
 	case "redis":
 		if es.Password != "" {
 			return fmt.Sprintf("redis://:%s@127.0.0.1:%d/0", url.QueryEscape(es.Password), es.Port)

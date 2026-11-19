@@ -35,7 +35,7 @@ func DefaultSettings() *Settings {
 			"mariadb":    {Enabled: true, Port: 3306, User: "root"},
 			"mysql":      {Enabled: false, Port: 3307, User: "root"},
 			"postgresql": {Enabled: true, Port: 5432, User: "postgres"},
-			"mssql":      {Enabled: true, Port: 1433, User: "dbdarius", Password: "admin"},
+			"mssql":      {Enabled: true, Port: 1433},
 			"redis":      {Enabled: true, Port: 6379},
 			"mailpit":    {Enabled: true, Port: 8025},
 		},
@@ -64,10 +64,9 @@ func LoadSettings(root string) *SettingsStore {
 					loaded.Engines[id] = es
 				}
 			}
-			// Populate default MSSQL credentials (dbdarius / admin) if previously left blank
-			if ms := loaded.Engines["mssql"]; ms != nil && ms.User == "" && ms.Password == "" {
-				ms.User = "dbdarius"
-				ms.Password = "admin"
+			if ms := loaded.Engines["mssql"]; ms != nil {
+				ms.User = ""
+				ms.Password = ""
 			}
 			st.s = loaded
 			_ = st.saveLocked()

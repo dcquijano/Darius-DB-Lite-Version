@@ -558,15 +558,7 @@ func buildConnectionURI(engine string, es EngineSettings, dbName string) (string
 			dbName = "master"
 		}
 		srv := MSSQLServerName()
-		u := es.User
-		if u == "" {
-			u = "dbdarius"
-		}
-		pw := es.Password
-		if pw == "" {
-			pw = "admin"
-		}
-		return fmt.Sprintf("Server=%s;Database=%s;User Id=%s;Password=%s;TrustServerCertificate=True;", srv, dbName, u, pw), nil
+		return fmt.Sprintf("Server=%s;Database=%s;Trusted_Connection=True;TrustServerCertificate=True;", srv, dbName), nil
 	case "redis":
 		if es.Password != "" {
 			return fmt.Sprintf("redis://:%s@127.0.0.1:%d/0", url.QueryEscape(es.Password), es.Port), nil
@@ -597,21 +589,13 @@ func buildIDECredentialsSnippet(engine string, es EngineSettings, dbName string)
 
 	case "mssql":
 		srv := MSSQLServerName()
-		u := es.User
-		if u == "" {
-			u = "dbdarius"
-		}
-		pw := es.Password
-		if pw == "" {
-			pw = "admin"
-		}
 		dotnet := uri
 		fmt.Fprintf(&b, "[MS SQL Server Connection Info]\n")
-		fmt.Fprintf(&b, "Server Name: %s\nUsername:    %s\nPassword:    %s\nPort:        %d\n\n", srv, u, pw, es.Port)
+		fmt.Fprintf(&b, "Server Name: %s\nAuth Mode:   Windows Authentication (Trusted_Connection)\nPort:        %d\n\n", srv, es.Port)
 		fmt.Fprintf(&b, "[Visual Studio / .NET appsettings.json]\n")
 		fmt.Fprintf(&b, "{\n  \"ConnectionStrings\": {\n    \"DefaultConnection\": %q\n  }\n}\n\n", dotnet)
 		fmt.Fprintf(&b, "[VS Code / .env (Prisma / Node / Python)]\n")
-		fmt.Fprintf(&b, "DATABASE_URL=\"sqlserver://%s:%d;database=%s;user=%s;password=%s;trustServerCertificate=true\"\n\n", srv, es.Port, dbName, u, pw)
+		fmt.Fprintf(&b, "DATABASE_URL=\"sqlserver://%s:%d;database=%s;integratedSecurity=true;trustServerCertificate=true\"\n\n", srv, es.Port, dbName)
 		fmt.Fprintf(&b, "[Terminal / Package Manager Console]\n")
 		fmt.Fprintf(&b, "darius sql mssql \"SELECT @@VERSION\" -d %s\n", dbName)
 

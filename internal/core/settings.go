@@ -33,7 +33,7 @@ func DefaultSettings() *Settings {
 			"apache":     {Enabled: true, Port: 8080},
 			"php":        {Enabled: true, Port: 9000},
 			"mariadb":    {Enabled: true, Port: 3306, User: "root"},
-			"mysql":      {Enabled: false, Port: 3307, User: "root"},
+			"mysql":      {Enabled: true, Port: 3306, User: "root"},
 			"postgresql": {Enabled: true, Port: 5432, User: "postgres"},
 			"mssql":      {Enabled: true, Port: 1433},
 			"redis":      {Enabled: true, Port: 6379},
@@ -67,6 +67,13 @@ func LoadSettings(root string) *SettingsStore {
 			if ms := loaded.Engines["mssql"]; ms != nil {
 				ms.User = ""
 				ms.Password = ""
+			}
+			// Auto-migrate legacy MySQL port 3307 -> standard 3306 so Laravel / PHP apps connect on 3306 out of the box
+			if my := loaded.Engines["mysql"]; my != nil && my.Port == 3307 {
+				ma := loaded.Engines["mariadb"]
+				if ma == nil || ma.Version == "" {
+					my.Port = 3306
+				}
 			}
 			st.s = loaded
 			_ = st.saveLocked()

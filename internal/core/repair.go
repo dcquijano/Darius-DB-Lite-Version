@@ -132,7 +132,9 @@ func (m *Manager) Repair(target string, resetConfigs bool) (*RepairReport, error
 				es.Port = def.Port
 				portRepairs = append(portRepairs, fmt.Sprintf("%s port -> %d", id, def.Port))
 			}
-			if other, taken := usedPorts[es.Port]; taken && other != id {
+			// MariaDB and MySQL share standard MySQL protocol port 3306 when used interchangeably
+			isMySQLPair := (id == "mysql" && usedPorts[es.Port] == "mariadb") || (id == "mariadb" && usedPorts[es.Port] == "mysql")
+			if other, taken := usedPorts[es.Port]; taken && other != id && !isMySQLPair {
 				es.Port = def.Port
 				portRepairs = append(portRepairs, fmt.Sprintf("%s port collision resolved -> %d", id, def.Port))
 			}

@@ -177,7 +177,11 @@ func (m *Manager) status(id string) ServiceStatus {
 		st.State = StateNotInstalled
 	}
 	if s.state == StateStopped || s.state == StateError {
-		st.PortBusy = portInUse(es.Port)
+		busy := portInUse(es.Port)
+		if busy && ((id == "mariadb" && m.IsRunning("mysql")) || (id == "mysql" && m.IsRunning("mariadb"))) {
+			busy = false
+		}
+		st.PortBusy = busy
 	}
 	return st
 }
@@ -217,6 +221,12 @@ func (m *Manager) Start(id string) error {
 	inst, ok := FindInstallation(m.p, id, es.Version)
 	if !ok {
 		return fmt.Errorf("%s is not installed - open Versions to download it", eng.Name())
+	}
+	// If starting MySQL on 3306 while MariaDB is running on 3306 (or vice versa), stop the sibling first
+	if id == "mysql" && m.IsRunning("mariadb") && m.st.Engine("mariadb").Port == es.Port {
+		_ = m.Stop("mariadb")
+	} else if id == "mariadb" && m.IsRunning("mysql") && m.st.Engine("mysql").Port == es.Port {
+		_ = m.Stop("mysql")
 	}
 	if portInUse(es.Port) {
 		err := fmt.Errorf("port %d is already used by another program - change the %s port in Settings", es.Port, eng.Name())

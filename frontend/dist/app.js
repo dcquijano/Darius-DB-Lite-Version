@@ -153,15 +153,30 @@
     else if (state.dbEngine === "apache") state.dbEngine = "mariadb";
   }
 
-  // ---- Dashboard (5th-Picture Unified Row Layout: Apache + PHP Unified with MariaDB, MySQL & Mailpit) ----
+  // ---- Dashboard (5th-Picture Unified Row Layout: Apache + PHP Unified with MariaDB/MySQL & Mailpit) ----
   function renderDashboard() {
     const phpSvc = state.statuses.find((s) => s.engine === "php");
     const apacheSvc = state.statuses.find((s) => s.engine === "apache");
     const mariaSvc = state.statuses.find((s) => s.engine === "mariadb");
     const mysqlSvc = state.statuses.find((s) => s.engine === "mysql");
 
-    // Count active running services (PHP is unified into Apache)
-    const visibleStatuses = state.statuses.filter((s) => s.engine !== "php");
+    // Determine primary MySQL/MariaDB service for the unified MySQL / MariaDB (:3306) row
+    const mariaInsts = mariaSvc?.installations || [];
+    const mysqlInsts = mysqlSvc?.installations || [];
+    const primaryMySQLFamily =
+      mysqlSvc?.state === "running"
+        ? "mysql"
+        : mariaSvc?.state === "running"
+          ? "mariadb"
+          : mysqlInsts.length > 0 && mariaInsts.length === 0
+            ? "mysql"
+            : "mariadb";
+    const hiddenMySQLSibling = primaryMySQLFamily === "mysql" ? "mariadb" : "mysql";
+
+    // Filter out PHP (unified into Apache row) and the inactive MySQL/MariaDB sibling (unified into MySQL / MariaDB :3306 row)
+    const visibleStatuses = state.statuses.filter(
+      (s) => s.engine !== "php" && s.engine !== hiddenMySQLSibling
+    );
     const runningCount = visibleStatuses.filter((s) => s.state === "running").length;
     const badge = $("runningBadge");
     badge.textContent = runningCount;
@@ -174,11 +189,22 @@
 
     const rowsHtml = visibleStatuses
       .map((s) => {
-        const installed = s.installations && s.installations.length > 0;
-        const busy = s.state === "starting" || s.state === "stopping";
-        const running = s.state === "running";
         const isApache = s.engine === "apache";
         const isMailpit = s.engine === "mailpit";
+        const isMySQLFamily = s.engine === "mysql" || s.engine === "mariadb";
+
+        // Combine MariaDB + MySQL installations for the unified MySQL / MariaDB row
+        const combinedMySQLInsts = isMySQLFamily
+          ? [
+              ...mysqlInsts.map((i) => ({ ...i, engine: "mysql" })),
+              ...mariaInsts.map((i) => ({ ...i, engine: "mariadb" })),
+            ]
+          : [];
+        const installed = isMySQLFamily
+          ? combinedMySQLInsts.length > 0
+          : s.installations && s.installations.length > 0;
+        const busy = s.state === "starting" || s.state === "stopping";
+        const running = s.state === "running";
 
         // Toggle switch on far left (exact match to 5th picture)
         const toggleAct = !installed ? "install" : running ? "stop" : "start";
@@ -196,7 +222,16 @@
         };
 
         let verSelect = "";
-        if (installed) {
+        if (isMySQLFamily && installed) {
+          verSelect = `<select class="select sm svc-ver" data-engine="${s.engine}" data-mysql-unified="1" ${busy ? "disabled" : ""} title="Select active MySQL or MariaDB version (Port 3306)">
+            ${combinedMySQLInsts
+              .map(
+                (inst) =>
+                  `<option value="${esc(inst.engine)}|${esc(inst.name)}" ${inst.engine === s.engine && inst.name === s.active ? "selected" : ""}>${esc(inst.name)}</option>`
+              )
+              .join("")}
+          </select>`;
+        } else if (installed) {
           if (s.installations.length > 1) {
             verSelect = `<select class="select sm svc-ver" data-engine="${s.engine}" ${busy ? "disabled" : ""} title="Select ${esc(s.name)} version">
               ${s.installations
@@ -229,6 +264,10 @@
           } else {
             phpIntegrationHtml = `<button type="button" class="btn xs accent" data-act="install" data-engine="php" title="Install PHP 8.4 / 8.3 / 8.2 for Apache">+ Install PHP</button>`;
           }
+        } else if (isMySQLFamily && installed) {
+          const otherEng = s.engine === "mysql" ? "mariadb" : "mysql";
+          const otherLabel = s.engine === "mysql" ? "+ MariaDB" : "+ MySQL";
+          phpIntegrationHtml = `<button type="button" class="btn xs ghost" data-act="install" data-engine="${otherEng}" title="Install or manage ${otherEng === "mariadb" ? "MariaDB 11.4 / 10.11" : "MySQL 9.7 / 8.4"} versions">${otherLabel}</button>`;
         }
 
         // Quick icon next to service title (5th picture: open padlock next to Apache, blue envelope next to Mailpit)
@@ -247,7 +286,13 @@
           </button>`;
         }
 
-        const displayName = isApache ? "Apache" : s.name;
+        const displayName = isApache
+          ? "Apache"
+          : isMySQLFamily
+            ? s.engine === "mysql"
+              ? "MySQL / MariaDB"
+              : "MariaDB / MySQL"
+            : s.name;
         const portDisplay = isMailpit ? `1025/${s.port}` : `${s.port}`;
 
         // Right column: Reload (just like 5th picture) + subtle quick actions
@@ -1489,6 +1534,21 @@ try {
       const sel = e.target.closest(".svc-ver");
       if (!sel) return;
       try {
+        if (sel.dataset.mysqlUnified === "1" && sel.value.includes("|")) {
+          const [targetEng, targetVer] = sel.value.split("|");
+          const prevEng = sel.dataset.engine;
+          const prevSvc = getStatus(prevEng);
+          const wasRunning = prevSvc && prevSvc.state === "running";
+          if (wasRunning && prevEng !== targetEng) {
+            await api().Stop(prevEng);
+          }
+          await api().SetActive(targetEng, targetVer);
+          if (wasRunning && prevEng !== targetEng) {
+            await api().Start(targetEng);
+          }
+          toast(`Switched MySQL / MariaDB (Port 3306) to ${targetVer}`, "ok");
+          return;
+        }
         await api().SetActive(sel.dataset.engine, sel.value);
         if (sel.dataset.engine === "php") {
           toast(`Switched Apache PHP engine to ${sel.value}`, "ok");

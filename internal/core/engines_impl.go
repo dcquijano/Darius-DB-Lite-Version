@@ -42,28 +42,40 @@ func (m *mysqlFamily) ConfigFile(p *Paths, inst Installation) string {
 	return filepath.Join(p.EngineEtc(m.id), "my.ini")
 }
 
-const mariadbIni = `# Darius DB - MariaDB configuration
+const mariadbIni = `# Darius DB - MariaDB Full-Stack Configuration (UTF8MB4 + InnoDB Optimized for 20,000+ records)
 # Port, basedir and datadir are passed by Darius DB on the command line.
 [mysqld]
 bind-address = 127.0.0.1
 character-set-server = utf8mb4
 collation-server = utf8mb4_unicode_ci
-max_allowed_packet = 64M
-innodb_buffer_pool_size = 128M
+max_allowed_packet = 128M
+innodb_buffer_pool_size = 256M
+innodb_log_file_size = 64M
+innodb_flush_log_at_trx_commit = 2
+innodb_file_per_table = 1
+skip-name-resolve = ON
 max_connections = 200
+slow_query_log = 1
+long_query_time = 2
 
 [client]
 default-character-set = utf8mb4
 `
 
-const mysqlIni = `# Darius DB - MySQL configuration
+const mysqlIni = `# Darius DB - MySQL Full-Stack Configuration (UTF8MB4 + InnoDB Optimized for 20,000+ records)
 # Port, basedir and datadir are passed by Darius DB on the command line.
 [mysqld]
 bind-address = 127.0.0.1
 character-set-server = utf8mb4
-max_allowed_packet = 64M
-innodb_buffer_pool_size = 128M
+collation-server = utf8mb4_unicode_ci
+max_allowed_packet = 128M
+innodb_buffer_pool_size = 256M
+innodb_flush_log_at_trx_commit = 2
+innodb_file_per_table = 1
+skip-name-resolve = ON
 max_connections = 200
+slow_query_log = 1
+long_query_time = 2
 # disable the X Protocol listener (port 33060) to keep things light
 mysqlx = OFF
 

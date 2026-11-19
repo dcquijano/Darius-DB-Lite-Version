@@ -153,9 +153,16 @@
     else if (state.dbEngine === "apache") state.dbEngine = "mariadb";
   }
 
-  // ---- Dashboard ----
+  // ---- Dashboard (5th-Picture Unified Row Layout: Apache + PHP Unified with MariaDB, MySQL & Mailpit) ----
   function renderDashboard() {
-    const runningCount = state.statuses.filter((s) => s.state === "running").length;
+    const phpSvc = state.statuses.find((s) => s.engine === "php");
+    const apacheSvc = state.statuses.find((s) => s.engine === "apache");
+    const mariaSvc = state.statuses.find((s) => s.engine === "mariadb");
+    const mysqlSvc = state.statuses.find((s) => s.engine === "mysql");
+
+    // Count active running services (PHP is unified into Apache)
+    const visibleStatuses = state.statuses.filter((s) => s.engine !== "php");
+    const runningCount = visibleStatuses.filter((s) => s.state === "running").length;
     const badge = $("runningBadge");
     badge.textContent = runningCount;
     badge.hidden = runningCount === 0;
@@ -165,93 +172,194 @@
 
     renderActiveDownloads();
 
-    const grid = $("serviceGrid");
-    grid.innerHTML = state.statuses
+    const rowsHtml = visibleStatuses
       .map((s) => {
         const installed = s.installations && s.installations.length > 0;
         const busy = s.state === "starting" || s.state === "stopping";
         const running = s.state === "running";
-        const stateLabel = s.state === "not-installed" ? "Not Installed" : s.state;
-
-        const verControl = installed
-          ? `<select class="select sm svc-ver" data-engine="${s.engine}" ${busy ? "disabled" : ""} title="Active version">
-              ${s.installations
-            .map(
-              (inst) =>
-                `<option value="${esc(inst.name)}" ${inst.name === s.active ? "selected" : ""}>${esc(inst.name)}</option>`
-            )
-            .join("")}
-            </select>`
-          : `<span class="muted">No version installed</span>`;
-
-        const primaryBtn = !installed
-          ? `<button class="btn sm primary" data-act="install" data-engine="${s.engine}">Install</button>`
-          : running
-            ? `<button class="btn sm danger" data-act="stop" data-engine="${s.engine}">Stop</button>
-             <button class="btn sm" data-act="restart" data-engine="${s.engine}">Restart</button>`
-            : `<button class="btn sm primary" data-act="start" data-engine="${s.engine}" ${busy ? "disabled" : ""}>${busy ? stateLabel + "..." : "Start"
-            }</button>`;
-
         const isApache = s.engine === "apache";
-        const isPhp = s.engine === "php";
         const isMailpit = s.engine === "mailpit";
-        const isWebRoot = isApache || isPhp;
-        const extraRunning = running
-          ? isApache
-            ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}" title="Open Drag &amp; Drop Website Dashboard">Open Site</button>
-               <button class="btn sm" data-act="deploysite" data-engine="${s.engine}" title="Deploy a .zip or .html website into www/">Deploy .zip</button>
-               <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy http://localhost:${s.port}/">URL</button>`
-            : isPhp
-              ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}" title="Open PHP Server at http://localhost:${s.port}/">Open PHP</button>
-               <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy http://localhost:${s.port}/">URL</button>`
-              : isMailpit
-                ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}" title="Open Mailpit Web Inbox at http://localhost:${s.port}/">Open Inbox</button>
-               <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy Mailpit SMTP &amp; Web Inbox URL">SMTP</button>`
-                : `<button class="btn sm accent" data-act="browse" data-engine="${s.engine}">Browse</button>
-               <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy connection URI">URI</button>`
-          : isApache && installed
-            ? `<button class="btn sm" data-act="deploysite" data-engine="${s.engine}" title="Deploy a .zip or .html website into www/">Deploy .zip</button>`
-            : "";
+
+        // Toggle switch on far left (exact match to 5th picture)
+        const toggleAct = !installed ? "install" : running ? "stop" : "start";
+        const toggleTitle = !installed
+          ? `Click to install ${s.name}`
+          : running
+            ? `Stop ${s.name}`
+            : `Start ${s.name}`;
+        const toggleBtn = `<button type="button" class="svc-toggle ${s.state}" data-act="${toggleAct}" data-engine="${s.engine}" ${busy ? "disabled" : ""} title="${esc(toggleTitle)}"></button>`;
+
+        // Version display / dropdown
+        const cleanVer = (name, prefix) => {
+          if (!name) return "";
+          return String(name).replace(new RegExp("^" + prefix + "-?", "i"), "").replace(/^lite-/i, "");
+        };
+
+        let verSelect = "";
+        if (installed) {
+          if (s.installations.length > 1) {
+            verSelect = `<select class="select sm svc-ver" data-engine="${s.engine}" ${busy ? "disabled" : ""} title="Select ${esc(s.name)} version">
+              ${s.installations
+                .map(
+                  (inst) =>
+                    `<option value="${esc(inst.name)}" ${inst.name === s.active ? "selected" : ""}>${esc(inst.name)}</option>`
+                )
+                .join("")}
+            </select>`;
+          } else {
+            const verNum = cleanVer(s.active, s.engine) || s.installations[0].version || s.active;
+            verSelect = `<span class="muted" style="font-size:13.5px;font-weight:500">${esc(verNum)}</span>`;
+          }
+        } else {
+          verSelect = `<span class="muted" style="font-size:12px">(not installed)</span>`;
+        }
+
+        // Integrated PHP selector right inside the Apache row ("PHP 8.x with Apache 2.4")
+        let phpIntegrationHtml = "";
+        if (isApache && phpSvc) {
+          const phpInstalled = phpSvc.installations && phpSvc.installations.length > 0;
+          if (phpInstalled) {
+            const phpOptions = phpSvc.installations
+              .map(
+                (inst) =>
+                  `<option value="${esc(inst.name)}" ${inst.name === phpSvc.active ? "selected" : ""}>with PHP ${esc(inst.version || cleanVer(inst.name, "php"))}</option>`
+              )
+              .join("");
+            phpIntegrationHtml = `<select class="select sm svc-ver" data-engine="php" style="border-color:rgba(20,184,166,0.45);color:var(--accent);font-weight:600" title="Active PHP version running inside Apache 2.4">${phpOptions}</select>`;
+          } else {
+            phpIntegrationHtml = `<button type="button" class="btn xs accent" data-act="install" data-engine="php" title="Install PHP 8.4 / 8.3 / 8.2 for Apache">+ Install PHP</button>`;
+          }
+        }
+
+        // Quick icon next to service title (5th picture: open padlock next to Apache, blue envelope next to Mailpit)
+        let titleIconBtn = "";
+        if (isApache) {
+          titleIconBtn = `<button type="button" class="svc-icon-link" data-act="opensite" data-engine="apache" data-port="${s.port}" title="Open Apache + PHP Web Root (http://localhost:${s.port}/)">
+            <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+          </button>`;
+        } else if (isMailpit) {
+          titleIconBtn = `<button type="button" class="svc-icon-link mail-blue" data-act="opensite" data-engine="mailpit" data-port="${s.port}" title="Open Mailpit Web Inbox (http://localhost:${s.port}/)">
+            <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          </button>`;
+        } else if (installed && (s.isSql || s.engine === "redis")) {
+          titleIconBtn = `<button type="button" class="svc-icon-link" data-act="browse" data-engine="${s.engine}" title="Open ${esc(s.name)} Browser">
+            <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
+          </button>`;
+        }
+
+        const displayName = isApache ? "Apache" : s.name;
+        const portDisplay = isMailpit ? `1025/${s.port}` : `${s.port}`;
+
+        // Right column: Reload (just like 5th picture) + subtle quick actions
+        let rightActions = "";
+        if (!installed) {
+          rightActions = `<button class="btn xs primary" data-act="install" data-engine="${s.engine}">Install</button>`;
+        } else {
+          const reloadBtn = `<button type="button" class="svc-reload-link" data-act="${running ? "restart" : "start"}" data-engine="${s.engine}" ${busy ? "disabled" : ""} title="${running ? "Reload " + esc(s.name) : "Start " + esc(s.name)}">Reload</button>`;
+          if (isApache) {
+            rightActions = `
+              ${reloadBtn}
+              <button class="btn xs accent" data-act="opensite" data-engine="apache" data-port="${s.port}">Open Web ↗</button>
+              <button class="btn xs" data-act="deploysite" data-engine="apache" title="Deploy website .zip or index.html to www/">Deploy .zip</button>
+              <button class="btn xs ghost" data-act="data" data-engine="apache" title="Open www/ folder">www/</button>
+              <button class="btn xs ghost" data-act="config" data-engine="apache" title="Edit Apache httpd.conf">httpd.conf</button>
+              <button class="btn xs ghost" data-act="config" data-engine="php" title="Edit PHP php.ini (OPcache, PDO, mysqli, Mailpit)">php.ini</button>
+              <button class="btn xs ghost" data-act="logs" data-engine="apache">Logs</button>
+              <button class="btn xs ghost" data-act="repair" data-engine="apache">Repair</button>`;
+          } else if (isMailpit) {
+            rightActions = `
+              ${reloadBtn}
+              ${running ? `<button class="btn xs accent" data-act="opensite" data-engine="mailpit" data-port="${s.port}">Inbox ↗</button>` : ""}
+              <button class="btn xs ghost" data-act="uri" data-engine="mailpit" title="Copy SMTP &amp; Web Inbox URL">SMTP</button>
+              <button class="btn xs ghost" data-act="config" data-engine="mailpit">Config</button>
+              <button class="btn xs ghost" data-act="logs" data-engine="mailpit">Logs</button>
+              <button class="btn xs ghost" data-act="repair" data-engine="mailpit">Repair</button>`;
+          } else {
+            rightActions = `
+              ${reloadBtn}
+              ${running ? `<button class="btn xs accent" data-act="browse" data-engine="${s.engine}">Browse</button>` : ""}
+              <button class="btn xs ghost" data-act="uri" data-engine="${s.engine}" title="Copy connection string">URI</button>
+              <button class="btn xs ghost" data-act="config" data-engine="${s.engine}">Config</button>
+              <button class="btn xs ghost" data-act="logs" data-engine="${s.engine}">Logs</button>
+              <button class="btn xs ghost" data-act="data" data-engine="${s.engine}">Data</button>
+              <button class="btn xs ghost" data-act="repair" data-engine="${s.engine}">Repair</button>`;
+          }
+        }
 
         return `
-        <article class="svc-card ${s.state}">
-          <div class="svc-top">
-            <div class="svc-title">
-              <span class="dot ${s.state}"></span>
-              <span>${esc(s.name)}</span>
-              ${s.enabled ? `<span class="pill accent" title="Included in Start All">Auto</span>` : ""}
+        <div class="svc-row ${s.state}">
+          <div class="svc-row-left">
+            ${toggleBtn}
+            <div class="svc-name-wrap">
+              <span class="svc-name-label">${esc(displayName)}</span>
+              ${verSelect}
+              ${phpIntegrationHtml}
+              ${titleIconBtn}
+              ${s.engine === "mssql" && s.serverName ? `<span class="meta-tag" title="MS SQL Server Name (Windows PC User)">Server: ${esc(s.serverName)}</span>` : ""}
+              ${s.portBusy && !running ? `<span class="pill warn" title="Port ${s.port} is in use">Port busy</span>` : ""}
             </div>
-            <span class="pill ${s.state}">${esc(stateLabel)}</span>
           </div>
-
-          <div class="svc-meta">
-            ${verControl}
-            <span class="meta-tag">:${s.port}</span>
-            ${s.engine === "mssql" && s.serverName ? `<span class="meta-tag" title="MS SQL Server Name (PC User)">Server: ${esc(s.serverName)}</span>` : ""}
-            ${isMailpit ? `<span class="meta-tag" title="Local SMTP capture port">SMTP :1025</span>` : ""}
-            ${running && s.pid ? `<span class="meta-tag">PID ${s.pid}</span>` : ""}
-            ${s.portBusy && !running ? `<span class="pill warn" title="Another program is using port ${s.port}">Port busy</span>` : ""}
+          <div class="svc-row-port">
+            <span>${esc(portDisplay)}</span>
           </div>
-
-          ${s.message ? `<div class="svc-err">${esc(s.message)}</div>` : ""}
-
-          <div class="svc-actions">
-            ${primaryBtn}
-            ${extraRunning}
-            ${s.state === "error" ? `<button class="btn sm accent" data-act="repair" data-engine="${s.engine}" title="Auto-repair ${esc(s.name)}">🔧 Repair</button>` : ""}
-            <div class="spacer"></div>
-            ${installed
-            ? `<button class="btn xs ghost" data-act="repair" data-engine="${s.engine}" title="Diagnose &amp; repair ${esc(s.name)}">Repair</button>
-                   <button class="btn xs ghost" data-act="config" data-engine="${s.engine}">Config</button>
-                   <button class="btn xs ghost" data-act="logs" data-engine="${s.engine}">Logs</button>
-                   <button class="btn xs ghost" data-act="data" data-engine="${s.engine}" title="${isWebRoot ? "Open www/ website folder" : "Open data folder"
-            }">${isWebRoot ? "www/" : "Data"}</button>`
-            : ""
-          }
+          <div class="svc-row-right">
+            ${rightActions}
           </div>
-        </article>`;
+          ${s.message ? `<div class="svc-err" style="grid-column:1 / -1;margin-top:4px">${esc(s.message)}</div>` : ""}
+        </div>`;
       })
       .join("");
+
+    const activePhpVer = phpSvc?.active ? phpSvc.active.replace(/^php-?/i, "") : "8.4.27";
+    const activeApacheVer = apacheSvc?.active ? apacheSvc.active.replace(/^apache-?(lite-)?/i, "") : "2.4";
+    const activeDbPort =
+      mariaSvc?.state === "running"
+        ? mariaSvc.port
+        : mysqlSvc?.state === "running"
+          ? mysqlSvc.port
+          : mariaSvc?.port || 3306;
+    const activeDbLabel =
+      mariaSvc?.state === "running"
+        ? `MariaDB (${mariaSvc.active || ":3306"})`
+        : mysqlSvc?.state === "running"
+          ? `MySQL (${mysqlSvc.active || ":3307"})`
+          : "MariaDB 11.4 (:3306) / MySQL 9.7 (:3307)";
+
+    const stackGuideHtml = `
+      <div class="stack-guide-card">
+        <div class="stack-guide-head">
+          <div>
+            <strong style="font-size:14px">How They Work Together — Unified PHP + Apache + MariaDB / MySQL Stack</strong>
+            <div class="muted" style="font-size:12px;margin-top:2px">
+              Compatible with <strong>PHP 8.2 / 8.3 / 8.4 with Apache 2.4</strong> + <strong>MariaDB 10.11 / 11.4</strong> &amp; <strong>MySQL 8.4 / 9.7</strong> (PDO <code>utf8mb4</code> · OPcache · Prepared Statements)
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn xs accent" data-act="copypdo" data-port="${activeDbPort}" title="Copy hardened PHP PDO (utf8mb4 + prepared statements) connection snippet">📋 Copy PHP PDO Snippet</button>
+            <button type="button" class="btn xs" data-act="install" data-engine="php" title="Switch or install PHP 8.2, 8.3, or 8.4">+ PHP Versions (8.2 / 8.3 / 8.4)</button>
+          </div>
+        </div>
+        <div class="stack-flow">
+          <div style="font-size:13px;font-weight:600">🖥 Browser (<code>http://localhost:${apacheSvc?.port || 8080}/</code>)</div>
+          <div class="stack-arrow">↓</div>
+          <div class="stack-node apache">
+            <strong>Apache ${esc(activeApacheVer)} (Port ${apacheSvc?.port || 8080})</strong>
+            <span>Handles website requests · Drag &amp; Drop <code>www/</code> Hosting · Security Headers · URL Rewriting</span>
+          </div>
+          <div class="stack-arrow">↓</div>
+          <div class="stack-node php">
+            <strong>PHP ${esc(activePhpVer)} (Integrated inside Apache 2.4)</strong>
+            <span>Processes application logic · Zend OPcache · PDO &amp; mysqli · Secure Sessions · Mailpit SMTP (:1025)</span>
+          </div>
+          <div class="stack-arrow">⇅ Reads and writes data (PDO Prepared Statements · utf8mb4)</div>
+          <div class="stack-node db">
+            <strong>${esc(activeDbLabel)}</strong>
+            <span>Stores users, products, sales, and application data (InnoDB · 20,000+ rows optimized · Port ${activeDbPort})</span>
+          </div>
+        </div>
+      </div>`;
+
+    $("serviceGrid").innerHTML = `<div class="svc-list-panel">${rowsHtml}</div>${stackGuideHtml}`;
   }
 
   function renderActiveDownloads() {
@@ -1344,6 +1452,33 @@
           const uri = await api().ConnectionString(eng, "");
           await copyText(uri);
           toast(`Copied: ${uri}`, "ok");
+        } else if (act === "copypdo") {
+          const port = btn.dataset.port || "3306";
+          const pdoSnippet = `<?php
+$host = getenv('DB_HOST') ?: '127.0.0.1';
+$port = getenv('DB_PORT') ?: '${port}';
+$dbname = 'my_database';
+$username = getenv('DB_USERNAME') ?: 'root';
+$password = getenv('DB_PASSWORD') ?: '';
+
+try {
+    $pdo = new PDO(
+        "mysql:host=$host;port=$port;dbname=$dbname;charset=utf8mb4",
+        $username,
+        $password,
+        [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false
+        ]
+    );
+} catch (PDOException $e) {
+    error_log($e->getMessage());
+    http_response_code(500);
+    exit('Database connection unavailable.');
+}`;
+          await copyText(pdoSnippet);
+          toast(`Copied hardened PHP PDO connection snippet (utf8mb4 · port ${port})`, "ok");
         }
       } catch (err) {
         toast(errMsg(err), "err");
@@ -1355,7 +1490,11 @@
       if (!sel) return;
       try {
         await api().SetActive(sel.dataset.engine, sel.value);
-        toast(`Switched ${sel.dataset.engine} to ${sel.value}`, "ok");
+        if (sel.dataset.engine === "php") {
+          toast(`Switched Apache PHP engine to ${sel.value}`, "ok");
+        } else {
+          toast(`Switched ${sel.dataset.engine} to ${sel.value}`, "ok");
+        }
       } catch (err) {
         toast(errMsg(err), "err");
       }

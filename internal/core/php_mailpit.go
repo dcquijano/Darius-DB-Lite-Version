@@ -253,8 +253,8 @@ if (is_dir($fullPath)) {
 return false;
 `
 
-const defaultPhpIni = `; Darius DB (Lite Version 0.1.2) - PHP Local Development Configuration
-; DocumentRoot: www/ | Pre-configured with Mailpit SMTP (127.0.0.1:1025)
+const defaultPhpIni = `; Darius DB (Lite Version 0.1.2) - Full-Stack PHP + Apache + MariaDB/MySQL Configuration
+; DocumentRoot: www/ | Integrated with Apache 2.4, MariaDB (:3306), MySQL (:3307), and Mailpit SMTP (127.0.0.1:1025)
 
 [PHP]
 engine = On
@@ -265,30 +265,33 @@ zlib.output_compression = Off
 implicit_flush = Off
 serialize_precision = -1
 zend.enable_gc = On
-expose_php = On
+expose_php = Off
+default_charset = "UTF-8"
 
 max_execution_time = 120
 max_input_time = 120
 memory_limit = 512M
 
 error_reporting = E_ALL
-display_errors = On
-display_startup_errors = On
+display_errors = Off
+display_startup_errors = Off
 log_errors = On
 
-post_max_size = 128M
+post_max_size = 256M
 file_uploads = On
-upload_max_filesize = 128M
-max_file_uploads = 50
+upload_max_filesize = 256M
+max_file_uploads = 100
 
 allow_url_fopen = On
 allow_url_include = Off
 default_socket_timeout = 60
 
 extension_dir = "ext"
+zend_extension=opcache
 extension=curl
 extension=fileinfo
 extension=gd
+extension=intl
 extension=mbstring
 extension=mysqli
 extension=openssl
@@ -296,8 +299,32 @@ extension=pdo_mysql
 extension=pdo_pgsql
 extension=pdo_sqlite
 extension=pgsql
+extension=sodium
 extension=sqlite3
 extension=zip
+
+[opcache]
+opcache.enable=1
+opcache.enable_cli=1
+opcache.memory_consumption=128
+opcache.interned_strings_buffer=16
+opcache.max_accelerated_files=10000
+opcache.revalidate_freq=2
+opcache.save_comments=1
+
+[Session]
+session.use_strict_mode = 1
+session.use_cookies = 1
+session.use_only_cookies = 1
+session.cookie_httponly = 1
+session.cookie_samesite = "Lax"
+session.gc_maxlifetime = 1440
+
+[MySQLi]
+mysqli.default_host = 127.0.0.1
+mysqli.default_port = 3306
+mysqli.default_user = root
+mysqli.reconnect = Off
 
 [Date]
 date.timezone = UTC

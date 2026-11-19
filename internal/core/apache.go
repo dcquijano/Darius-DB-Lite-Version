@@ -705,11 +705,24 @@ func RunBuiltInHTTPD(args []string) int {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		w.Header().Set("Server", "Apache/2.4 (DariusDB-Lite/0.1.2)")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
 
 		// Built-in Drag & Drop Website Deployer API
 		if strings.HasPrefix(r.URL.Path, "/__darius_www__/") {
 			handleDariusWwwAPI(w, r, wwwDir, port)
 			return
+		}
+
+		// Protect sensitive dotfiles and configuration files (.env, .git, .ht*, composer.lock)
+		lowerPath := strings.ToLower(r.URL.Path)
+		for _, seg := range strings.Split(lowerPath, "/") {
+			if seg == ".env" || seg == ".git" || seg == "composer.lock" || strings.HasPrefix(seg, ".ht") {
+				http.Error(w, "403 Forbidden — Access to sensitive configuration files is blocked by Darius DB Apache security policy.", http.StatusForbidden)
+				return
+			}
 		}
 
 		// Clean directory listing or index.php execution if requesting a directory
@@ -739,6 +752,19 @@ func RunBuiltInHTTPD(args []string) int {
 			fmt.Fprintf(os.Stdout, "%s - \"%s %s\" [PHP] (%s)\n",
 				time.Now().Format("2006-01-02 15:04:05"), r.Method, r.URL.Path, time.Since(start).Round(time.Microsecond))
 			return
+		} else if err != nil {
+			// URL Rewrite / Front-Controller fallback: route clean URLs in www/<site>/... to www/<site>/index.php
+			trimmed := strings.TrimPrefix(r.URL.Path, "/")
+			parts := strings.SplitN(trimmed, "/", 2)
+			if len(parts) >= 1 && parts[0] != "" {
+				siteFrontController := filepath.Join(wwwDir, parts[0], "index.php")
+				if fileExists(siteFrontController) {
+					servePHPFile(w, r, wwwDir, siteFrontController, port)
+					fmt.Fprintf(os.Stdout, "%s - \"%s %s\" [PHP-Rewrite] (%s)\n",
+						time.Now().Format("2006-01-02 15:04:05"), r.Method, r.URL.Path, time.Since(start).Round(time.Microsecond))
+					return
+				}
+			}
 		}
 		fs.ServeHTTP(w, r)
 		fmt.Fprintf(os.Stdout, "%s - \"%s %s\" (%s)\n",
@@ -1213,9 +1239,18 @@ func renderDirListing(w http.ResponseWriter, urlPath, dirPath string) {
 }
 
 func findPHPExecutables() (phpCgi string, phpCli string, phpIni string) {
-	paths := NewPaths(ResolveRoot())
+	root := ResolveRoot()
+	paths := NewPaths(root)
 	phpIni = filepath.Join(paths.EngineEtc("php"), "php.ini")
+	_ = writeIfMissing(phpIni, defaultPhpIni)
 	dirs := []string{}
+	// Prioritize the active PHP version selected in Darius DB settings
+	activePhp := LoadSettings(root).Engine("php").Version
+	if activePhp != "" {
+		if inst, ok := FindInstallation(paths, "php", activePhp); ok {
+			dirs = append(dirs, inst.Dir, filepath.Join(inst.Dir, "bin"))
+		}
+	}
 	for _, inst := range ListInstallations(paths, "php") {
 		dirs = append(dirs, inst.Dir, filepath.Join(inst.Dir, "bin"))
 	}
@@ -1236,15 +1271,56 @@ func findPHPExecutables() (phpCgi string, phpCli string, phpIni string) {
 	return phpCgi, phpCli, phpIni
 }
 
+// resolveActiveMySQLFamilySettings detects the active/running MariaDB or MySQL port & credentials for PHP PDO / mysqli.
+func resolveActiveMySQLFamilySettings() (dbPort int, dbUser, dbPass string, mariaPort, mysqlPort int) {
+	st := LoadSettings(ResolveRoot())
+	maria := st.Engine("mariadb")
+	mysql := st.Engine("mysql")
+	mariaPort = maria.Port
+	if mariaPort <= 0 {
+		mariaPort = 3306
+	}
+	mysqlPort = mysql.Port
+	if mysqlPort <= 0 {
+		mysqlPort = 3307
+	}
+	// Prefer whichever of MariaDB or MySQL is actively listening right now
+	if portInUse(mariaPort) {
+		u := maria.User
+		if u == "" {
+			u = "root"
+		}
+		return mariaPort, u, maria.Password, mariaPort, mysqlPort
+	}
+	if portInUse(mysqlPort) {
+		u := mysql.User
+		if u == "" {
+			u = "root"
+		}
+		return mysqlPort, u, mysql.Password, mariaPort, mysqlPort
+	}
+	u := maria.User
+	if u == "" {
+		u = "root"
+	}
+	return mariaPort, u, maria.Password, mariaPort, mysqlPort
+}
+
 func servePHPFile(w http.ResponseWriter, r *http.Request, wwwDir, scriptPath string, port int) {
 	phpCgi, phpCli, phpIni := findPHPExecutables()
 	if phpCgi == "" && phpCli == "" {
 		http.Error(w, "PHP is not installed yet. Install PHP from the Versions tab in Darius DB to run .php websites.", http.StatusServiceUnavailable)
 		return
 	}
+	dbPort, dbUser, dbPass, mariaPort, mysqlPort := resolveActiveMySQLFamilySettings()
 
 	if phpCgi != "" {
-		args := []string{"-d", "cgi.force_redirect=0"}
+		args := []string{
+			"-d", "cgi.force_redirect=0",
+			"-d", fmt.Sprintf("mysqli.default_port=%d", dbPort),
+			"-d", "mysqli.default_host=127.0.0.1",
+			"-d", "mysqli.default_user=" + dbUser,
+		}
 		if fileExists(phpIni) {
 			args = append(args, "-c", phpIni)
 		}
@@ -1277,6 +1353,17 @@ func servePHPFile(w http.ResponseWriter, r *http.Request, wwwDir, scriptPath str
 			"REQUEST_METHOD="+r.Method,
 			"CONTENT_TYPE="+r.Header.Get("Content-Type"),
 			"CONTENT_LENGTH="+strconv.FormatInt(maxInt64(r.ContentLength, 0), 10),
+			"DB_CONNECTION=mysql",
+			"DB_HOST=127.0.0.1",
+			"DB_PORT="+strconv.Itoa(dbPort),
+			"DB_USERNAME="+dbUser,
+			"DB_PASSWORD="+dbPass,
+			"MARIADB_HOST=127.0.0.1",
+			"MARIADB_PORT="+strconv.Itoa(mariaPort),
+			"MYSQL_HOST=127.0.0.1",
+			"MYSQL_PORT="+strconv.Itoa(mysqlPort),
+			"MAIL_HOST=127.0.0.1",
+			"MAIL_PORT=1025",
 		)
 		for k, vals := range r.Header {
 			hk := "HTTP_" + strings.ToUpper(strings.ReplaceAll(k, "-", "_"))

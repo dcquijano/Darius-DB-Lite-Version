@@ -80,6 +80,8 @@ func NewApp(paths *core.Paths, st *core.SettingsStore) *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	go core.ApplyWindowIconFromPNG(AppName, tray.DefaultIconPNG)
+
 	tr, err := tray.Start(tray.Config{
 		Tag:       core.InstanceTag(a.paths.Root),
 		Tooltip:   a.trayTooltip(),
@@ -144,17 +146,14 @@ func (a *App) trayTooltipFrom(st []core.ServiceStatus) string {
 		}
 	}
 	if len(running) == 0 {
-		return "Darius DB (Lite Version 0.1.1) — All services stopped"
 		return "Darius DB (Lite Version 0.1.2) — All services stopped"
 	}
-	return fmt.Sprintf("Darius DB (Lite Version 0.1.1) — Running: %s", strings.Join(running, ", "))
 	return fmt.Sprintf("Darius DB (Lite Version 0.1.2) — Running: %s", strings.Join(running, ", "))
 }
 
 func (a *App) buildTrayMenu() []tray.MenuItem {
 	st := a.mgr.Status()
 	items := []tray.MenuItem{
-		{Label: "Open Darius DB (Lite Version 0.1.1)", Default: true, Action: a.ShowWindow},
 		{Label: "Open Darius DB (Lite Version 0.1.2)", Default: true, Action: a.ShowWindow},
 		{Separator: true},
 		{Label: "Start All", Action: func() { _ = a.mgr.StartAll() }},

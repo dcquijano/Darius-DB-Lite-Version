@@ -130,11 +130,76 @@ func portInUse(port int) bool {
 // ---------------------------------------------------------------- single instance
 
 var (
-	user32Sys              = windows.NewLazySystemDLL("user32.dll")
-	procFindWindowW        = user32Sys.NewProc("FindWindowW")
-	procPostMessageW       = user32Sys.NewProc("PostMessageW")
-	procRegisterWindowMsgW = user32Sys.NewProc("RegisterWindowMessageW")
+	user32Sys               = windows.NewLazySystemDLL("user32.dll")
+	procFindWindowW         = user32Sys.NewProc("FindWindowW")
+	procPostMessageW        = user32Sys.NewProc("PostMessageW")
+	procSendMessageW        = user32Sys.NewProc("SendMessageW")
+	procRegisterWindowMsgW  = user32Sys.NewProc("RegisterWindowMessageW")
+	procCreateIconFromResEx = user32Sys.NewProc("CreateIconFromResourceEx")
+	procSetClassLongPtrW    = user32Sys.NewProc("SetClassLongPtrW")
 )
+
+// ApplyWindowIconFromPNG sets both the window instance icon (WM_SETICON) and
+// window class icon (GCL_HICON / GCL_HICONSM) for the top-level window matching
+// windowTitle so the titlebar, taskbar, and Alt+Tab switcher always display the
+// Darius DB logo.
+func ApplyWindowIconFromPNG(windowTitle string, pngBytes []byte) {
+	if len(pngBytes) == 0 || windowTitle == "" {
+		return
+	}
+	hIconBig, _, _ := procCreateIconFromResEx.Call(
+		uintptr(unsafe.Pointer(&pngBytes[0])),
+		uintptr(len(pngBytes)),
+		1,
+		0x00030000,
+		48, 48,
+		0,
+	)
+	hIconSmall, _, _ := procCreateIconFromResEx.Call(
+		uintptr(unsafe.Pointer(&pngBytes[0])),
+		uintptr(len(pngBytes)),
+		1,
+		0x00030000,
+		24, 24,
+		0,
+	)
+	if hIconBig == 0 && hIconSmall == 0 {
+		return
+	}
+	titlePtr, err := windows.UTF16PtrFromString(windowTitle)
+	if err != nil {
+		return
+	}
+	const (
+		wmSetIcon  = 0x0080
+		iconSmall  = 0
+		iconBig    = 1
+		gclHIcon   = ^uintptr(14 - 1) // -14
+		gclHIconSm = ^uintptr(34 - 1) // -34
+	)
+	for i := 0; i < 40; i++ {
+		hwnd, _, _ := procFindWindowW.Call(0, uintptr(unsafe.Pointer(titlePtr)))
+		if hwnd != 0 {
+			if hIconBig != 0 {
+				procSendMessageW.Call(hwnd, wmSetIcon, iconBig, hIconBig)
+				procSetClassLongPtrW.Call(hwnd, gclHIcon, hIconBig)
+			}
+			if hIconSmall != 0 {
+				procSendMessageW.Call(hwnd, wmSetIcon, iconSmall, hIconSmall)
+				procSetClassLongPtrW.Call(hwnd, gclHIconSm, hIconSmall)
+			}
+			time.Sleep(250 * time.Millisecond)
+			if hIconBig != 0 {
+				procSendMessageW.Call(hwnd, wmSetIcon, iconBig, hIconBig)
+			}
+			if hIconSmall != 0 {
+				procSendMessageW.Call(hwnd, wmSetIcon, iconSmall, hIconSmall)
+			}
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
 
 func InstanceTag(root string) string {
 	h := sha1.Sum([]byte(strings.ToLower(filepath.Clean(root))))

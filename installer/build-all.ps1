@@ -1,7 +1,5 @@
 <#
 .SYNOPSIS
-  Builds Darius DB (Lite Version 0.1.1) GUI, Launcher, Uninstaller, Portable ZIP, and Standalone Setup .exe.
-  Created by Darius Cumpio - November 19, 2026 - v0.1.1
   Builds Darius DB (Lite Version 0.1.2) GUI, Launcher, Uninstaller, Portable ZIP, and Standalone Setup .exe.
   Created by Darius Cumpio - November 19, 2026 - v0.1.2
 #>
@@ -11,7 +9,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version = "0.1.1"
 $Version = "0.1.2"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Push-Location $RepoRoot
@@ -22,6 +19,11 @@ try {
     if ($goPath) { $env:Path += ';' + (Join-Path $goPath 'bin') }
 
     Remove-Item -Force "dist\*", "installer\*.exe", "build\bin\*.exe" -ErrorAction SilentlyContinue
+
+    # Ensure root rsrc_windows_amd64.syso is present so DariusDB.exe always embeds its Windows icon & manifest
+    if (-not (Test-Path "rsrc_windows_amd64.syso") -and (Test-Path "cmd\installer\rsrc_windows_amd64.syso")) {
+        Copy-Item -Force "cmd\installer\rsrc_windows_amd64.syso" "rsrc_windows_amd64.syso"
+    }
 
     # Incrementally warm Go build cache with unified build tags (-tags "desktop,production")
     # in small batches so $WORK never exceeds ~12 MB

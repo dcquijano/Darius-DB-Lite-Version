@@ -24,6 +24,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--httpd" {
 		os.Exit(core.RunBuiltInHTTPD(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "--mailpit" {
+		os.Exit(core.RunBuiltInMailpit(os.Args[2:]))
+	}
 	mutex, ok := core.AcquireSingleInstance(root)
 	if !ok {
 		return

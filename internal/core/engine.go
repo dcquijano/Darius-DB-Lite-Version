@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-var EngineIDs = []string{"apache", "mariadb", "mysql", "postgresql", "mssql", "redis"}
+var EngineIDs = []string{"apache", "php", "mariadb", "mysql", "postgresql", "mssql", "redis", "mailpit"}
 
 // Installation is one engine version found in bin/<engine>/<folder>.
 type Installation struct {
@@ -53,11 +53,13 @@ type Engine interface {
 
 var engines = map[string]Engine{
 	"apache":     &apacheEngine{},
+	"php":        &phpEngine{},
 	"mariadb":    &mysqlFamily{id: "mariadb", name: "MariaDB"},
 	"mysql":      &mysqlFamily{id: "mysql", name: "MySQL"},
 	"postgresql": &postgres{},
 	"mssql":      &mssqlEngine{},
 	"redis":      &redis{},
+	"mailpit":    &mailpitEngine{},
 }
 
 func GetEngine(id string) (Engine, error) {
@@ -135,6 +137,19 @@ func ListInstallations(p *Paths, engineID string) []Installation {
 	// For Apache Web Server, also include the built-in zero-download portable server
 	if engineID == "apache" {
 		builtin := detectBuiltinApache(p)
+		if !isVersionHidden(p, engineID, builtin.Name) {
+			out = append(out, builtin)
+		}
+	}
+	// For PHP, also detect Windows-installed PHP if present
+	if engineID == "php" && len(out) == 0 {
+		if sysPhp, ok := detectSystemPHP(); ok && !isVersionHidden(p, engineID, sysPhp.Name) {
+			out = append(out, sysPhp)
+		}
+	}
+	// For Mailpit, also include the built-in zero-download local SMTP + Web Inbox server
+	if engineID == "mailpit" {
+		builtin := detectBuiltinMailpit(p)
 		if !isVersionHidden(p, engineID, builtin.Name) {
 			out = append(out, builtin)
 		}

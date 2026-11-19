@@ -260,13 +260,15 @@ func (t *Terminal) tryServiceCommand(line string) (*TerminalExecResult, bool) {
 				return &TerminalExecResult{State: t.State(), Output: "Error: " + err.Error()}, true
 			}
 			return &TerminalExecResult{State: t.State(), Output: t.formatStatusTable()}, true
-		case "apache", "httpd", "web", "mariadb", "mysql", "postgresql", "postgres", "mssql", "sqlserver", "redis":
+		case "apache", "httpd", "web", "php", "mariadb", "mysql", "postgresql", "postgres", "mssql", "sqlserver", "redis", "mailpit", "mail":
 			if target == "postgres" {
 				target = "postgresql"
 			} else if target == "sqlserver" {
 				target = "mssql"
 			} else if target == "httpd" || target == "web" {
 				target = "apache"
+			} else if target == "mail" {
+				target = "mailpit"
 			}
 			var err error
 			switch verb {

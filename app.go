@@ -439,6 +439,8 @@ func (a *App) OpenTerminal() error {
 		switch st.Engine {
 		case "apache":
 			cli = fmt.Sprintf("http://localhost:%d/  (www/)", st.Port)
+		case "php":
+			cli = fmt.Sprintf("php -v  |  http://localhost:%d/", st.Port)
 		case "mariadb":
 			cli = fmt.Sprintf("mariadb -u %s -P %d", fallback(s.Engines["mariadb"].User, "root"), st.Port)
 		case "mysql":
@@ -449,6 +451,8 @@ func (a *App) OpenTerminal() error {
 			cli = "sqlcmd -S (localdb)\\MSSQLLocalDB -E"
 		case "redis":
 			cli = fmt.Sprintf("redis-cli -p %d", st.Port)
+		case "mailpit":
+			cli = fmt.Sprintf("http://localhost:%d/  (SMTP :1025)", st.Port)
 		}
 		banner = append(banner, fmt.Sprintf("  %-11s %-18s port %-5d  (%s)", st.Name, st.Active, st.Port, cli))
 	}
@@ -461,8 +465,10 @@ func (a *App) OpenTerminal() error {
 func (a *App) ConnectionString(engine, dbName string) string {
 	es := a.settings.Engine(engine)
 	switch engine {
-	case "apache":
+	case "apache", "php":
 		return fmt.Sprintf("http://localhost:%d/", es.Port)
+	case "mailpit":
+		return fmt.Sprintf("smtp://127.0.0.1:1025 (Web Inbox: http://localhost:%d/)", es.Port)
 	case "mariadb", "mysql":
 		auth := url.User(es.User).String()
 		if es.Password != "" {

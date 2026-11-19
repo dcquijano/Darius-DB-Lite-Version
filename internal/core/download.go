@@ -31,16 +31,24 @@ type CatalogEntry struct {
 type Catalog map[string][]CatalogEntry
 
 // LoadCatalog returns catalog.json next to the exe if present (user editable /
-// refreshed from the internet), otherwise the catalog embedded at build time.
+// refreshed from the internet), merged with the catalog embedded at build time.
 func LoadCatalog(p *Paths) Catalog {
-	var c Catalog
+	var base Catalog
+	_ = json.Unmarshal(embeddedCatalog, &base)
+	if base == nil {
+		base = Catalog{}
+	}
 	if b, err := os.ReadFile(filepath.Join(p.Root, "catalog.json")); err == nil {
-		if json.Unmarshal(b, &c) == nil && len(c) > 0 {
-			return c
+		var disk Catalog
+		if json.Unmarshal(b, &disk) == nil && len(disk) > 0 {
+			for eng, entries := range disk {
+				if len(entries) > 0 {
+					base[eng] = entries
+				}
+			}
 		}
 	}
-	_ = json.Unmarshal(embeddedCatalog, &c)
-	return c
+	return base
 }
 
 // RefreshCatalog discovers the newest engine versions from official upstream
@@ -159,6 +167,34 @@ func RefreshCatalog(p *Paths, customURL string) (Catalog, error) {
 							note = "Latest"
 						}
 						safeMerge("redis", CatalogEntry{Version: ver, URL: a.BrowserDownloadURL, Note: note})
+						break
+					}
+				}
+			}
+		}
+	}()
+
+	// Mailpit latest GitHub releases
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var rels []struct {
+			TagName string `json:"tag_name"`
+			Assets  []struct {
+				Name               string `json:"name"`
+				BrowserDownloadURL string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+		if getJSON(client, "https://api.github.com/repos/axllent/mailpit/releases?per_page=4", &rels) == nil {
+			for i, r := range rels {
+				ver := strings.TrimPrefix(r.TagName, "v")
+				for _, a := range r.Assets {
+					if a.Name == "mailpit-windows-amd64.zip" {
+						note := "Stable"
+						if i == 0 {
+							note = "Latest Official"
+						}
+						safeMerge("mailpit", CatalogEntry{Version: ver, URL: a.BrowserDownloadURL, Note: note})
 						break
 					}
 				}

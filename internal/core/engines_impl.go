@@ -294,6 +294,8 @@ func EnsureConfig(p *Paths, engineID string) error {
 	switch engineID {
 	case "apache":
 		return writeIfMissing(filepath.Join(p.EngineEtc("apache"), "httpd.conf"), apacheHttpdConf)
+	case "php":
+		return writeIfMissing(filepath.Join(p.EngineEtc("php"), "php.ini"), defaultPhpIni)
 	case "mariadb":
 		return writeIfMissing(filepath.Join(p.EngineEtc("mariadb"), "my.ini"), mariadbIni)
 	case "mysql":
@@ -302,6 +304,8 @@ func EnsureConfig(p *Paths, engineID string) error {
 		return writeIfMissing(filepath.Join(p.EngineEtc("mssql"), "mssql.conf"), mssqlConf)
 	case "redis":
 		return writeIfMissing(filepath.Join(p.EngineEtc("redis"), "redis.conf"), redisConf)
+	case "mailpit":
+		return writeIfMissing(filepath.Join(p.EngineEtc("mailpit"), "mailpit.conf"), defaultMailpitConf)
 	default:
 		return nil
 	}

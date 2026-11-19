@@ -3,6 +3,12 @@
     { "version": "2.4.66",      "url": "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.66-260223-win64-VS17.zip", "note": "Apache 2.4 Win64 VS17" },
     { "version": "2.4.66-VS18", "url": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.66-260223-win64-VS18.zip", "note": "Apache 2.4 Win64 VS18" }
   ],
+  "php": [
+    { "version": "8.4.4",  "url": "https://windows.php.net/downloads/releases/archives/php-8.4.4-Win32-vs17-x64.zip",  "note": "PHP 8.4 Latest (VS17 x64)" },
+    { "version": "8.3.17", "url": "https://windows.php.net/downloads/releases/archives/php-8.3.17-Win32-vs16-x64.zip", "note": "PHP 8.3 Active LTS (VS16 x64)" },
+    { "version": "8.2.27", "url": "https://windows.php.net/downloads/releases/archives/php-8.2.27-Win32-vs16-x64.zip", "note": "PHP 8.2 LTS (VS16 x64)" },
+    { "version": "8.1.31", "url": "https://windows.php.net/downloads/releases/archives/php-8.1.31-Win32-vs16-x64.zip", "note": "PHP 8.1 Legacy (VS16 x64)" }
+  ],
   "mariadb": [
     { "version": "13.0.2",   "url": "https://archive.mariadb.org/mariadb-13.0.2/winx64-packages/mariadb-13.0.2-winx64.zip",   "note": "Latest Stable" },
     { "version": "12.3.4",   "url": "https://archive.mariadb.org/mariadb-12.3.4/winx64-packages/mariadb-12.3.4-winx64.zip",   "note": "LTS" },
@@ -32,5 +38,9 @@
     { "version": "7.4.11",   "url": "https://github.com/redis-windows/redis-windows/releases/download/7.4.11/Redis-7.4.11-Windows-x64-msys2.zip", "note": "LTS" },
     { "version": "6.2.24",   "url": "https://github.com/redis-windows/redis-windows/releases/download/6.2.24/Redis-6.2.24-Windows-x64-msys2.zip", "note": "Stable" },
     { "version": "5.0.14.1", "url": "https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.zip", "note": "Legacy Native" }
+  ],
+  "mailpit": [
+    { "version": "1.22.3", "url": "https://github.com/axllent/mailpit/releases/download/v1.22.3/mailpit-windows-amd64.zip", "note": "Latest Official" },
+    { "version": "1.21.8", "url": "https://github.com/axllent/mailpit/releases/download/v1.21.8/mailpit-windows-amd64.zip", "note": "Stable" }
   ]
 }

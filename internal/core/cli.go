@@ -479,6 +479,8 @@ func normalizeEngineArg(s string) string {
 	switch s {
 	case "httpd", "web":
 		return "apache"
+	case "mail", "smtp":
+		return "mailpit"
 	case "postgres", "pg", "psql":
 		return "postgresql"
 	case "sqlserver", "sqlcmd", "ms":
@@ -492,8 +494,10 @@ func normalizeEngineArg(s string) string {
 
 func buildConnectionURI(engine string, es EngineSettings, dbName string) (string, error) {
 	switch engine {
-	case "apache":
+	case "apache", "php":
 		return fmt.Sprintf("http://localhost:%d/", es.Port), nil
+	case "mailpit":
+		return fmt.Sprintf("smtp://127.0.0.1:1025 (Web Inbox: http://localhost:%d/)", es.Port), nil
 	case "mariadb", "mysql":
 		auth := url.User(es.User).String()
 		if es.Password != "" {

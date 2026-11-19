@@ -112,10 +112,16 @@
       <section class="view active" id="view-dashboard">
         <header class="view-head">
           <div>
-            <h1>Services</h1>
+            <div style="display:flex;align-items:center;gap:10px">
+              <h1>Services</h1>
+              <span class="pill accent" id="dashSystemBadge" style="font-size:12px">Darius DB · Lite Version 0.1.2</span>
+            </div>
             <p class="subtitle" id="rootPathLabel">Portable root</p>
           </div>
           <div class="head-actions">
+            <button class="btn ghost" id="btnToggleAnnounce" title="Show System Announcement &amp; New Version Installer">
+              📢 What's New
+            </button>
             <button class="btn accent" id="btnOpenRepair" title="Diagnose &amp; repair corrupted configs, stale PID locks, LocalDB, and folders">
               🔧 Repair
             </button>
@@ -133,6 +139,32 @@
             </button>
           </div>
         </header>
+
+        <!-- SYSTEM ANNOUNCEMENT & NEW VERSION UPDATER BANNER -->
+        <div class="welcome-banner" id="announcementBanner" style="align-items:flex-start;gap:16px">
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+              <span class="pill running">📢 Announcement</span>
+              <strong>Darius DB (Lite Version 0.1.2) — Local Web, PHP, Mailpit &amp; Database Stack</strong>
+              <span class="muted" style="font-size:11.5px">by Darius Cumpio (MIT)</span>
+            </div>
+            <p style="margin:2px 0 6px;font-size:12.5px">
+              New in <strong>Lite Version 0.1.2</strong>: <strong>Apache Web Server</strong> (Drag &amp; Drop <code>www/</code> Hosting), <strong>PHP 8.4 / 8.3 / 8.2</strong>, <strong>Mailpit</strong> Local Email Testing Server (<code>:8025</code> / SMTP <code>:1025</code>), <strong>SQL Server 2025 (17.x)</strong> <code>.bak</code> &amp; <code>.sql</code> Restore/Backup, and 1-Click <strong>Self-Repair</strong>.
+            </p>
+            <div id="announceUpdateInfo" style="font-size:12px;color:var(--accent);font-weight:600">
+              Click "Check &amp; Install New Versions" to discover and install the latest PHP, Mailpit, MariaDB, MySQL, PostgreSQL, or Redis releases.
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button class="btn sm primary" id="btnAnnounceCheckVer" title="Check upstream APIs for newest versions and open Versions installer">
+              ↻ Check &amp; Install New Versions
+            </button>
+            <button class="btn sm accent" id="btnAnnounceGetSetup" title="Download latest Darius DB Setup Installer from Official Google Drive">
+              📥 Official Setup .exe
+            </button>
+            <button class="btn xs ghost" id="btnDismissAnnounce" title="Hide announcement banner">✕</button>
+          </div>
+        </div>
 
         <div class="welcome-banner" id="welcomeBanner" hidden>
           <div>
@@ -601,11 +633,13 @@
           <select id="repairTarget" class="input">
             <option value="all">All Components &amp; Engines (Recommended)</option>
             <option value="apache">Apache Web Server</option>
+            <option value="php">PHP</option>
             <option value="mariadb">MariaDB</option>
             <option value="mysql">MySQL</option>
             <option value="postgresql">PostgreSQL</option>
             <option value="mssql">MS SQL Server</option>
             <option value="redis">Redis</option>
+            <option value="mailpit">Mailpit</option>
           </select>
         </label>
         <label class="check-row" style="font-size:12px">

@@ -194,11 +194,20 @@
             }</button>`;
 
         const isApache = s.engine === "apache";
+        const isPhp = s.engine === "php";
+        const isMailpit = s.engine === "mailpit";
+        const isWebRoot = isApache || isPhp;
         const extraRunning = running
           ? isApache
             ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}" title="Open Drag &amp; Drop Website Dashboard">Open Site</button>
                <button class="btn sm" data-act="deploysite" data-engine="${s.engine}" title="Deploy a .zip or .html website into www/">Deploy .zip</button>
                <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy http://localhost:${s.port}/">URL</button>`
+            : isPhp
+            ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}" title="Open PHP Server at http://localhost:${s.port}/">Open PHP</button>
+               <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy http://localhost:${s.port}/">URL</button>`
+            : isMailpit
+            ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}" title="Open Mailpit Web Inbox at http://localhost:${s.port}/">Open Inbox</button>
+               <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy Mailpit SMTP &amp; Web Inbox URL">SMTP</button>`
             : `<button class="btn sm accent" data-act="browse" data-engine="${s.engine}">Browse</button>
                <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy connection URI">URI</button>`
           : isApache && installed
@@ -219,6 +228,7 @@
           <div class="svc-meta">
             ${verControl}
             <span class="meta-tag">:${s.port}</span>
+            ${isMailpit ? `<span class="meta-tag" title="Local SMTP capture port">SMTP :1025</span>` : ""}
             ${running && s.pid ? `<span class="meta-tag">PID ${s.pid}</span>` : ""}
             ${s.portBusy && !running ? `<span class="pill warn" title="Another program is using port ${s.port}">Port busy</span>` : ""}
           </div>
@@ -236,8 +246,8 @@
                    <button class="btn xs ghost" data-act="config" data-engine="${s.engine}">Config</button>
                    <button class="btn xs ghost" data-act="logs" data-engine="${s.engine}">Logs</button>
                    <button class="btn xs ghost" data-act="data" data-engine="${s.engine}" title="${
-                     isApache ? "Open www/ website folder" : "Open data folder"
-                   }">${isApache ? "www/" : "Data"}</button>`
+                     isWebRoot ? "Open www/ website folder" : "Open data folder"
+                   }">${isWebRoot ? "www/" : "Data"}</button>`
                 : ""
             }
           </div>
@@ -297,7 +307,7 @@
   function renderDbEngineTabs() {
     const el = $("dbEngineTabs");
     el.innerHTML = state.statuses
-      .filter((s) => s.engine !== "apache")
+      .filter((s) => s.isSql || s.engine === "redis")
       .map(
         (s) =>
           `<button class="seg ${s.engine === state.dbEngine ? "active" : ""}" data-engine="${s.engine}">
@@ -586,11 +596,13 @@
 
   const OFFICIAL_DOWNLOAD_PAGES = {
     apache: "https://www.apachelounge.com/download/",
+    php: "https://windows.php.net/download/",
     mariadb: "https://mariadb.org/download/?t=mariadb&p=mariadb&o=windows&a=x86_64&k=zip",
     mysql: "https://dev.mysql.com/downloads/mysql/",
     postgresql: "https://www.enterprisedb.com/download-postgresql-binaries",
     mssql: "https://www.microsoft.com/en-us/sql-server/sql-server-downloads",
     redis: "https://github.com/redis-windows/redis-windows/releases",
+    mailpit: "https://github.com/axllent/mailpit/releases",
   };
 
   function compareVer(a, b) {
@@ -916,17 +928,20 @@
     state.settings = s;
     const labels = {
       apache: "Apache Web Server",
+      php: "PHP",
       mariadb: "MariaDB",
       mysql: "MySQL",
       postgresql: "PostgreSQL",
       mssql: "MS SQL Server",
       redis: "Redis",
+      mailpit: "Mailpit",
     };
-    $("settingsEngineRows").innerHTML = ["apache", "mariadb", "mysql", "postgresql", "mssql", "redis"]
+    $("settingsEngineRows").innerHTML = ["apache", "php", "mariadb", "mysql", "postgresql", "mssql", "redis", "mailpit"]
       .map((id) => {
         const es = s.engines[id] || {};
-        const noAuth = id === "redis" || id === "apache";
-        const isApache = id === "apache";
+        const isWebRoot = id === "apache" || id === "php";
+        const isMailpit = id === "mailpit";
+        const noAuth = id === "redis" || isWebRoot || isMailpit;
         const isMSSQL = id === "mssql";
         return `<tr data-eng-row="${id}">
           <td><strong>${labels[id]}</strong></td>
@@ -934,13 +949,13 @@
           <td><input type="number" class="input sm port-input eng-port" min="1" max="65535" value="${es.port || ""}" /></td>
           <td>${
             noAuth
-              ? `<span class="muted">${isApache ? "www/ (DocumentRoot)" : "—"}</span>`
+              ? `<span class="muted">${isWebRoot ? "www/ (DocumentRoot)" : isMailpit ? "SMTP :1025 / Web UI" : "—"}</span>`
               : `<input type="text" class="input sm eng-user" value="${esc(es.user || "")}" placeholder="${
                   isMSSQL ? "blank = Windows Auth / LocalDB" : ""
                 }" />`
           }</td>
           <td>${
-            isApache
+            isWebRoot || isMailpit
               ? `<span class="muted">—</span>`
               : `<input type="password" class="input sm eng-pass" value="${esc(es.password || "")}" placeholder="${
                   id === "redis" ? "optional" : isMSSQL ? "blank = Windows Auth" : "blank = no password"
@@ -1068,6 +1083,58 @@
       }
     };
     $("btnGoVersions").onclick = () => switchTab("versions");
+
+    // System Announcement & New Version Updater controls
+    $("btnToggleAnnounce").onclick = () => {
+      $("announcementBanner").hidden = !$("announcementBanner").hidden;
+    };
+    $("btnDismissAnnounce").onclick = () => {
+      $("announcementBanner").hidden = true;
+    };
+    $("btnAnnounceGetSetup").onclick = () => {
+      const url =
+        state.info?.installerUrl ||
+        "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing";
+      if (rt()?.BrowserOpenURL) rt().BrowserOpenURL(url);
+      else window.open(url, "_blank");
+      toast("Opened Official Darius DB Setup Installer folder (Google Drive)", "ok");
+    };
+    $("btnAnnounceCheckVer").onclick = async () => {
+      const btn = $("btnAnnounceCheckVer");
+      const infoEl = $("announceUpdateInfo");
+      btn.disabled = true;
+      btn.textContent = "Checking Newest Versions...";
+      infoEl.textContent = "Checking official upstream servers (PHP, Mailpit, MariaDB, PostgreSQL, Redis, Apache, SQL Server)...";
+      try {
+        state.catalog = await api().RefreshCatalog();
+        const updates = [];
+        for (const s of state.statuses) {
+          const entries = state.catalog[s.engine] || [];
+          const newest = entries[0];
+          if (!newest) continue;
+          const insts = s.installations || [];
+          if (!insts.length) {
+            updates.push(`${s.name} ${newest.version} (ready to install)`);
+          } else {
+            const hasNewest = insts.some((i) => i.version === newest.version);
+            if (!hasNewest && compareVer(newest.version, insts[0].version) > 0) {
+              updates.push(`${s.name} ${newest.version} (update available)`);
+            }
+          }
+        }
+        infoEl.textContent = updates.length
+          ? "Available to install / update: " + updates.join(" · ")
+          : "All installed engines are on the latest available releases!";
+        toast("Version catalog updated — choose an engine to install or update!", "ok");
+        switchTab("versions");
+      } catch (e) {
+        infoEl.textContent = "Could not check online catalog: " + errMsg(e);
+        toast(errMsg(e), "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "↻ Check & Install New Versions";
+      }
+    };
 
     const closeRepair = () => ($("modalRepair").hidden = true);
     const runRepairAction = async () => {
@@ -1694,6 +1761,9 @@
     state.catalog = catalog || {};
 
     $("appVersion").textContent = "Lite Version " + info.version;
+    if ($("dashSystemBadge")) {
+      $("dashSystemBadge").textContent = "Darius DB · Lite Version " + info.version;
+    }
     $("rootPathLabel").textContent = info.root;
     applyTheme(settings.theme);
 

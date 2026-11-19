@@ -14,11 +14,12 @@ import (
 )
 
 const (
-	CLIAppTitle   = "Darius DB (Lite Version 0.1.2)"
-	CLIAppVersion = "0.1.2"
-	CLIAppAuthor  = "Darius Cumpio"
-	CLIAppCreated = "November 19, 2026"
-	CLIAppRepo    = "https://github.com/dcquijano/Darius-DB-Lite-Version"
+	CLIAppTitle        = "Darius DB (Lite Version 0.1.2)"
+	CLIAppVersion      = "0.1.2"
+	CLIAppAuthor       = "Darius Cumpio"
+	CLIAppCreated      = "November 19, 2026"
+	CLIAppRepo         = "https://github.com/dcquijano/Darius-DB-Lite-Version"
+	CLIAppInstallerURL = "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing"
 )
 
 // RunCLI executes a CLI subcommand and returns an process exit code.
@@ -43,8 +44,8 @@ func RunCLI(root string, args []string) int {
 		return 0
 
 	case "version", "v":
-		fmt.Printf("%s\nCreated by: %s\nCreated:    %s\nLicense:    MIT Open Source\nRepository: %s\nHome:       %s\n",
-			CLIAppTitle, CLIAppAuthor, CLIAppCreated, CLIAppRepo, root)
+		fmt.Printf("%s\nCreated by: %s\nCreated:    %s\nLicense:    MIT Open Source\nRepository: %s\nInstaller:  %s\nHome:       %s\n",
+			CLIAppTitle, CLIAppAuthor, CLIAppCreated, CLIAppRepo, CLIAppInstallerURL, root)
 		return 0
 
 	case "status", "ps", "services":

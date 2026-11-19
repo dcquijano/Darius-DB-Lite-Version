@@ -6,6 +6,7 @@
 > **Created Date:** November 19, 2026  
 > **Year:** 2026  
 > **Repository:** [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version)  
+> **Official Installer Download (Google Drive):** [https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing)  
 > **License:** MIT Open Source License
 
 ---
@@ -39,21 +40,23 @@
 
 ### Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.2.exe`)
 
-1. Double-click **`DariusDB-Setup-0.1.2.exe`** (located in `installer\DariusDB-Setup-0.1.2.exe` or `dist\DariusDB-Setup-0.1.2.exe`).
-2. In the **Welcome to Darius DB (Lite Version 0.1.2) Setup** dialog:
-   - Click **Yes** to install to **`C:\DariusDB`** (recommended), or
-   - Click **No** to open the Windows folder browser and pick any custom folder.
-3. Choose whether to **Start Darius DB automatically when Windows signs in** (Yes / No).
-4. Setup automatically:
-   - Extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Uninstall.exe`, `LICENSE`, `README.md`, and `GUIDE.md`.
-   - Creates `bin/`, `data/`, `etc/`, `logs/`, and `tmp/`.
-   - Creates Desktop & Start Menu shortcuts (**Darius DB**, **Darius DB Terminal**, **Uninstall Darius DB**).
-   - Registers **Darius DB (Lite Version 0.1.2)** in **Windows Settings → Apps → Installed Apps**.
-5. Click **Yes** on the completion dialog to launch **Darius DB (Lite Version 0.1.2)** immediately.
+1. Download **`DariusDB-Setup-0.1.2.exe`** from the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.2.exe` or `dist\DariusDB-Setup-0.1.2.exe`).
+2. In the **Darius DB (Lite Version 0.1.2) Setup Wizard**:
+   - Accept the MIT License Agreement and click **Next >**.
+   - Keep the recommended destination folder **`C:\DariusDB`** (or click **Browse...** to choose another folder) and select your shortcut/PATH/startup options.
+   - Click **Install**.
+3. Setup automatically:
+   - Extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Uninstall.exe`, `darius.exe`, `LICENSE`, `README.md`, and `GUIDE.md`.
+   - Creates `www/`, `bin/`, `data/`, `etc/`, `logs/`, and `tmp/`.
+   - Creates Desktop & Start Menu shortcuts (**Darius DB**, **Darius DB Terminal**, **Repair Darius DB**, **Uninstall Darius DB**).
+   - Registers **Darius DB (Lite Version 0.1.2)** in **Windows Settings → Apps → Installed Apps** and adds `darius` CLI to your Windows `PATH`.
+   - **Double-Install Protection & Repair Mode:** If Darius DB is already installed on your PC, running `DariusDB-Setup-0.1.2.exe` blocks duplicate installation and offers **Repair Mode** to repair the existing installation in-place without losing your databases in `data/`.
+4. Click **Finish** to launch **Darius DB (Lite Version 0.1.2)** immediately.
 
-> **Silent / Automated CLI install:**
+> **Silent / Automated CLI install or repair:**
 > ```powershell
 > .\DariusDB-Setup-0.1.2.exe --silent --dir="C:\DariusDB" --autostart
+> .\DariusDB-Setup-0.1.2.exe --silent --repair
 > ```
 
 ---

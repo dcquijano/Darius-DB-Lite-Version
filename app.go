@@ -19,27 +19,29 @@ import (
 )
 
 const (
-	AppName    = "Darius DB (Lite Version 0.1.2)"
-	AppVersion = "0.1.2"
-	AppAuthor  = "Darius Cumpio"
-	AppBuiltBy = "Darius Cumpio"
-	AppCreated = "November 19, 2026"
-	AppYear    = 2026
-	AppLicense = "MIT"
-	AppRepo    = "https://github.com/dcquijano/Darius-DB-Lite-Version"
+	AppName         = "Darius DB (Lite Version 0.1.2)"
+	AppVersion      = "0.1.2"
+	AppAuthor       = "Darius Cumpio"
+	AppBuiltBy      = "Darius Cumpio"
+	AppCreated      = "November 19, 2026"
+	AppYear         = 2026
+	AppLicense      = "MIT"
+	AppRepo         = "https://github.com/dcquijano/Darius-DB-Lite-Version"
+	AppInstallerURL = "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing"
 )
 
 type AppInfo struct {
-	Name    string     `json:"name"`
-	Version string     `json:"version"`
-	Author  string     `json:"author"`
-	BuiltBy string     `json:"builtBy"`
-	Created string     `json:"created"`
-	Year    int        `json:"year"`
-	License string     `json:"license"`
-	Repo    string     `json:"repo"`
-	Root    string     `json:"root"`
-	Paths   core.Paths `json:"paths"`
+	Name         string     `json:"name"`
+	Version      string     `json:"version"`
+	Author       string     `json:"author"`
+	BuiltBy      string     `json:"builtBy"`
+	Created      string     `json:"created"`
+	Year         int        `json:"year"`
+	License      string     `json:"license"`
+	Repo         string     `json:"repo"`
+	InstallerURL string     `json:"installerUrl"`
+	Root         string     `json:"root"`
+	Paths        core.Paths `json:"paths"`
 }
 
 type ConfigFileResult struct {
@@ -194,7 +196,6 @@ func (a *App) buildTrayMenu() []tray.MenuItem {
 		}},
 		tray.MenuItem{Label: "Open Data Folder", Action: func() { _ = a.OpenFolder("data") }},
 		tray.MenuItem{Separator: true},
-		tray.MenuItem{Label: "Quit Darius DB (Lite Version 0.1.1)", Action: a.QuitApp},
 		tray.MenuItem{Label: "Quit Darius DB (Lite Version 0.1.2)", Action: a.QuitApp},
 	)
 	return items
@@ -204,16 +205,17 @@ func (a *App) buildTrayMenu() []tray.MenuItem {
 
 func (a *App) Info() AppInfo {
 	return AppInfo{
-		Name:    AppName,
-		Version: AppVersion,
-		Author:  AppAuthor,
-		BuiltBy: AppBuiltBy,
-		Created: AppCreated,
-		Year:    AppYear,
-		License: AppLicense,
-		Repo:    AppRepo,
-		Root:    a.paths.Root,
-		Paths:   *a.paths,
+		Name:         AppName,
+		Version:      AppVersion,
+		Author:       AppAuthor,
+		BuiltBy:      AppBuiltBy,
+		Created:      AppCreated,
+		Year:         AppYear,
+		License:      AppLicense,
+		Repo:         AppRepo,
+		InstallerURL: AppInstallerURL,
+		Root:         a.paths.Root,
+		Paths:        *a.paths,
 	}
 }
 

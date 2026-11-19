@@ -5,37 +5,41 @@ A fast, lightweight, portable open-source database environment manager for Windo
 Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** from a single ~13 MB native Windows app with a system tray icon, local `www/` website hosting, built-in multi-mode terminal, native launcher, clean uninstaller, and zero runtime bloat.
 
 - **Repository:** [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version)
+- 📥 **Official Installer & Portable Download (Google Drive):** [**Download DariusDB-Setup-0.1.2.exe**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing)
 - 📖 **Full Step-by-Step Guide:** [**GUIDE.md**](GUIDE.md)
 
 ---
 
 ## Features
 
-- **100% Portable or Standard `.exe` Install** — Run directly out of any folder (`bin/`, `data/`, `etc/`, `logs/`, `settings.json`) or install using the standalone Windows installer **`DariusDB-Setup-0.1.2.exe`**.
+- **100% Portable or Standard `.exe` Install** — Run directly out of any folder (`www/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`, `settings.json`) or install using the standalone Windows Setup Wizard **`DariusDB-Setup-0.1.2.exe`** (with automatic double-installation protection and built-in **Repair Mode**).
+- **Apache Web Server with Drag & Drop Website Hosting (`www/`)** — Host local websites at `http://localhost:8080/` and drag & drop project folders, `.zip` bundles, or `.html` files directly onto the browser dashboard (or click **`Deploy .zip`** on the Apache card).
 - **One-Click Start/Stop & Native System Tray** — Start All / Stop All, per-engine controls, live PID & port-conflict detection, single-instance wake, close-to-tray, and right-click tray menu.
-- **Portable Engine Downloader & Version Switcher** — Download official portable builds (MariaDB, MySQL, PostgreSQL, Redis) or import any local `.zip`, keep multiple versions side-by-side, and switch active versions in one click without touching `data/`.
+- **Database Restore & Backup (`.bak` & `.sql`)** — Restore MS SQL Server `.bak` files (with automatic `RESTORE FILELISTONLY` logical-file relocation into `data/mssql/`), import `.sql` scripts into MariaDB, MySQL, PostgreSQL, or MS SQL Server, and export `.bak` / `.sql` backups in one click or via CLI (`darius restore` / `darius backup`).
+- **Self-Healing Repair & Diagnostics (`🔧 Repair` & `darius repair`)** — Automatically diagnoses and fixes missing portable directories, `www/index.html`, corrupted `settings.json`, engine configs (`etc/*`), stale crash locks (PostgreSQL `postmaster.pid`, `tmp/run/*.pid`), and SQL Server `MSSQLLocalDB` instances while keeping your databases in `data/` safe.
+- **Portable Engine Downloader & Live Upstream Version Checker** — Click **↻ Check Newest Versions** to discover the latest MariaDB, PostgreSQL, and Redis builds live, update in one click (`↑ Update to <version>`), download `.zip` archives manually, or import any custom `.zip`.
 - **Built-in Lightweight Database Browser**
   - **SQL (MariaDB / MySQL / PostgreSQL / MS SQL Server):** browse databases & tables, quick-create database + user/login with privileges, drop databases, run SQL / T-SQL (`Ctrl+Enter`), copy connection strings.
   - **Redis:** switch logical DBs (`db0`–`db15`), scan & filter keys, inspect values (with automatic JSON formatting & TTL), delete keys, and run interactive Redis CLI commands.
-- **Config Editor & Live Log Viewer** — Edit `my.ini`, `postgresql.conf`, and `redis.conf` inside the app (or Notepad) with *Save & Restart*, plus auto-refreshing logs.
-- **Native Launcher & Clean Uninstaller**
+- **Config Editor & Live Log Viewer** — Edit `httpd.conf`, `my.ini`, `postgresql.conf`, `mssql.conf`, and `redis.conf` inside the app (or Notepad) with *Save & Restart*, plus auto-refreshing logs.
+- **Native Launcher & 3-Step Win32 Uninstall & Maintenance Wizard**
   - `DariusDB-Launcher.exe` — verifies WebView2, sets `DARIUSDB_HOME`, supports `--minimized`, `--terminal`, `--start-all`, `--stop-all`, `--version`.
-  - `DariusDB-Uninstall.exe` — registers in Windows *Installed Apps*, gracefully stops services, asks whether to keep your `data/` databases safe, removes shortcuts & registry keys, and self-cleans.
-- **Developer CLI (`darius.exe`) for Visual Studio, VS Code & Terminals** — Automatically added to your Windows `PATH` (`C:\DariusDB`). Run `darius status`, `darius start all`, `darius env mssql MyApp`, `darius sql mssql "SELECT @@VERSION"`, `darius createdb`, `darius versions`, and `darius install` from any IDE or terminal.
-- **Pre-configured Terminal** — Opens a prompt with active `mariadb`/`mysql`, `psql`, `sqlcmd`, and `redis-cli` binaries already on `PATH` and port env vars set.
+  - `DariusDB-Uninstall.exe` — native 3-step Win32 wizard with **Uninstall** and **Repair** modes, live progress bar, scrolling log, and safe database preservation (`data/`, `www/`, `etc/`).
+- **Developer CLI (`darius.exe`) for Visual Studio, VS Code & Terminals** — Automatically added to your Windows `PATH` (`C:\DariusDB`). Run `darius status`, `darius start all`, `darius repair`, `darius restore`, `darius backup`, `darius env mssql MyApp`, `darius sql mssql "SELECT @@VERSION"`, `darius createdb`, `darius versions`, `darius update`, and `darius install` from any IDE or terminal.
+- **Pre-configured Multi-Mode Terminal** — Switch between Windows Shell, MariaDB, MySQL, PostgreSQL (`psql`), MS SQL (`sqlcmd`), and Redis CLI inside the app.
 
 ---
 
 ## Quick Start
 
 ### Option 1: Install on Windows (Recommended)
-1. Double-click **`installer\DariusDB-Setup-0.1.2.exe`** (or **`dist\DariusDB-Setup-0.1.2.exe`**).
-2. Choose **`C:\DariusDB`** (or pick any custom folder) and select whether to start on Windows boot.
+1. Download **`DariusDB-Setup-0.1.2.exe`** from the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.2.exe` / `dist\DariusDB-Setup-0.1.2.exe`).
+2. Double-click **`DariusDB-Setup-0.1.2.exe`**, choose **`C:\DariusDB`** (default), and complete the 3-step Setup Wizard.
 3. Launch **Darius DB (Lite Version 0.1.2)** from the Desktop or Start Menu.
-4. Open **Versions** to download MariaDB, MySQL, PostgreSQL, or Redis (or start **MS SQL Server** immediately), then click **Start All**.
+4. Open **Versions** to download MariaDB, MySQL, PostgreSQL, or Redis (or start **Apache Web Server** and **MS SQL Server** immediately), then click **Start All**.
 
 ### Option 2: Portable (No Install)
-1. Extract `DariusDB-0.1.2-portable-windows-amd64.zip` (or copy `DariusDB.exe`, `DariusDB-Launcher.exe`, and `darius.exe`) into any folder, e.g. `C:\DariusDB\`.
+1. Download `DariusDB-0.1.2-portable-windows-amd64.zip` from [**Google Drive**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or `dist\DariusDB-0.1.2-portable-windows-amd64.zip`) and extract into any folder, e.g. `C:\DariusDB\`.
 2. Double-click `DariusDB-Launcher.exe` (or `DariusDB.exe`).
 
 ---
@@ -135,4 +139,5 @@ wails build -clean -ldflags "-s -w"
 | **Year** | 2026 |
 | **Version** | `Lite Version 0.1.2` |
 | **Repository** | [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version) |
+| **Installer Download** | [https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) |
 | **License** | [MIT License](LICENSE) — Copyright © 2026 Darius Cumpio |

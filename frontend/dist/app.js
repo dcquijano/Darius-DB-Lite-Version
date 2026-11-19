@@ -980,6 +980,10 @@
         .join("");
 
       $("aboutVersionBadge").textContent = "Lite Version " + state.info.version;
+      const installerUrl =
+        state.info.installerUrl ||
+        "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing";
+      const repoUrl = state.info.repo || "https://github.com/dcquijano/Darius-DB-Lite-Version";
       const aboutRows = [
         ["Application", state.info.name || `Darius DB (Lite Version ${state.info.version})`],
         ["Creator / Author", state.info.author],
@@ -988,12 +992,16 @@
         ["Year", String(state.info.year)],
         ["Version", `Lite Version ${state.info.version}`],
         ["License", `${state.info.license} Open Source`],
-        ["GitHub Repository", state.info.repo || "https://github.com/dcquijano/Darius-DB-Lite-Version"],
+        ["GitHub Repository", repoUrl, repoUrl],
+        ["Official Installer (Google Drive)", installerUrl, installerUrl],
       ];
       $("aboutGrid").innerHTML = aboutRows
-        .map(
-          ([k, v]) =>
-            `<div class="about-item"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`
+        .map(([k, v, link]) =>
+          link
+            ? `<div class="about-item"><span>${esc(k)}</span><strong><a href="#" data-ext-url="${esc(
+                link
+              )}" style="color:var(--accent);text-decoration:underline">${esc(v)}</a></strong></div>`
+            : `<div class="about-item"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`
         )
         .join("");
     }
@@ -1592,6 +1600,14 @@
     $("folderList").addEventListener("click", (e) => {
       const b = e.target.closest("[data-open-folder]");
       if (b) api().OpenFolder(b.dataset.openFolder);
+    });
+    $("aboutGrid").addEventListener("click", (e) => {
+      const a = e.target.closest("[data-ext-url]");
+      if (!a) return;
+      e.preventDefault();
+      const url = a.dataset.extUrl;
+      if (rt()?.BrowserOpenURL) rt().BrowserOpenURL(url);
+      else window.open(url, "_blank");
     });
 
     // Built-in Terminal events

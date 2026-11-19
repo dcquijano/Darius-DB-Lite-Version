@@ -128,16 +128,32 @@ func ListInstallations(p *Paths, engineID string) []Installation {
 	}
 	// For MS SQL Server, also detect Windows-installed SQL Server LocalDB / sqlcmd tools
 	if engineID == "mssql" {
-		if sysInst, ok := detectSystemMSSQL(); ok {
+		if sysInst, ok := detectSystemMSSQL(); ok && !isVersionHidden(p, engineID, sysInst.Name) {
 			out = append(out, sysInst)
 		}
 	}
 	// For Apache Web Server, also include the built-in zero-download portable server
 	if engineID == "apache" {
-		out = append(out, detectBuiltinApache(p))
+		builtin := detectBuiltinApache(p)
+		if !isVersionHidden(p, engineID, builtin.Name) {
+			out = append(out, builtin)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return compareVersions(out[i].Version, out[j].Version) > 0 })
 	return out
+}
+
+func isVersionHidden(p *Paths, engineID, name string) bool {
+	if p == nil || p.Root == "" {
+		return false
+	}
+	es := LoadSettings(p.Root).Engine(engineID)
+	for _, h := range es.HiddenVersions {
+		if strings.EqualFold(h, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func FindInstallation(p *Paths, engineID, name string) (Installation, bool) {

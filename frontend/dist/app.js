@@ -1482,6 +1482,10 @@
       if (use) {
         try {
           await api().SetActive(state.verEngine, use.dataset.useVer);
+          state.statuses = (await api().Status()) || [];
+          renderVerEngineTabs();
+          renderVersions();
+          renderDashboard();
           toast(`Active version set to ${use.dataset.useVer}`, "ok");
         } catch (err) {
           toast(errMsg(err), "err");
@@ -1494,13 +1498,17 @@
         if (
           !(await askConfirm(
             "Remove Engine Version?",
-            `Delete binaries in bin/${state.verEngine}/${name}? Your data/ folder will NOT be touched.`,
+            `Remove ${name} from Darius DB? Your databases in data/ will NOT be touched.`,
             "Remove"
           ))
         )
           return;
         try {
           await api().Uninstall(state.verEngine, name);
+          state.statuses = (await api().Status()) || [];
+          renderVerEngineTabs();
+          renderVersions();
+          renderDashboard();
           toast(`Removed ${name}`, "ok");
         } catch (err) {
           toast(errMsg(err), "err");

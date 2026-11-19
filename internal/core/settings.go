@@ -8,11 +8,12 @@ import (
 )
 
 type EngineSettings struct {
-	Enabled  bool   `json:"enabled"`  // included in "Start All"
-	Version  string `json:"version"`  // active installation (folder name in bin/<engine>)
-	Port     int    `json:"port"`
-	User     string `json:"user"`     // admin user used by the built-in browser
-	Password string `json:"password"` // admin password used by the built-in browser
+	Enabled        bool     `json:"enabled"`        // included in "Start All"
+	Version        string   `json:"version"`        // active installation (folder name in bin/<engine>)
+	Port           int      `json:"port"`
+	User           string   `json:"user"`           // admin user used by the built-in browser
+	Password       string   `json:"password"`       // admin password used by the built-in browser
+	HiddenVersions []string `json:"hiddenVersions,omitempty"` // system/built-in installations removed by user
 }
 
 type Settings struct {
@@ -121,6 +122,9 @@ func (s *Settings) clone() Settings {
 	c.Engines = make(map[string]*EngineSettings, len(s.Engines))
 	for k, v := range s.Engines {
 		e := *v
+		if len(v.HiddenVersions) > 0 {
+			e.HiddenVersions = append([]string(nil), v.HiddenVersions...)
+		}
 		c.Engines[k] = &e
 	}
 	return c

@@ -24,12 +24,15 @@ try {
     Remove-Item -Force "dist\*", "installer\*.exe", "build\bin\*.exe" -ErrorAction SilentlyContinue
 
     # Incrementally warm Go build cache with unified build tags (-tags "desktop,production")
-    # so all 5 binaries share a single standard-library cache entry
+    # in small batches so $WORK never exceeds ~12 MB
     $tags = "desktop,production"
-    go build -p 1 -tags $tags runtime os io
-    go build -p 1 -tags $tags archive/zip encoding/json
-    go build -p 1 -tags $tags net/http
+    go build -p 1 -tags $tags runtime os io math strconv strings bytes sync
+    go build -p 1 -tags $tags crypto/sha256 crypto/sha512 crypto/aes crypto/cipher crypto/ecdsa crypto/rsa
+    go build -p 1 -tags $tags crypto/x509 crypto/tls
+    go build -p 1 -tags $tags archive/zip encoding/json net/http
+    go build -p 1 -tags $tags database/sql github.com/go-sql-driver/mysql github.com/lib/pq
     go build -p 1 -tags $tags ./internal/winui ./internal/tray ./internal/core
+    go build -p 1 -tags $tags github.com/labstack/echo/v4 github.com/gabriel-vasile/mimetype
     go build -p 1 -tags $tags github.com/wailsapp/wails/v2/pkg/runtime github.com/wailsapp/wails/v2/pkg/options
     go build -p 1 -tags $tags github.com/wailsapp/wails/v2
 
@@ -60,7 +63,6 @@ try {
     $stubExe = "build\bin\DariusDB-Setup-stub.exe"
     go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui" -o $stubExe ./cmd/installer
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Setup.exe failed" }
-    go clean -cache
 
     Write-Host "==> Packaging portable ZIP & self-contained DariusDB-Setup-$Version.exe..." -ForegroundColor Cyan
     $distDir = Join-Path $RepoRoot "dist"

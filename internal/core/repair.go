@@ -258,6 +258,16 @@ func (m *Manager) repairSingleEngine(id string, resetConfig bool, add func(cat, 
 
 	// D. Verify active installation & configuration file
 	es := m.st.Engine(id)
+	if len(es.HiddenVersions) > 0 && (resetConfig || len(ListInstallations(m.p, id)) == 0) {
+		_ = m.st.Update(func(st *Settings) {
+			if e := st.Engines[id]; e != nil {
+				e.HiddenVersions = nil
+			}
+		})
+		m.ensureActiveVersions()
+		es = m.st.Engine(id)
+		add(cat, "Restored previously removed built-in/system engine detection", "fixed")
+	}
 	inst, ok := FindInstallation(m.p, id, es.Version)
 	if !ok {
 		add(cat, "No version installed yet (ready to download in Versions tab)", "ok")

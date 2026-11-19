@@ -80,6 +80,44 @@ func killProcess(pid int) error {
 	return windows.TerminateProcess(h, 1)
 }
 
+// killProcessesInDir terminates any running process whose executable lives inside dir.
+func killProcessesInDir(dir string) {
+	prefix := strings.ToLower(filepath.Clean(dir)) + string(filepath.Separator)
+	selfPid := uint32(os.Getpid())
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return
+	}
+	defer windows.CloseHandle(snap)
+	var pe windows.ProcessEntry32
+	pe.Size = uint32(unsafe.Sizeof(pe))
+	if err := windows.Process32First(snap, &pe); err != nil {
+		return
+	}
+	for {
+		pid := pe.ProcessID
+		if pid != 0 && pid != selfPid {
+			p := strings.ToLower(filepath.Clean(processPath(int(pid))))
+			if p != "" && strings.HasPrefix(p, prefix) {
+				_ = killProcess(int(pid))
+			}
+		}
+		if err := windows.Process32Next(snap, &pe); err != nil {
+			break
+		}
+	}
+}
+
+// clearReadOnlyRecursive clears read-only attributes on all files/folders under dir so os.RemoveAll succeeds.
+func clearReadOnlyRecursive(dir string) {
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info != nil {
+			_ = os.Chmod(path, 0o777)
+		}
+		return nil
+	})
+}
+
 func portInUse(port int) bool {
 	c, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(port), 300*time.Millisecond)
 	if err != nil {

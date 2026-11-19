@@ -444,26 +444,59 @@ func (m *Manager) SetActive(id, name string) error {
 }
 
 // Uninstall removes an installed version (data folders are kept).
+// If the version is running, it is stopped automatically first.
+// For system-wide or built-in detections outside bin/, it unlinks/removes the entry from Darius DB.
 func (m *Manager) Uninstall(id, name string) error {
 	inst, ok := FindInstallation(m.p, id, name)
 	if !ok {
 		return fmt.Errorf("%s is not installed", name)
-	}
-	cleanBin := strings.ToLower(filepath.Clean(m.p.Bin)) + string(filepath.Separator)
-	cleanDir := strings.ToLower(filepath.Clean(inst.Dir))
-	if !strings.HasPrefix(cleanDir, cleanBin) {
-		return fmt.Errorf("%s is installed system-wide on Windows and cannot be removed from bin/", name)
 	}
 	m.mu.Lock()
 	s := m.svc[id]
 	busy := (s.state == StateRunning || s.state == StateStarting || s.state == StateStopping) && s.inst.Name == name
 	m.mu.Unlock()
 	if busy {
-		return fmt.Errorf("stop %s before removing it", name)
+		_ = m.Stop(id)
 	}
+
+	cleanBin := strings.ToLower(filepath.Clean(m.p.Bin)) + string(filepath.Separator)
+	cleanDir := strings.ToLower(filepath.Clean(inst.Dir))
+	if !strings.HasPrefix(cleanDir, cleanBin) {
+		_ = m.st.Update(func(st *Settings) {
+			es := st.Engines[id]
+			if es == nil {
+				return
+			}
+			for _, h := range es.HiddenVersions {
+				if strings.EqualFold(h, name) {
+					return
+				}
+			}
+			es.HiddenVersions = append(es.HiddenVersions, name)
+			if strings.EqualFold(es.Version, name) {
+				es.Version = ""
+			}
+		})
+		m.ensureActiveVersions()
+		m.changed()
+		return nil
+	}
+
+	killProcessesInDir(inst.Dir)
+	clearReadOnlyRecursive(inst.Dir)
 	if err := os.RemoveAll(inst.Dir); err != nil {
-		return err
+		time.Sleep(300 * time.Millisecond)
+		killProcessesInDir(inst.Dir)
+		clearReadOnlyRecursive(inst.Dir)
+		if err2 := os.RemoveAll(inst.Dir); err2 != nil {
+			return err2
+		}
 	}
+	_ = m.st.Update(func(st *Settings) {
+		if es := st.Engines[id]; es != nil && strings.EqualFold(es.Version, name) {
+			es.Version = ""
+		}
+	})
 	m.ensureActiveVersions()
 	m.changed()
 	return nil
@@ -471,6 +504,19 @@ func (m *Manager) Uninstall(id, name string) error {
 
 // OnInstalled is called after a download finishes.
 func (m *Manager) OnInstalled(id, name string) {
+	_ = m.st.Update(func(st *Settings) {
+		es := st.Engines[id]
+		if es == nil || len(es.HiddenVersions) == 0 {
+			return
+		}
+		kept := make([]string, 0, len(es.HiddenVersions))
+		for _, h := range es.HiddenVersions {
+			if !strings.EqualFold(h, name) {
+				kept = append(kept, h)
+			}
+		}
+		es.HiddenVersions = kept
+	})
 	m.ensureActiveVersions()
 	m.changed()
 }

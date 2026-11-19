@@ -3,9 +3,13 @@
 package core
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,12 +55,11 @@ func (m *mssqlEngine) ConfigFile(p *Paths, _ Installation) string {
 }
 
 const mssqlConf = `# Darius DB (Lite Version 0.1.3) - MS SQL Server configuration
-# Default Server Name uses the PC User name; default credentials: dbdarius / admin
+# Default Server Name uses the Windows PC User name (Windows Authentication)
 instance = MSSQLLocalDB
 server = (localdb)\MSSQLLocalDB
 tcp_port = 1433
-default_user = dbdarius
-default_password = admin
+trusted_connection = true
 query_timeout = 30
 `
 
@@ -75,7 +78,11 @@ func MSSQLServerName() string {
 }
 
 func (m *mssqlEngine) Prepare(ctx context.Context, p *Paths, inst Installation, s EngineSettings, logf func(string)) error {
-	if err := writeIfMissing(m.ConfigFile(p, inst), mssqlConf); err != nil {
+	cfg := m.ConfigFile(p, inst)
+	if b, err := os.ReadFile(cfg); err == nil && (strings.Contains(string(b), "default_user") || strings.Contains(string(b), "default_password")) {
+		_ = os.WriteFile(cfg, []byte(strings.ReplaceAll(mssqlConf, "\n", "\r\n")), 0o644)
+	}
+	if err := writeIfMissing(cfg, mssqlConf); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(m.DataDir(p, inst), 0o755); err != nil {
@@ -204,6 +211,61 @@ func findSqlcmd() string {
 			cand := filepath.Join(root, "bin", "mssql", e.Name(), rel)
 			if fileExists(cand) {
 				return cand
+			}
+		}
+	}
+	// Auto-provision portable sqlcmd.exe on demand if missing
+	if p := autoProvisionSqlcmd(root); p != "" {
+		return p
+	}
+	return ""
+}
+
+func autoProvisionSqlcmd(root string) string {
+	destDir := filepath.Join(root, "bin", "mssql", "mssql-17.0.1000.7")
+	destExe := filepath.Join(destDir, "sqlcmd.exe")
+	if fileExists(destExe) {
+		return destExe
+	}
+	client := &http.Client{Timeout: 60 * time.Second}
+	req, err := http.NewRequest("GET", "https://github.com/microsoft/go-sqlcmd/releases/download/v1.10.0/sqlcmd-windows-amd64.zip", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Lite/0.1.3")
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return ""
+	}
+	raw, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return ""
+	}
+	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		return ""
+	}
+	_ = os.MkdirAll(destDir, 0o755)
+	for _, f := range zr.File {
+		if strings.EqualFold(filepath.Base(f.Name), "sqlcmd.exe") {
+			rc, err := f.Open()
+			if err != nil {
+				continue
+			}
+			out, err := os.Create(destExe)
+			if err != nil {
+				rc.Close()
+				continue
+			}
+			_, _ = io.Copy(out, rc)
+			out.Close()
+			rc.Close()
+			if fileExists(destExe) {
+				return destExe
 			}
 		}
 	}

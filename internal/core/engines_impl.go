@@ -53,7 +53,6 @@ innodb_buffer_pool_size = 256M
 innodb_log_file_size = 64M
 innodb_flush_log_at_trx_commit = 2
 innodb_file_per_table = 1
-skip-name-resolve = ON
 max_connections = 200
 slow_query_log = 1
 long_query_time = 2
@@ -72,7 +71,6 @@ max_allowed_packet = 128M
 innodb_buffer_pool_size = 256M
 innodb_flush_log_at_trx_commit = 2
 innodb_file_per_table = 1
-skip-name-resolve = ON
 max_connections = 200
 slow_query_log = 1
 long_query_time = 2
@@ -88,6 +86,9 @@ func (m *mysqlFamily) Prepare(ctx context.Context, p *Paths, inst Installation, 
 	tpl := mysqlIni
 	if m.id == "mariadb" {
 		tpl = mariadbIni
+	}
+	if b, err := os.ReadFile(cfg); err == nil && (strings.Contains(string(b), "skip-name-resolve") || strings.Contains(string(b), "innodb_buffer_pool_size = 128M")) {
+		_ = os.WriteFile(cfg, []byte(strings.ReplaceAll(tpl, "\n", "\r\n")), 0o644)
 	}
 	if err := writeIfMissing(cfg, tpl); err != nil {
 		return err
@@ -310,18 +311,22 @@ func EnsureConfig(p *Paths, engineID string) error {
 		return writeIfMissing(filepath.Join(p.EngineEtc("php"), "php.ini"), defaultPhpIni)
 	case "mariadb":
 		cfg := filepath.Join(p.EngineEtc("mariadb"), "my.ini")
-		if b, err := os.ReadFile(cfg); err == nil && strings.Contains(string(b), "innodb_buffer_pool_size = 128M") {
+		if b, err := os.ReadFile(cfg); err == nil && (strings.Contains(string(b), "innodb_buffer_pool_size = 128M") || strings.Contains(string(b), "skip-name-resolve")) {
 			_ = os.WriteFile(cfg, []byte(strings.ReplaceAll(mariadbIni, "\n", "\r\n")), 0o644)
 		}
 		return writeIfMissing(cfg, mariadbIni)
 	case "mysql":
 		cfg := filepath.Join(p.EngineEtc("mysql"), "my.ini")
-		if b, err := os.ReadFile(cfg); err == nil && strings.Contains(string(b), "innodb_buffer_pool_size = 128M") {
+		if b, err := os.ReadFile(cfg); err == nil && (strings.Contains(string(b), "innodb_buffer_pool_size = 128M") || strings.Contains(string(b), "skip-name-resolve")) {
 			_ = os.WriteFile(cfg, []byte(strings.ReplaceAll(mysqlIni, "\n", "\r\n")), 0o644)
 		}
 		return writeIfMissing(cfg, mysqlIni)
 	case "mssql":
-		return writeIfMissing(filepath.Join(p.EngineEtc("mssql"), "mssql.conf"), mssqlConf)
+		cfg := filepath.Join(p.EngineEtc("mssql"), "mssql.conf")
+		if b, err := os.ReadFile(cfg); err == nil && (strings.Contains(string(b), "default_user") || strings.Contains(string(b), "default_password")) {
+			_ = os.WriteFile(cfg, []byte(strings.ReplaceAll(mssqlConf, "\n", "\r\n")), 0o644)
+		}
+		return writeIfMissing(cfg, mssqlConf)
 	case "redis":
 		return writeIfMissing(filepath.Join(p.EngineEtc("redis"), "redis.conf"), redisConf)
 	case "mailpit":

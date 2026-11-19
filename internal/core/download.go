@@ -11,10 +11,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
+
+const defaultRemoteCatalogURL = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/internal/core/catalog.json"
 
 //go:embed catalog.json
 var embeddedCatalog []byte
@@ -40,32 +43,211 @@ func LoadCatalog(p *Paths) Catalog {
 	return c
 }
 
-// RefreshCatalog downloads a catalog from url and stores it as catalog.json.
-func RefreshCatalog(p *Paths, url string) (Catalog, error) {
-	if url == "" {
-		return nil, errors.New("no catalog URL configured in Settings")
+// RefreshCatalog discovers the newest engine versions from official upstream
+// APIs (MariaDB, PostgreSQL, Redis, GitHub repo catalog, and optional custom URL),
+// merges them into catalog.json, and returns the updated catalog.
+func RefreshCatalog(p *Paths, customURL string) (Catalog, error) {
+	base := LoadCatalog(p)
+	client := &http.Client{Timeout: 12 * time.Second}
+
+	merge := func(engine string, entry CatalogEntry) {
+		if entry.Version == "" || entry.URL == "" {
+			return
+		}
+		list := base[engine]
+		for i, existing := range list {
+			if existing.Version == entry.Version {
+				if entry.Note != "" && existing.Note == "" {
+					list[i].Note = entry.Note
+				}
+				return
+			}
+		}
+		base[engine] = append(list, entry)
 	}
-	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Get(url)
-	if err != nil {
+
+	// 1. Fetch remote catalog JSON (custom URL if set, plus official GitHub repo catalog)
+	urls := []string{defaultRemoteCatalogURL}
+	if strings.TrimSpace(customURL) != "" {
+		urls = append([]string{strings.TrimSpace(customURL)}, urls...)
+	}
+	for _, u := range urls {
+		if rem, err := fetchCatalogJSON(client, u); err == nil {
+			for eng, entries := range rem {
+				for _, e := range entries {
+					merge(eng, e)
+				}
+			}
+		}
+	}
+
+	// 2. Live upstream discovery in parallel (MariaDB, PostgreSQL, Redis)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	safeMerge := func(engine string, entry CatalogEntry) {
+		mu.Lock()
+		merge(engine, entry)
+		mu.Unlock()
+	}
+
+	// MariaDB latest per active series
+	for _, series := range []struct{ id, note string }{
+		{"13.0", "Latest Stable"},
+		{"12.3", "LTS"},
+		{"11.8", "LTS"},
+		{"11.4", "LTS"},
+		{"10.11", "LTS"},
+	} {
+		wg.Add(1)
+		go func(ser, note string) {
+			defer wg.Done()
+			var resp struct {
+				Releases map[string]struct{} `json:"releases"`
+			}
+			if getJSON(client, "https://downloads.mariadb.org/rest-api/mariadb/"+ser+"/latest/", &resp) == nil {
+				for ver := range resp.Releases {
+					u := fmt.Sprintf("https://archive.mariadb.org/mariadb-%s/winx64-packages/mariadb-%s-winx64.zip", ver, ver)
+					safeMerge("mariadb", CatalogEntry{Version: ver, URL: u, Note: note})
+				}
+			}
+		}(series.id, series.note)
+	}
+
+	// PostgreSQL supported versions
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var pgs []struct {
+			Major       int  `json:"major"`
+			LatestMinor int  `json:"latestMinor"`
+			Supported   bool `json:"supported"`
+		}
+		if getJSON(client, "https://www.postgresql.org/versions.json", &pgs) == nil {
+			for _, pg := range pgs {
+				if !pg.Supported || pg.Major < 14 {
+					continue
+				}
+				ver := fmt.Sprintf("%d.%d", pg.Major, pg.LatestMinor)
+				u := fmt.Sprintf("https://get.enterprisedb.com/postgresql/postgresql-%s-1-windows-x64-binaries.zip", ver)
+				note := "Stable"
+				if pg.Major >= 18 {
+					note = "Latest"
+				}
+				safeMerge("postgresql", CatalogEntry{Version: ver, URL: u, Note: note})
+			}
+		}
+	}()
+
+	// Redis Windows latest GitHub releases
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var rels []struct {
+			TagName string `json:"tag_name"`
+			Assets  []struct {
+				Name               string `json:"name"`
+				BrowserDownloadURL string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+		if getJSON(client, "https://api.github.com/repos/redis-windows/redis-windows/releases?per_page=6", &rels) == nil {
+			for i, r := range rels {
+				ver := strings.TrimPrefix(r.TagName, "v")
+				for _, a := range r.Assets {
+					if strings.HasSuffix(a.Name, "-Windows-x64-msys2.zip") {
+						note := "Stable"
+						if i == 0 {
+							note = "Latest"
+						}
+						safeMerge("redis", CatalogEntry{Version: ver, URL: a.BrowserDownloadURL, Note: note})
+						break
+					}
+				}
+			}
+		}
+	}()
+
+	wg.Wait()
+
+	// Sort each engine's versions newest-first
+	for eng, list := range base {
+		sort.Slice(list, func(i, j int) bool {
+			return compareVersions(list[i].Version, list[j].Version) > 0
+		})
+		base[eng] = list
+	}
+
+	_ = SaveCatalog(p, base)
+	return base, nil
+}
+
+// AddCustomCatalogEntry saves a user-provided version and download URL into catalog.json.
+func AddCustomCatalogEntry(p *Paths, engine, version, url, note string) (Catalog, error) {
+	if _, err := GetEngine(engine); err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("catalog download failed: %s", resp.Status)
+	version = strings.TrimSpace(version)
+	url = strings.TrimSpace(url)
+	if version == "" || url == "" {
+		return nil, errors.New("version and download URL are required")
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if err != nil {
-		return nil, err
+	c := LoadCatalog(p)
+	list := c[engine]
+	updated := false
+	for i, e := range list {
+		if e.Version == version {
+			list[i] = CatalogEntry{Version: version, URL: url, Note: note}
+			updated = true
+			break
+		}
 	}
-	var c Catalog
-	if err := json.Unmarshal(b, &c); err != nil {
-		return nil, fmt.Errorf("invalid catalog: %v", err)
+	if !updated {
+		list = append([]CatalogEntry{{Version: version, URL: url, Note: note}}, list...)
 	}
-	if err := os.WriteFile(filepath.Join(p.Root, "catalog.json"), b, 0o644); err != nil {
+	sort.Slice(list, func(i, j int) bool {
+		return compareVersions(list[i].Version, list[j].Version) > 0
+	})
+	c[engine] = list
+	if err := SaveCatalog(p, c); err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+func SaveCatalog(p *Paths, c Catalog) error {
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(p.Root, "catalog.json"), b, 0o644)
+}
+
+func fetchCatalogJSON(client *http.Client, url string) (Catalog, error) {
+	var c Catalog
+	if err := getJSON(client, url, &c); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func getJSON(client *http.Client, url string, dest interface{}) error {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "DariusDB-Lite/0.1.1")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, dest)
 }
 
 // ---------------------------------------------------------------- downloads

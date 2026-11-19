@@ -254,6 +254,10 @@ func (a *App) RefreshCatalog() (core.Catalog, error) {
 	return core.RefreshCatalog(a.paths, a.settings.Get().CatalogURL)
 }
 
+func (a *App) AddCatalogEntry(engine, version, url, note string) (core.Catalog, error) {
+	return core.AddCustomCatalogEntry(a.paths, engine, version, url, note)
+}
+
 func (a *App) Install(engine, version, url string) error {
 	return a.dl.Install(engine, version, url)
 }

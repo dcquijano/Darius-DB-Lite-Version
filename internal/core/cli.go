@@ -237,6 +237,22 @@ func RunCLI(root string, args []string) int {
 		fmt.Println(formatSQLResult(res))
 		return 0
 
+	case "update", "check-updates", "refresh":
+		fmt.Println("Checking official upstream releases for newest database versions...")
+		cat, err := RefreshCatalog(paths, st.Get().CatalogURL)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 1
+		}
+		var rows [][]string
+		for _, id := range EngineIDs {
+			if entries := cat[id]; len(entries) > 0 {
+				rows = append(rows, []string{id, entries[0].Version, entries[0].Note, entries[0].URL})
+			}
+		}
+		fmt.Println(renderASCIITable([]string{"ENGINE", "NEWEST VERSION", "CHANNEL", "DOWNLOAD URL"}, rows))
+		return 0
+
 	case "versions", "list", "catalog":
 		cat := LoadCatalog(paths)
 		filter := ""

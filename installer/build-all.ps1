@@ -25,7 +25,7 @@ try {
     }
 
     Write-Host "==> Building DariusDB.exe (Wails production build)..." -ForegroundColor Cyan
-    wails build -ldflags "-s -w"
+    wails build -skipbindings -ldflags "-s -w"
     if ($LASTEXITCODE -ne 0) { throw "wails build failed" }
 
     Write-Host "==> Building DariusDB-Launcher.exe..." -ForegroundColor Cyan

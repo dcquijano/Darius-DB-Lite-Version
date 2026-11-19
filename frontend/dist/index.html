@@ -193,8 +193,9 @@
         <header class="view-head compact">
           <div class="seg-tabs" id="verEngineTabs"></div>
           <div class="head-actions">
-            <button class="btn sm" id="btnInstallZip">Install .zip</button>
-            <button class="btn sm" id="btnRefreshCatalog" title="Fetch latest catalog from Catalog URL in Settings">Refresh Catalog</button>
+            <button class="btn sm primary" id="btnRefreshCatalog" title="Check official upstream releases for newest versions">↻ Check Newest Versions</button>
+            <button class="btn sm accent" id="btnManualModal" title="Manual browser download, custom URL, or import .zip">+ Manual / Custom</button>
+            <button class="btn sm" id="btnInstallZip">Import .zip</button>
             <button class="btn sm" id="btnOpenBin">Open bin/</button>
           </div>
         </header>
@@ -461,6 +462,42 @@
           <button type="button" class="btn danger" id="btnConfirmOk">Confirm</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Manual Download & Custom Version Modal -->
+  <div class="modal-backdrop" id="modalManual" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modalManualTitle">Manual Download &amp; Custom Version</h3>
+        <button class="icon-btn" id="btnCloseManual" aria-label="Close">✕</button>
+      </div>
+      <form id="formManual" class="modal-body">
+        <div class="field">
+          <span>Option 1: Download from Official Vendor Website</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn sm accent" id="btnOpenOfficialSite">Open Official Download Page in Browser</button>
+            <button type="button" class="btn sm" id="btnModalPickZip">Import Downloaded .zip File...</button>
+          </div>
+        </div>
+        <div class="divider-label">Option 2: Add &amp; Download Any Custom Version URL</div>
+        <label class="field">
+          <span>Version Number *</span>
+          <input type="text" id="manualVer" class="input" required placeholder="e.g. 13.0.2 or 17.0.1000.7" />
+        </label>
+        <label class="field">
+          <span>Direct Portable .zip Download URL *</span>
+          <input type="url" id="manualUrl" class="input" required placeholder="https://.../engine-version-winx64.zip" />
+        </label>
+        <label class="field">
+          <span>Tag / Note (optional)</span>
+          <input type="text" id="manualNote" class="input" placeholder="e.g. Custom / Latest / LTS" />
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnCancelManual">Cancel</button>
+          <button type="submit" class="btn primary">Save &amp; Download</button>
+        </div>
+      </form>
     </div>
   </div>
 

@@ -555,28 +555,64 @@
     });
   }
 
+  const OFFICIAL_DOWNLOAD_PAGES = {
+    mariadb: "https://mariadb.org/download/?t=mariadb&p=mariadb&o=windows&a=x86_64&k=zip",
+    mysql: "https://dev.mysql.com/downloads/mysql/",
+    postgresql: "https://www.enterprisedb.com/download-postgresql-binaries",
+    mssql: "https://www.microsoft.com/en-us/sql-server/sql-server-downloads",
+    redis: "https://github.com/redis-windows/redis-windows/releases",
+  };
+
+  function compareVer(a, b) {
+    const as = String(a || "").split(".").map((n) => parseInt(n, 10) || 0);
+    const bs = String(b || "").split(".").map((n) => parseInt(n, 10) || 0);
+    const len = Math.max(as.length, bs.length);
+    for (let i = 0; i < len; i++) {
+      const x = as[i] || 0;
+      const y = bs[i] || 0;
+      if (x !== y) return x - y;
+    }
+    return 0;
+  }
+
   function renderVersions() {
     const s = getStatus(state.verEngine);
     const insts = s ? s.installations || [] : [];
     const instSet = new Set(insts.map((i) => i.version));
+    const entries = state.catalog[state.verEngine] || [];
+    const newestEntry = entries[0] || null;
 
     const instList = $("installedList");
     if (!insts.length) {
-      instList.innerHTML = `<div class="empty-note">No ${s ? esc(s.name) : ""} versions installed yet. Pick one below or import a local .zip.</div>`;
+      instList.innerHTML = `<div class="empty-note">No ${s ? esc(s.name) : ""} versions installed yet. Pick one below, check newest versions, or import a local .zip.</div>`;
     } else {
       instList.innerHTML = insts
         .map((inst) => {
           const isActive = s && inst.name === s.active;
+          const canUpdate =
+            newestEntry &&
+            !instSet.has(newestEntry.version) &&
+            compareVer(newestEntry.version, inst.version) > 0;
           return `
           <div class="ver-row">
             <div class="ver-info">
               <div class="ver-title">
                 <span>${esc(inst.name)}</span>
                 ${isActive ? `<span class="pill running">Active</span>` : ""}
+                ${canUpdate ? `<span class="pill warn">Newer: ${esc(newestEntry.version)}</span>` : ""}
               </div>
               <div class="ver-sub">${esc(inst.dir)}</div>
             </div>
             <div class="ver-actions">
+              ${
+                canUpdate
+                  ? `<button class="btn sm primary" data-dl-ver="${esc(newestEntry.version)}" data-dl-url="${esc(
+                      newestEntry.url
+                    )}" title="Download and install newest version ${esc(newestEntry.version)}">↑ Update to ${esc(
+                      newestEntry.version
+                    )}</button>`
+                  : ""
+              }
               ${
                 isActive
                   ? ""
@@ -589,14 +625,13 @@
         .join("");
     }
 
-    const entries = state.catalog[state.verEngine] || [];
     const catList = $("catalogList");
     if (!entries.length) {
       catList.innerHTML = `<div class="empty-note">No catalog entries for this engine.</div>`;
       return;
     }
     catList.innerHTML = entries
-      .map((entry) => {
+      .map((entry, idx) => {
         const dl = state.downloads[`${state.verEngine}@${entry.version}`];
         const inProgress = dl && (dl.phase === "downloading" || dl.phase === "extracting");
         const isInstalled = instSet.has(entry.version);
@@ -628,12 +663,14 @@
           <div class="ver-info">
             <div class="ver-title">
               <span>${esc(state.verEngine)}-${esc(entry.version)}</span>
+              ${idx === 0 ? `<span class="pill running">Newest</span>` : ""}
               ${entry.note ? `<span class="pill accent">${esc(entry.note)}</span>` : ""}
               ${isInstalled ? `<span class="pill running">Installed</span>` : ""}
             </div>
-            <div class="ver-sub">${esc(host)}</div>
+            <div class="ver-sub" title="${esc(entry.url)}">${esc(host)}</div>
           </div>
           <div class="ver-actions">
+            <button class="btn sm ghost" data-manual-url="${esc(entry.url)}" title="Download .zip manually in your web browser">Manual (.zip)</button>
             <button class="btn sm primary" data-dl-ver="${esc(entry.version)}" data-dl-url="${esc(entry.url)}" ${
           isInstalled ? "disabled" : ""
         }>${isInstalled ? "Installed" : "Download"}</button>
@@ -1173,15 +1210,100 @@
       }
     };
     $("btnRefreshCatalog").onclick = async () => {
+      const btn = $("btnRefreshCatalog");
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Checking...";
       try {
         state.catalog = await api().RefreshCatalog();
         renderVersions();
-        toast("Catalog updated", "ok");
+        const top = (state.catalog[state.verEngine] || [])[0];
+        toast(
+          top
+            ? `Catalog updated! Newest ${state.verEngine}: ${top.version}`
+            : "Checked official releases — catalog is up to date",
+          "ok"
+        );
+      } catch (e) {
+        toast(errMsg(e), "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    };
+
+    const closeManual = () => ($("modalManual").hidden = true);
+    $("btnManualModal").onclick = () => {
+      const s = getStatus(state.verEngine);
+      $("modalManualTitle").textContent = `Manual Download & Custom Version (${s ? s.name : state.verEngine})`;
+      $("formManual").reset();
+      $("modalManual").hidden = false;
+      $("manualVer").focus();
+    };
+    $("btnCloseManual").onclick = closeManual;
+    $("btnCancelManual").onclick = closeManual;
+    $("btnOpenOfficialSite").onclick = () => {
+      const url = OFFICIAL_DOWNLOAD_PAGES[state.verEngine] || OFFICIAL_DOWNLOAD_PAGES.mariadb;
+      if (rt()?.BrowserOpenURL) {
+        rt().BrowserOpenURL(url);
+      } else {
+        window.open(url, "_blank");
+      }
+      toast("Opened official download page in your web browser", "info");
+    };
+    $("btnModalPickZip").onclick = async () => {
+      closeManual();
+      try {
+        const ver = await api().InstallFromZip(state.verEngine);
+        if (ver) toast(`Extracting ${state.verEngine}-${ver}...`, "info");
       } catch (e) {
         toast(errMsg(e), "err");
       }
     };
+    $("formManual").onsubmit = async (e) => {
+      e.preventDefault();
+      const ver = $("manualVer").value.trim();
+      const url = $("manualUrl").value.trim();
+      const note = $("manualNote").value.trim() || "Custom";
+      try {
+        state.catalog = await api().AddCatalogEntry(state.verEngine, ver, url, note);
+        closeManual();
+        await api().Install(state.verEngine, ver, url);
+        state.downloads[`${state.verEngine}@${ver}`] = {
+          engine: state.verEngine,
+          version: ver,
+          phase: "downloading",
+          received: 0,
+          total: 0,
+        };
+        renderActiveDownloads();
+        renderVersions();
+        toast(`Added & started downloading ${state.verEngine}-${ver}`, "ok");
+      } catch (err) {
+        toast(errMsg(err), "err");
+      }
+    };
+
     $("installedList").addEventListener("click", async (e) => {
+      const dlBtn = e.target.closest("[data-dl-ver]");
+      if (dlBtn) {
+        try {
+          await api().Install(state.verEngine, dlBtn.dataset.dlVer, dlBtn.dataset.dlUrl);
+          state.downloads[`${state.verEngine}@${dlBtn.dataset.dlVer}`] = {
+            engine: state.verEngine,
+            version: dlBtn.dataset.dlVer,
+            phase: "downloading",
+            received: 0,
+            total: 0,
+          };
+          renderActiveDownloads();
+          renderVersions();
+          toast(`Updating ${state.verEngine} to ${dlBtn.dataset.dlVer}...`, "info");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+        return;
+      }
       const use = e.target.closest("[data-use-ver]");
       if (use) {
         try {
@@ -1212,6 +1334,17 @@
       }
     });
     $("catalogList").addEventListener("click", async (e) => {
+      const manualBtn = e.target.closest("[data-manual-url]");
+      if (manualBtn) {
+        const url = manualBtn.dataset.manualUrl;
+        if (rt()?.BrowserOpenURL) {
+          rt().BrowserOpenURL(url);
+        } else {
+          window.open(url, "_blank");
+        }
+        toast("Opened direct .zip download in your browser — click 'Import .zip' once downloaded.", "info");
+        return;
+      }
       const btn = e.target.closest("[data-dl-ver]");
       if (!btn) return;
       try {
@@ -1337,6 +1470,7 @@
       if (e.key === "Escape") {
         if (!$("modalConfirm").hidden) closeConfirm(false);
         if (!$("modalNewDb").hidden) closeNewDb();
+        if (!$("modalManual").hidden) closeManual();
       }
     });
   }

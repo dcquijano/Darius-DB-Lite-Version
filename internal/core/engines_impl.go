@@ -292,6 +292,8 @@ func (r *redis) PidOf(p *Paths, inst Installation) int { return 0 }
 // inside its data folder by initdb on first start.
 func EnsureConfig(p *Paths, engineID string) error {
 	switch engineID {
+	case "apache":
+		return writeIfMissing(filepath.Join(p.EngineEtc("apache"), "httpd.conf"), apacheHttpdConf)
 	case "mariadb":
 		return writeIfMissing(filepath.Join(p.EngineEtc("mariadb"), "my.ini"), mariadbIni)
 	case "mysql":

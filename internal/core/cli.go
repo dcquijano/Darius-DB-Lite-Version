@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	CLIAppTitle   = "Darius DB (Lite Version 0.1.1)"
-	CLIAppVersion = "0.1.1"
+	CLIAppTitle   = "Darius DB (Lite Version 0.1.2)"
+	CLIAppVersion = "0.1.2"
 	CLIAppAuthor  = "Darius Cumpio"
 	CLIAppCreated = "November 19, 2026"
 	CLIAppRepo    = "https://github.com/dcquijano/Darius-DB-Lite-Version"
@@ -409,6 +409,8 @@ func RunCLI(root string, args []string) int {
 func normalizeEngineArg(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	switch s {
+	case "httpd", "web":
+		return "apache"
 	case "postgres", "pg", "psql":
 		return "postgresql"
 	case "sqlserver", "sqlcmd", "ms":
@@ -422,6 +424,8 @@ func normalizeEngineArg(s string) string {
 
 func buildConnectionURI(engine string, es EngineSettings, dbName string) (string, error) {
 	switch engine {
+	case "apache":
+		return fmt.Sprintf("http://localhost:%d/", es.Port), nil
 	case "mariadb", "mysql":
 		auth := url.User(es.User).String()
 		if es.Password != "" {
@@ -469,6 +473,10 @@ func buildIDECredentialsSnippet(engine string, es EngineSettings, dbName string)
 	fmt.Fprintf(&b, "=== %s Connection Configs for Visual Studio, VS Code & CLI ===\n\n", strings.ToUpper(engine))
 
 	switch engine {
+	case "apache":
+		fmt.Fprintf(&b, "[Local Web Server URL]\n%s\n\n", uri)
+		fmt.Fprintf(&b, "[VS Code / .env]\nAPP_URL=%q\nPORT=%d\n", strings.TrimRight(uri, "/"), es.Port)
+
 	case "mssql":
 		dotnet := uri
 		fmt.Fprintf(&b, "[Visual Studio / .NET appsettings.json]\n")

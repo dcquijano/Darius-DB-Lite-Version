@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	AppName    = "Darius DB (Lite Version 0.1.1)"
-	AppVersion = "0.1.1"
+	AppName    = "Darius DB (Lite Version 0.1.2)"
+	AppVersion = "0.1.2"
 	AppAuthor  = "Darius Cumpio"
 	AppBuiltBy = "Darius Cumpio"
 	AppCreated = "November 19, 2026"
@@ -141,15 +141,15 @@ func (a *App) trayTooltipFrom(st []core.ServiceStatus) string {
 		}
 	}
 	if len(running) == 0 {
-		return "Darius DB (Lite Version 0.1.1) — All services stopped"
+		return "Darius DB (Lite Version 0.1.2) — All services stopped"
 	}
-	return fmt.Sprintf("Darius DB (Lite Version 0.1.1) — Running: %s", strings.Join(running, ", "))
+	return fmt.Sprintf("Darius DB (Lite Version 0.1.2) — Running: %s", strings.Join(running, ", "))
 }
 
 func (a *App) buildTrayMenu() []tray.MenuItem {
 	st := a.mgr.Status()
 	items := []tray.MenuItem{
-		{Label: "Open Darius DB (Lite Version 0.1.1)", Default: true, Action: a.ShowWindow},
+		{Label: "Open Darius DB (Lite Version 0.1.2)", Default: true, Action: a.ShowWindow},
 		{Separator: true},
 		{Label: "Start All", Action: func() { _ = a.mgr.StartAll() }},
 		{Label: "Stop All", Action: func() { _ = a.mgr.StopAll() }},
@@ -190,7 +190,7 @@ func (a *App) buildTrayMenu() []tray.MenuItem {
 		}},
 		tray.MenuItem{Label: "Open Data Folder", Action: func() { _ = a.OpenFolder("data") }},
 		tray.MenuItem{Separator: true},
-		tray.MenuItem{Label: "Quit Darius DB (Lite Version 0.1.1)", Action: a.QuitApp},
+		tray.MenuItem{Label: "Quit Darius DB (Lite Version 0.1.2)", Action: a.QuitApp},
 	)
 	return items
 }
@@ -374,6 +374,8 @@ func (a *App) OpenFolder(kind string) error {
 	switch kind {
 	case "root":
 		return core.OpenFolder(a.paths.Root)
+	case "www":
+		return core.OpenFolder(a.paths.Www)
 	case "data":
 		return core.OpenFolder(a.paths.Data)
 	case "bin":
@@ -428,6 +430,8 @@ func (a *App) OpenTerminal() error {
 		}
 		cli := ""
 		switch st.Engine {
+		case "apache":
+			cli = fmt.Sprintf("http://localhost:%d/  (www/)", st.Port)
 		case "mariadb":
 			cli = fmt.Sprintf("mariadb -u %s -P %d", fallback(s.Engines["mariadb"].User, "root"), st.Port)
 		case "mysql":
@@ -450,6 +454,8 @@ func (a *App) OpenTerminal() error {
 func (a *App) ConnectionString(engine, dbName string) string {
 	es := a.settings.Engine(engine)
 	switch engine {
+	case "apache":
+		return fmt.Sprintf("http://localhost:%d/", es.Port)
 	case "mariadb", "mysql":
 		auth := url.User(es.User).String()
 		if es.Password != "" {

@@ -1,8 +1,8 @@
-# Darius DB (Lite Version 0.1.1)
+# Darius DB (Lite Version 0.1.2)
 
 A fast, lightweight, portable open-source database environment manager for Windows — built to make local database development simple, clean, and zero-bloat.
 
-Manage **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** from a single ~13 MB native Windows app with a system tray icon, built-in multi-mode terminal, native launcher, clean uninstaller, and zero runtime bloat.
+Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** from a single ~13 MB native Windows app with a system tray icon, local `www/` website hosting, built-in multi-mode terminal, native launcher, clean uninstaller, and zero runtime bloat.
 
 - **Repository:** [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version)
 - 📖 **Full Step-by-Step Guide:** [**GUIDE.md**](GUIDE.md)
@@ -11,7 +11,7 @@ Manage **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** 
 
 ## Features
 
-- **100% Portable or Standard `.exe` Install** — Run directly out of any folder (`bin/`, `data/`, `etc/`, `logs/`, `settings.json`) or install using the standalone Windows installer **`DariusDB-Setup-0.1.1.exe`**.
+- **100% Portable or Standard `.exe` Install** — Run directly out of any folder (`bin/`, `data/`, `etc/`, `logs/`, `settings.json`) or install using the standalone Windows installer **`DariusDB-Setup-0.1.2.exe`**.
 - **One-Click Start/Stop & Native System Tray** — Start All / Stop All, per-engine controls, live PID & port-conflict detection, single-instance wake, close-to-tray, and right-click tray menu.
 - **Portable Engine Downloader & Version Switcher** — Download official portable builds (MariaDB, MySQL, PostgreSQL, Redis) or import any local `.zip`, keep multiple versions side-by-side, and switch active versions in one click without touching `data/`.
 - **Built-in Lightweight Database Browser**
@@ -29,13 +29,13 @@ Manage **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** 
 ## Quick Start
 
 ### Option 1: Install on Windows (Recommended)
-1. Double-click **`installer\DariusDB-Setup-0.1.1.exe`** (or **`dist\DariusDB-Setup-0.1.1.exe`**).
+1. Double-click **`installer\DariusDB-Setup-0.1.2.exe`** (or **`dist\DariusDB-Setup-0.1.2.exe`**).
 2. Choose **`C:\DariusDB`** (or pick any custom folder) and select whether to start on Windows boot.
-3. Launch **Darius DB (Lite Version 0.1.1)** from the Desktop or Start Menu.
+3. Launch **Darius DB (Lite Version 0.1.2)** from the Desktop or Start Menu.
 4. Open **Versions** to download MariaDB, MySQL, PostgreSQL, or Redis (or start **MS SQL Server** immediately), then click **Start All**.
 
 ### Option 2: Portable (No Install)
-1. Extract `DariusDB-0.1.1-portable-windows-amd64.zip` (or copy `DariusDB.exe`, `DariusDB-Launcher.exe`, and `darius.exe`) into any folder, e.g. `C:\DariusDB\`.
+1. Extract `DariusDB-0.1.2-portable-windows-amd64.zip` (or copy `DariusDB.exe`, `DariusDB-Launcher.exe`, and `darius.exe`) into any folder, e.g. `C:\DariusDB\`.
 2. Double-click `DariusDB-Launcher.exe` (or `DariusDB.exe`).
 
 ---
@@ -52,7 +52,11 @@ C:\DariusDB\
 ├── GUIDE.md
 ├── README.md
 ├── LICENSE
+├── www/
+│   ├── index.html
+│   └── my-website/
 ├── bin/
+│   ├── apache/apache-2.4.66/
 │   ├── mariadb/mariadb-13.0.2/
 │   ├── mysql/mysql-9.7.2/
 │   ├── postgresql/postgresql-18.7/
@@ -65,11 +69,13 @@ C:\DariusDB\
 │   ├── mssql/
 │   └── redis/
 ├── etc/
+│   ├── apache/httpd.conf
 │   ├── mariadb/my.ini
 │   ├── mysql/my.ini
 │   ├── mssql/mssql.conf
 │   └── redis/redis.conf
 ├── logs/
+│   ├── apache.log
 │   ├── mariadb.log
 │   ├── mysql.log
 │   ├── postgresql.log
@@ -80,10 +86,11 @@ C:\DariusDB\
 
 ---
 
-## Supported Database Engines & Catalog Versions
+## Supported Database & Web Engines
 
 | Engine | Default Port | Included Versions |
 |---|---|---|
+| **Apache Web Server** | `8080` (`www/`) | `2.4.66` (Apache 2.4 Win64 VS17/VS18) + `apache-lite-2.4` (Built-in instant web server) |
 | **MariaDB** | `3306` | `13.0.2` (Latest Stable), `12.3.4` (LTS), `11.8.10` (LTS), `11.4.14` (LTS), `10.11.20` (LTS) |
 | **MySQL** | `3307` | `9.7.2` (Latest), `8.4.11` (LTS), `8.0.46` (LTS) |
 | **PostgreSQL** | `5432` | `18.7` (Latest), `17.12`, `16.16`, `15.20`, `14.25` |
@@ -98,7 +105,7 @@ C:\DariusDB\
 - Windows 10/11 (x64) with Microsoft Edge WebView2 (pre-installed on Windows 10/11)
 - [Go 1.24+](https://go.dev/dl/)
 - [Wails CLI v2](https://wails.io/): `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
-- *(Optional, for `DariusDB-Setup-0.1.1.exe`)* [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`
+- *(Optional, for `DariusDB-Setup-0.1.2.exe`)* [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`
 
 No C compiler (CGO) and no Node.js build step required!
 
@@ -121,11 +128,11 @@ wails build -clean -ldflags "-s -w"
 
 | | |
 |---|---|
-| **Application** | **Darius DB (Lite Version 0.1.1)** |
+| **Application** | **Darius DB (Lite Version 0.1.2)** |
 | **Creator / Author** | **Darius Cumpio** |
 | **Built By** | Darius Cumpio |
 | **Created Date** | November 19, 2026 |
 | **Year** | 2026 |
-| **Version** | `Lite Version 0.1.1` |
+| **Version** | `Lite Version 0.1.2` |
 | **Repository** | [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version) |
 | **License** | [MIT License](LICENSE) — Copyright © 2026 Darius Cumpio |

@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-var EngineIDs = []string{"mariadb", "mysql", "postgresql", "mssql", "redis"}
+var EngineIDs = []string{"apache", "mariadb", "mysql", "postgresql", "mssql", "redis"}
 
 // Installation is one engine version found in bin/<engine>/<folder>.
 type Installation struct {
@@ -52,6 +52,7 @@ type Engine interface {
 }
 
 var engines = map[string]Engine{
+	"apache":     &apacheEngine{},
 	"mariadb":    &mysqlFamily{id: "mariadb", name: "MariaDB"},
 	"mysql":      &mysqlFamily{id: "mysql", name: "MySQL"},
 	"postgresql": &postgres{},
@@ -130,6 +131,10 @@ func ListInstallations(p *Paths, engineID string) []Installation {
 		if sysInst, ok := detectSystemMSSQL(); ok {
 			out = append(out, sysInst)
 		}
+	}
+	// For Apache Web Server, also include the built-in zero-download portable server
+	if engineID == "apache" {
+		out = append(out, detectBuiltinApache(p))
 	}
 	sort.Slice(out, func(i, j int) bool { return compareVersions(out[i].Version, out[j].Version) > 0 })
 	return out

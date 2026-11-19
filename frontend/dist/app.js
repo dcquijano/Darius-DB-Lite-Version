@@ -147,9 +147,10 @@
 
   function pickBestDbEngine() {
     const cur = getStatus(state.dbEngine);
-    if (cur && cur.state === "running") return;
-    const running = state.statuses.find((s) => s.state === "running");
+    if (cur && cur.engine !== "apache" && cur.state === "running") return;
+    const running = state.statuses.find((s) => s.engine !== "apache" && s.state === "running");
     if (running) state.dbEngine = running.engine;
+    else if (state.dbEngine === "apache") state.dbEngine = "mariadb";
   }
 
   // ---- Dashboard ----
@@ -192,9 +193,13 @@
               busy ? stateLabel + "..." : "Start"
             }</button>`;
 
+        const isApache = s.engine === "apache";
         const extraRunning = running
-          ? `<button class="btn sm accent" data-act="browse" data-engine="${s.engine}">Browse</button>
-             <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy connection URI">URI</button>`
+          ? isApache
+            ? `<button class="btn sm accent" data-act="opensite" data-engine="${s.engine}" data-port="${s.port}">Open Site</button>
+               <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy http://localhost:${s.port}/">URL</button>`
+            : `<button class="btn sm accent" data-act="browse" data-engine="${s.engine}">Browse</button>
+               <button class="btn sm ghost" data-act="uri" data-engine="${s.engine}" title="Copy connection URI">URI</button>`
           : "";
 
         return `
@@ -225,7 +230,9 @@
               installed
                 ? `<button class="btn xs ghost" data-act="config" data-engine="${s.engine}">Config</button>
                    <button class="btn xs ghost" data-act="logs" data-engine="${s.engine}">Logs</button>
-                   <button class="btn xs ghost" data-act="data" data-engine="${s.engine}" title="Open data folder">Data</button>`
+                   <button class="btn xs ghost" data-act="data" data-engine="${s.engine}" title="${
+                     isApache ? "Open www/ website folder" : "Open data folder"
+                   }">${isApache ? "www/" : "Data"}</button>`
                 : ""
             }
           </div>
@@ -283,14 +290,26 @@
 
   // ---- Database Browser ----
   function renderDbEngineTabs() {
-    renderSegTabs("dbEngineTabs", state.dbEngine, (eng) => {
-      state.dbEngine = eng;
-      state.sqlDb = "";
-      state.sqlDbs = [];
-      state.sqlTables = [];
-      renderDbEngineTabs();
-      loadDbView();
-    });
+    const el = $("dbEngineTabs");
+    el.innerHTML = state.statuses
+      .filter((s) => s.engine !== "apache")
+      .map(
+        (s) =>
+          `<button class="seg ${s.engine === state.dbEngine ? "active" : ""}" data-engine="${s.engine}">
+            <span class="dot ${s.state}"></span>${esc(s.name)}
+          </button>`
+      )
+      .join("");
+    el.querySelectorAll(".seg").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        state.dbEngine = btn.dataset.engine;
+        state.sqlDb = "";
+        state.sqlDbs = [];
+        state.sqlTables = [];
+        renderDbEngineTabs();
+        loadDbView();
+      })
+    );
   }
 
   async function loadDbView() {
@@ -556,6 +575,7 @@
   }
 
   const OFFICIAL_DOWNLOAD_PAGES = {
+    apache: "https://www.apachelounge.com/download/",
     mariadb: "https://mariadb.org/download/?t=mariadb&p=mariadb&o=windows&a=x86_64&k=zip",
     mysql: "https://dev.mysql.com/downloads/mysql/",
     postgresql: "https://www.enterprisedb.com/download-postgresql-binaries",
@@ -879,31 +899,37 @@
     const s = await api().GetSettings();
     state.settings = s;
     const labels = {
+      apache: "Apache Web Server",
       mariadb: "MariaDB",
       mysql: "MySQL",
       postgresql: "PostgreSQL",
       mssql: "MS SQL Server",
       redis: "Redis",
     };
-    $("settingsEngineRows").innerHTML = ["mariadb", "mysql", "postgresql", "mssql", "redis"]
+    $("settingsEngineRows").innerHTML = ["apache", "mariadb", "mysql", "postgresql", "mssql", "redis"]
       .map((id) => {
         const es = s.engines[id] || {};
-        const isRedis = id === "redis";
+        const noAuth = id === "redis" || id === "apache";
+        const isApache = id === "apache";
         const isMSSQL = id === "mssql";
         return `<tr data-eng-row="${id}">
           <td><strong>${labels[id]}</strong></td>
           <td><input type="checkbox" class="eng-enabled" ${es.enabled ? "checked" : ""} /></td>
           <td><input type="number" class="input sm port-input eng-port" min="1" max="65535" value="${es.port || ""}" /></td>
           <td>${
-            isRedis
-              ? `<span class="muted">—</span>`
+            noAuth
+              ? `<span class="muted">${isApache ? "www/ (DocumentRoot)" : "—"}</span>`
               : `<input type="text" class="input sm eng-user" value="${esc(es.user || "")}" placeholder="${
                   isMSSQL ? "blank = Windows Auth / LocalDB" : ""
                 }" />`
           }</td>
-          <td><input type="password" class="input sm eng-pass" value="${esc(es.password || "")}" placeholder="${
-            isRedis ? "optional" : isMSSQL ? "blank = Windows Auth" : "blank = no password"
-          }" /></td>
+          <td>${
+            isApache
+              ? `<span class="muted">—</span>`
+              : `<input type="password" class="input sm eng-pass" value="${esc(es.password || "")}" placeholder="${
+                  id === "redis" ? "optional" : isMSSQL ? "blank = Windows Auth" : "blank = no password"
+                }" />`
+          }</td>
         </tr>`;
       })
       .join("");
@@ -920,6 +946,7 @@
       const p = state.info.paths;
       const rows = [
         ["Root", "root", p.root],
+        ["Web Root (www/)", "www", p.www],
         ["Binaries (bin/)", "bin", p.bin],
         ["Data (data/)", "data", p.data],
         ["Config (etc/)", "etc", p.etc],
@@ -965,7 +992,8 @@
       cur.port = parseInt(tr.querySelector(".eng-port").value, 10) || cur.port;
       const u = tr.querySelector(".eng-user");
       if (u) cur.user = u.value.trim();
-      cur.password = tr.querySelector(".eng-pass").value;
+      const pw = tr.querySelector(".eng-pass");
+      if (pw) cur.password = pw.value;
       next.engines[id] = cur;
     });
     next.runOnBoot = $("setRunOnBoot").checked;
@@ -1029,6 +1057,10 @@
         else if (act === "install") {
           state.verEngine = eng;
           switchTab("versions");
+        } else if (act === "opensite") {
+          const url = `http://localhost:${btn.dataset.port || 8080}/`;
+          if (rt()?.BrowserOpenURL) rt().BrowserOpenURL(url);
+          else window.open(url, "_blank");
         } else if (act === "browse") {
           state.dbEngine = eng;
           switchTab("database");

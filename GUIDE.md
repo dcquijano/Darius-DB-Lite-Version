@@ -1,7 +1,7 @@
-# Darius DB (Lite Version 0.1.1) — Step-by-Step Installation & User Guide
+# Darius DB (Lite Version 0.1.2) — Step-by-Step Installation & User Guide
 
-> **Application:** Darius DB (Lite Version 0.1.1)  
-> **Version:** `Lite Version 0.1.1`  
+> **Application:** Darius DB (Lite Version 0.1.2)  
+> **Version:** `Lite Version 0.1.2`  
 > **Created by:** Darius Cumpio  
 > **Created Date:** November 19, 2026  
 > **Year:** 2026  
@@ -14,7 +14,7 @@
 
 1. [System Requirements](#1-system-requirements)
 2. [How to Install Darius DB (Step by Step)](#2-how-to-install-darius-db-step-by-step)
-   - [Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.1.exe`)](#option-a-using-the-standalone-windows-installer-dariusdb-setup-011exe)
+   - [Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.2.exe`)](#option-a-using-the-standalone-windows-installer-dariusdb-setup-012exe)
    - [Option B: 100% Portable (No Installation Required)](#option-b-100-portable-no-installation-required)
 3. [First-Time Setup & Daily Usage Guide](#3-first-time-setup--daily-usage-guide)
 4. [Using the Launcher (`DariusDB-Launcher.exe`)](#4-using-the-launcher-dariusdb-launcherexe)
@@ -37,10 +37,10 @@
 
 ## 2. How to Install Darius DB (Step by Step)
 
-### Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.1.exe`)
+### Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.2.exe`)
 
-1. Double-click **`DariusDB-Setup-0.1.1.exe`** (located in `installer\DariusDB-Setup-0.1.1.exe` or `dist\DariusDB-Setup-0.1.1.exe`).
-2. In the **Welcome to Darius DB (Lite Version 0.1.1) Setup** dialog:
+1. Double-click **`DariusDB-Setup-0.1.2.exe`** (located in `installer\DariusDB-Setup-0.1.2.exe` or `dist\DariusDB-Setup-0.1.2.exe`).
+2. In the **Welcome to Darius DB (Lite Version 0.1.2) Setup** dialog:
    - Click **Yes** to install to **`C:\DariusDB`** (recommended), or
    - Click **No** to open the Windows folder browser and pick any custom folder.
 3. Choose whether to **Start Darius DB automatically when Windows signs in** (Yes / No).
@@ -48,12 +48,12 @@
    - Extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Uninstall.exe`, `LICENSE`, `README.md`, and `GUIDE.md`.
    - Creates `bin/`, `data/`, `etc/`, `logs/`, and `tmp/`.
    - Creates Desktop & Start Menu shortcuts (**Darius DB**, **Darius DB Terminal**, **Uninstall Darius DB**).
-   - Registers **Darius DB (Lite Version 0.1.1)** in **Windows Settings → Apps → Installed Apps**.
-5. Click **Yes** on the completion dialog to launch **Darius DB (Lite Version 0.1.1)** immediately.
+   - Registers **Darius DB (Lite Version 0.1.2)** in **Windows Settings → Apps → Installed Apps**.
+5. Click **Yes** on the completion dialog to launch **Darius DB (Lite Version 0.1.2)** immediately.
 
 > **Silent / Automated CLI install:**
 > ```powershell
-> .\DariusDB-Setup-0.1.1.exe --silent --dir="C:\DariusDB" --autostart
+> .\DariusDB-Setup-0.1.2.exe --silent --dir="C:\DariusDB" --autostart
 > ```
 
 ---
@@ -241,7 +241,7 @@ If you used the portable folder without running an installer:
    ```powershell
    go install github.com/wailsapp/wails/v2/cmd/wails@latest
    ```
-3. *(Optional — only needed to compile `DariusDB-Setup-0.1.1.exe`)* Install **Inno Setup 6**:
+3. *(Optional — only needed to compile `DariusDB-Setup-0.1.2.exe`)* Install **Inno Setup 6**:
    ```powershell
    winget install JRSoftware.InnoSetup
    ```
@@ -260,8 +260,8 @@ This creates:
 - `build\bin\DariusDB.exe` — main desktop app (~13 MB)
 - `build\bin\DariusDB-Launcher.exe` — native launcher (~2–3 MB)
 - `build\bin\DariusDB-Uninstall.exe` — native uninstaller (~2–3 MB)
-- `dist\DariusDB-0.1.1-portable-windows-amd64.zip` — portable archive
-- `dist\DariusDB-Setup-0.1.1.exe` (and `installer\DariusDB-Setup-0.1.1.exe`) — standalone single-file native Windows installer `.exe`
+- `dist\DariusDB-0.1.2-portable-windows-amd64.zip` — portable archive
+- `dist\DariusDB-Setup-0.1.2.exe` (and `installer\DariusDB-Setup-0.1.2.exe`) — standalone single-file native Windows installer `.exe`
 
 ### Manual Inno Setup Build
 
@@ -273,7 +273,7 @@ If you already built `build\bin\*.exe` and want to compile just the Inno Setup `
 
 ### Automated GitHub Releases
 
-Pushing a version tag (for example `git tag v0.1.1 && git push origin v0.1.1`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which automatically runs tests, builds all binaries, packages the portable ZIP, compiles `DariusDB-Setup-*.exe` with Inno Setup, and uploads both artifacts!
+Pushing a version tag (for example `git tag v0.1.2 && git push origin v0.1.2`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which automatically runs tests, builds all binaries, packages the portable ZIP, compiles `DariusDB-Setup-*.exe` with Inno Setup, and uploads both artifacts!
 
 ---
 
@@ -281,7 +281,7 @@ Pushing a version tag (for example `git tag v0.1.1 && git push origin v0.1.1`) t
 
 - **"Port XXXX is already used by another program"** — Another local database server, container, or Windows service is already listening on that port. Open **Settings**, assign a different port (e.g. `3307` or `5433`), save, and start again.
 - **PostgreSQL `postgresql.conf` not found yet** — PostgreSQL creates `postgresql.conf` inside `data/postgresql-<major>/` during its first start (`initdb`). Start PostgreSQL once, then edit it in **Config & Logs**.
-- **PowerShell says running scripts is disabled** — Run the native `.exe` installer **`DariusDB-Setup-0.1.1.exe`** instead of `.ps1` scripts.
+- **PowerShell says running scripts is disabled** — Run the native `.exe` installer **`DariusDB-Setup-0.1.2.exe`** instead of `.ps1` scripts.
 - **Windows SmartScreen warning on unsigned open-source `.exe`** — Because Darius DB is a community open-source build without a paid code-signing certificate, Windows SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway** (or build directly from this source code).
 
 ---
@@ -290,8 +290,8 @@ Pushing a version tag (for example `git tag v0.1.1 && git push origin v0.1.1`) t
 
 | Field | Details |
 |---|---|
-| **Project Name** | Darius DB (Lite Version 0.1.1) |
-| **Version** | `Lite Version 0.1.1` |
+| **Project Name** | Darius DB (Lite Version 0.1.2) |
+| **Version** | `Lite Version 0.1.2` |
 | **Creator / Author** | **Darius Cumpio** |
 | **Built By** | Darius Cumpio |
 | **Created Date** | November 19, 2026 |

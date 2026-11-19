@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	appTitle    = "Darius DB (Lite Version 0.1.1) Launcher"
-	appVersion  = "0.1.1"
+	appTitle    = "Darius DB (Lite Version 0.1.2) Launcher"
+	appVersion  = "0.1.2"
 	appAuthor   = "Darius Cumpio"
 	appCreated  = "November 19, 2026"
 	appRepo     = "https://github.com/dcquijano/Darius-DB-Lite-Version"
@@ -107,7 +107,7 @@ func findAppExe(root string) string {
 
 func openTerminal(root string) {
 	var binDirs []string
-	for _, eng := range []string{"mariadb", "mysql", "postgresql", "mssql", "redis"} {
+	for _, eng := range []string{"apache", "mariadb", "mysql", "postgresql", "mssql", "redis"} {
 		base := filepath.Join(root, "bin", eng)
 		entries, _ := os.ReadDir(base)
 		for _, e := range entries {

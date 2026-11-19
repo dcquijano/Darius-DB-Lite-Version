@@ -50,7 +50,7 @@ func (m *mssqlEngine) ConfigFile(p *Paths, _ Installation) string {
 	return filepath.Join(p.EngineEtc("mssql"), "mssql.conf")
 }
 
-const mssqlConf = `# Darius DB (Lite Version 0.1.1) - MS SQL Server configuration
+const mssqlConf = `# Darius DB (Lite Version 0.1.2) - MS SQL Server configuration
 # Supports Microsoft SQL Server LocalDB ((localdb)\MSSQLLocalDB) and TCP (127.0.0.1,1433).
 instance = MSSQLLocalDB
 server = (localdb)\MSSQLLocalDB

@@ -21,6 +21,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--cli" {
 		os.Exit(core.RunCLI(root, os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "--httpd" {
+		os.Exit(core.RunBuiltInHTTPD(os.Args[2:]))
+	}
 	mutex, ok := core.AcquireSingleInstance(root)
 	if !ok {
 		return
@@ -43,7 +46,7 @@ func main() {
 	app := NewApp(paths, st)
 
 	err := wails.Run(&options.App{
-		Title:            "Darius DB (Lite Version 0.1.1)",
+		Title:            "Darius DB (Lite Version 0.1.2)",
 		Width:            960,
 		Height:           660,
 		MinWidth:         760,

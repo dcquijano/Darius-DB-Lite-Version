@@ -1,4 +1,8 @@
 {
+  "apache": [
+    { "version": "2.4.66",      "url": "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.66-260223-win64-VS17.zip", "note": "Apache 2.4 Win64 VS17" },
+    { "version": "2.4.66-VS18", "url": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.66-260223-win64-VS18.zip", "note": "Apache 2.4 Win64 VS18" }
+  ],
   "mariadb": [
     { "version": "13.0.2",   "url": "https://archive.mariadb.org/mariadb-13.0.2/winx64-packages/mariadb-13.0.2-winx64.zip",   "note": "Latest Stable" },
     { "version": "12.3.4",   "url": "https://archive.mariadb.org/mariadb-12.3.4/winx64-packages/mariadb-12.3.4-winx64.zip",   "note": "LTS" },

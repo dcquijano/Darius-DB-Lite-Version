@@ -18,6 +18,7 @@ type Paths struct {
 	Root string `json:"root"`
 	Bin  string `json:"bin"`
 	Data string `json:"data"`
+	Www  string `json:"www"`
 	Etc  string `json:"etc"`
 	Logs string `json:"logs"`
 	Tmp  string `json:"tmp"`
@@ -49,6 +50,7 @@ func NewPaths(root string) *Paths {
 		Root: root,
 		Bin:  filepath.Join(root, "bin"),
 		Data: filepath.Join(root, "data"),
+		Www:  filepath.Join(root, "www"),
 		Etc:  filepath.Join(root, "etc"),
 		Logs: filepath.Join(root, "logs"),
 		Tmp:  filepath.Join(root, "tmp"),
@@ -58,7 +60,7 @@ func NewPaths(root string) *Paths {
 }
 
 func (p *Paths) Ensure() error {
-	for _, d := range []string{p.Bin, p.Data, p.Etc, p.Logs, p.Tmp, p.Run} {
+	for _, d := range []string{p.Bin, p.Data, p.Www, p.Etc, p.Logs, p.Tmp, p.Run} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}

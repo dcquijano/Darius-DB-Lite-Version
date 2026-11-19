@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	title        = "Uninstall Darius DB (Lite Version 0.1.1)"
-	appVersion   = "0.1.1"
+	title        = "Uninstall Darius DB (Lite Version 0.1.2)"
+	appVersion   = "0.1.2"
 	uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\DariusDB`
 	runKey       = `Software\Microsoft\Windows\CurrentVersion\Run`
 )

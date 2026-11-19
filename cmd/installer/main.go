@@ -26,8 +26,8 @@ import (
 
 const (
 	appShortName = "Darius DB"
-	appFullTitle = "Darius DB (Lite Version 0.1.1)"
-	appVersion   = "0.1.1"
+	appFullTitle = "Darius DB (Lite Version 0.1.2)"
+	appVersion   = "0.1.2"
 	appAuthor    = "Darius Cumpio"
 	defaultDir   = `C:\DariusDB`
 	uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\DariusDB`
@@ -435,7 +435,7 @@ func buildWizardControls(hwnd syscall.Handle) {
 
 	// ---- Page 1: Welcome & License ----
 	wiz.p1Intro = createCtrl(0, "STATIC",
-		"Welcome to the Darius DB (Lite Version 0.1.1) Setup Wizard.\r\n"+
+		"Welcome to the Darius DB (Lite Version 0.1.2) Setup Wizard.\r\n"+
 			"Manage MariaDB, MySQL, PostgreSQL, MS SQL Server & Redis with built-in Terminal and Developer CLI.",
 		0, 22, 84, 505, 38, hwnd, 0, wiz.fontUI)
 	wiz.p1LicBox = createCtrl(wsExClientEdge, "EDIT", mitLicenseText,
@@ -478,11 +478,11 @@ func buildWizardControls(hwnd syscall.Handle) {
 		22, 144, 502, 176, hwnd, 0, wiz.fontMono)
 
 	// ---- Page 4: Completed ----
-	wiz.p4DoneTitle = createCtrl(0, "STATIC", "Darius DB (Lite Version 0.1.1) has been installed!",
+	wiz.p4DoneTitle = createCtrl(0, "STATIC", "Darius DB (Lite Version 0.1.2) has been installed!",
 		0, 22, 92, 500, 24, hwnd, 0, wiz.fontTitle)
 	wiz.p4Summary = createCtrl(0, "STATIC", "",
 		0, 22, 126, 500, 96, hwnd, 0, wiz.fontUI)
-	wiz.p4ChkLaunch = createCtrl(0, "BUTTON", "Launch Darius DB (Lite Version 0.1.1) now",
+	wiz.p4ChkLaunch = createCtrl(0, "BUTTON", "Launch Darius DB (Lite Version 0.1.2) now",
 		wsTabStop|bsAutoCheckBox, 26, 236, 460, 24, hwnd, idChkLaunch, wiz.fontBold)
 	wiz.p4ChkGuide = createCtrl(0, "BUTTON", "Open Step-by-Step User Guide (GUIDE.md)",
 		wsTabStop|bsAutoCheckBox, 26, 266, 460, 24, hwnd, idChkGuide, wiz.fontUI)
@@ -533,7 +533,7 @@ func showWizardPage(page int) {
 		procEnableWindow.Call(uintptr(wiz.btnNext), 1)
 		setText(wiz.btnNext, "Install")
 	case 3:
-		setText(wiz.lblSubtitle, "Step 3 of 3 — Installing Darius DB (Lite Version 0.1.1)...")
+		setText(wiz.lblSubtitle, "Step 3 of 3 — Installing Darius DB (Lite Version 0.1.2)...")
 		procEnableWindow.Call(uintptr(wiz.btnBack), 0)
 		procEnableWindow.Call(uintptr(wiz.btnNext), 0)
 		procEnableWindow.Call(uintptr(wiz.btnCancel), 0)
@@ -743,8 +743,8 @@ func performInstall(opts installOptions, report func(pct int, msg string)) error
 		}
 	}
 
-	step(76, "Creating portable directories (bin, data, etc, logs, tmp)")
-	for _, sub := range []string{"bin", "data", "etc", "logs", "tmp"} {
+	step(76, "Creating portable directories (www, bin, data, etc, logs, tmp)")
+	for _, sub := range []string{"www", "bin", "data", "etc", "logs", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(opts.dir, sub), 0o755); err != nil {
 			return err
 		}

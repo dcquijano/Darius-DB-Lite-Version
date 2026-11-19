@@ -29,6 +29,7 @@ type Settings struct {
 func DefaultSettings() *Settings {
 	return &Settings{
 		Engines: map[string]*EngineSettings{
+			"apache":     {Enabled: true, Port: 8080},
 			"mariadb":    {Enabled: true, Port: 3306, User: "root"},
 			"mysql":      {Enabled: false, Port: 3307, User: "root"},
 			"postgresql": {Enabled: true, Port: 5432, User: "postgres"},

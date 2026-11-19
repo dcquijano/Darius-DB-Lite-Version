@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Builds Darius DB (Lite Version 0.1.1) GUI, Launcher, Uninstaller, Portable ZIP, and Standalone Setup .exe.
-  Created by Darius Cumpio - November 19, 2026 - v0.1.1
+  Builds Darius DB (Lite Version 0.1.2) GUI, Launcher, Uninstaller, Portable ZIP, and Standalone Setup .exe.
+  Created by Darius Cumpio - November 19, 2026 - v0.1.2
 #>
 param(
     [switch]$SkipTests
@@ -9,7 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version  = "0.1.1"
+$Version  = "0.1.2"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Push-Location $RepoRoot
 
@@ -64,7 +64,7 @@ try {
     Compress-Archive -Path "$stageDir\*" -DestinationPath $zipPath
     Remove-Item -Recurse -Force $stageDir
 
-    # Create self-contained single-file DariusDB-Setup-0.1.1.exe (stub + zip payload + 16-byte trailer)
+    # Create self-contained single-file DariusDB-Setup-0.1.2.exe (stub + zip payload + 16-byte trailer)
     Copy-Item -Force $stubExe $setupExe
     $zipBytes  = [System.IO.File]::ReadAllBytes($zipPath)
     $sizeBytes = [System.BitConverter]::GetBytes([uint64]$zipBytes.Length)
@@ -80,7 +80,7 @@ try {
     }
     Remove-Item -Force $stubExe -ErrorAction SilentlyContinue
 
-    # Also place DariusDB-Setup-0.1.1.exe and DariusDB-Uninstall.exe in installer\ for direct click access
+    # Also place DariusDB-Setup-0.1.2.exe and DariusDB-Uninstall.exe in installer\ for direct click access
     Copy-Item -Force $setupExe "installer\DariusDB-Setup-$Version.exe"
     Copy-Item -Force "build\bin\DariusDB-Uninstall.exe" "installer\DariusDB-Uninstall.exe"
 

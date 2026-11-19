@@ -147,6 +147,7 @@ func performInstall(installDir string, autoStart, createDesktop bool) error {
 	createShortcuts(installDir, createDesktop)
 	registerUninstall(installDir)
 	configureAutoStart(installDir, autoStart)
+	addInstallDirToUserPath(installDir)
 	return nil
 }
 
@@ -188,6 +189,7 @@ func extractEmbeddedZip(installDir string) (bool, error) {
 		"DariusDB.exe":           true,
 		"DariusDB-Launcher.exe":  true,
 		"DariusDB-Uninstall.exe": true,
+		"darius.exe":             true,
 		"LICENSE":                true,
 		"README.md":              true,
 		"GUIDE.md":               true,
@@ -239,7 +241,7 @@ func copyFromLocalBuild(installDir string) error {
 	if mainSrc == "" {
 		return fmt.Errorf("DariusDB.exe was not found next to the installer or in build\\bin\\")
 	}
-	for _, name := range []string{"DariusDB.exe", "DariusDB-Launcher.exe", "DariusDB-Uninstall.exe", "LICENSE", "README.md", "GUIDE.md"} {
+	for _, name := range []string{"DariusDB.exe", "DariusDB-Launcher.exe", "DariusDB-Uninstall.exe", "darius.exe", "LICENSE", "README.md", "GUIDE.md"} {
 		src := findFile(name)
 		if src == "" {
 			continue
@@ -341,6 +343,29 @@ func configureAutoStart(installDir string, enable bool) {
 	}
 	mainExe := filepath.Join(installDir, "DariusDB.exe")
 	_ = k.SetStringValue("DariusDB", fmt.Sprintf(`"%s" --minimized`, mainExe))
+}
+
+func addInstallDirToUserPath(installDir string) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Environment`, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		return
+	}
+	defer k.Close()
+	cur, _, _ := k.GetStringValue("Path")
+	cleanTarget := strings.ToLower(strings.TrimRight(filepath.Clean(installDir), `\/`))
+	var parts []string
+	for _, p := range strings.Split(cur, ";") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if strings.ToLower(strings.TrimRight(filepath.Clean(p), `\/`)) == cleanTarget {
+			return // already in PATH
+		}
+		parts = append(parts, p)
+	}
+	parts = append([]string{filepath.Clean(installDir)}, parts...)
+	_ = k.SetExpandStringValue("Path", strings.Join(parts, ";"))
 }
 
 func fileExists(p string) bool {

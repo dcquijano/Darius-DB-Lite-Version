@@ -1036,6 +1036,15 @@
 
     // Database tab events
     $("btnDbRefresh").onclick = () => loadDbView();
+    $("btnCopyIDE").onclick = async () => {
+      try {
+        const snippet = await api().IDESnippet(state.dbEngine, state.sqlDb || "my_app");
+        await copyText(snippet);
+        toast("Copied Visual Studio (appsettings.json) & VS Code (.env) snippet!", "ok");
+      } catch (e) {
+        toast(errMsg(e), "err");
+      }
+    };
     $("btnCopyConn").onclick = async () => {
       const uri = await api().ConnectionString(state.dbEngine, state.sqlDb);
       await copyText(uri);
@@ -1255,6 +1264,14 @@
     // Settings events
     $("btnSaveSettings").onclick = saveSettingsForm;
     $("setTheme").onchange = () => applyTheme($("setTheme").value);
+    $("btnRegisterPath").onclick = async () => {
+      try {
+        await api().RegisterCLIInPath();
+        toast("Registered 'darius' CLI & DB tools in Windows PATH! Restart VS / VS Code terminal.", "ok");
+      } catch (e) {
+        toast(errMsg(e), "err");
+      }
+    };
     $("folderList").addEventListener("click", (e) => {
       const b = e.target.closest("[data-open-folder]");
       if (b) api().OpenFolder(b.dataset.openFolder);

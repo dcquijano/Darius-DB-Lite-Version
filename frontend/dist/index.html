@@ -114,6 +114,7 @@
         <header class="view-head compact">
           <div class="seg-tabs" id="dbEngineTabs"></div>
           <div class="head-actions">
+            <button class="btn sm" id="btnCopyIDE" title="Copy Visual Studio (appsettings.json) &amp; VS Code (.env) config">VS / .env</button>
             <button class="btn sm" id="btnCopyConn" title="Copy connection URI">Copy URI</button>
             <button class="btn sm" id="btnDbRefresh">Refresh</button>
           </div>
@@ -385,6 +386,16 @@
                 <input type="url" id="setCatalogUrl" class="input" placeholder="https://example.com/catalog.json" />
               </label>
             </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h2>Developer CLI (Visual Studio, VS Code &amp; Terminals)</h2>
+              <button class="btn sm accent" id="btnRegisterPath">Add CLI &amp; DB Tools to Windows PATH</button>
+            </div>
+            <p class="muted" style="margin:0">
+              Use <code>darius status</code>, <code>darius start all</code>, <code>darius env mssql MyApp</code>, <code>darius sql mssql "SELECT @@VERSION"</code>, <code>darius createdb</code>, and <code>darius install</code> from any Visual Studio, VS Code, PowerShell, or CMD terminal.
+            </p>
           </div>
 
           <div class="card">

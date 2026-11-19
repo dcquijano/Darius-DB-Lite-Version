@@ -100,6 +100,7 @@ func main() {
 	programItems := []string{
 		"DariusDB.exe",
 		"DariusDB-Launcher.exe",
+		"darius.exe",
 		"LICENSE",
 		"README.md",
 		"GUIDE.md",

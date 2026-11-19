@@ -21,7 +21,8 @@ Manage **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** 
 - **Native Launcher & Clean Uninstaller**
   - `DariusDB-Launcher.exe` — verifies WebView2, sets `DARIUSDB_HOME`, supports `--minimized`, `--terminal`, `--start-all`, `--stop-all`, `--version`.
   - `DariusDB-Uninstall.exe` — registers in Windows *Installed Apps*, gracefully stops services, asks whether to keep your `data/` databases safe, removes shortcuts & registry keys, and self-cleans.
-- **Pre-configured Terminal** — Opens a prompt with active `mariadb`/`mysql`, `psql`, and `redis-cli` binaries already on `PATH` and port env vars set.
+- **Developer CLI (`darius.exe`) for Visual Studio, VS Code & Terminals** — Automatically added to your Windows `PATH` (`C:\DariusDB`). Run `darius status`, `darius start all`, `darius env mssql MyApp`, `darius sql mssql "SELECT @@VERSION"`, `darius createdb`, `darius versions`, and `darius install` from any IDE or terminal.
+- **Pre-configured Terminal** — Opens a prompt with active `mariadb`/`mysql`, `psql`, `sqlcmd`, and `redis-cli` binaries already on `PATH` and port env vars set.
 
 ---
 
@@ -46,6 +47,7 @@ C:\DariusDB\
 ├── DariusDB.exe
 ├── DariusDB-Launcher.exe
 ├── DariusDB-Uninstall.exe
+├── darius.exe
 ├── settings.json
 ├── bin/
 │   ├── mariadb/mariadb-11.4.14/

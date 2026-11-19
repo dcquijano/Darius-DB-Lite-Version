@@ -18,6 +18,9 @@ var assets embed.FS
 
 func main() {
 	root := core.ResolveRoot()
+	if len(os.Args) > 1 && os.Args[1] == "--cli" {
+		os.Exit(core.RunCLI(root, os.Args[2:]))
+	}
 	mutex, ok := core.AcquireSingleInstance(root)
 	if !ok {
 		return

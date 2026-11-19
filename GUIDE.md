@@ -18,10 +18,11 @@
    - [Option B: 100% Portable (No Installation Required)](#option-b-100-portable-no-installation-required)
 3. [First-Time Setup & Daily Usage Guide](#3-first-time-setup--daily-usage-guide)
 4. [Using the Launcher (`DariusDB-Launcher.exe`)](#4-using-the-launcher-dariusdb-launcherexe)
-5. [How to Uninstall Darius DB](#5-how-to-uninstall-darius-db)
-6. [How to Build from Source & Create Your Own Installer](#6-how-to-build-from-source--create-your-own-installer)
-7. [Troubleshooting](#7-troubleshooting)
-8. [Credits & Release Info](#8-credits--release-info)
+5. [Developer CLI (`darius`) for Visual Studio, VS Code & Terminals](#5-developer-cli-darius-for-visual-studio-vs-code--terminals)
+6. [How to Uninstall Darius DB](#6-how-to-uninstall-darius-db)
+7. [How to Build from Source & Create Your Own Installer](#7-how-to-build-from-source--create-your-own-installer)
+8. [Troubleshooting](#8-troubleshooting)
+9. [Credits & Release Info](#9-credits--release-info)
 
 ---
 
@@ -142,7 +143,60 @@ Click **Terminal** in the bottom-left sidebar (or run `DariusDB-Launcher.exe --t
 
 ---
 
-## 5. How to Uninstall Darius DB
+## 5. Developer CLI (`darius`) for Visual Studio, VS Code & Terminals
+
+`darius.exe` is installed automatically into `C:\DariusDB` and registered in your Windows User `PATH` (or click **Add CLI & DB Tools to Windows PATH** in **Settings**).
+
+You can run **`darius`** from **Visual Studio (Package Manager Console / Developer PowerShell)**, **VS Code Integrated Terminal**, **Windows Terminal**, **PowerShell**, **CMD**, or **Git Bash**:
+
+```powershell
+# Check all database engines, states, versions, ports, and PIDs
+darius status
+
+# Start / stop / restart services from your IDE terminal
+darius start all
+darius start mssql
+darius stop redis
+darius restart mariadb
+
+# Generate ready-to-paste Visual Studio (appsettings.json) & VS Code (.env) connection blocks
+darius env mssql MyStoreDB
+darius env mariadb my_laravel_app
+darius env postgresql my_node_app
+
+# Print raw connection URI / ADO.NET string
+darius uri mssql MyStoreDB
+
+# List databases and tables
+darius dbs mssql
+darius tables mssql msdb
+
+# Create or drop a database (with optional user & password)
+darius createdb mariadb shop_db shop_user secret123
+darius createdb mssql ShopDB
+darius dropdb mssql ShopDB
+
+# Execute SQL / T-SQL / Redis commands directly from your IDE terminal
+darius sql mssql "SELECT name, database_id FROM sys.databases" -d master
+darius sql mariadb "SHOW DATABASES;"
+darius sql redis "PING"
+
+# Manage portable engine versions from CLI
+darius versions
+darius install redis 8.10.3
+darius use redis 8.10.3
+
+# Register or remove Darius DB & active engine bin/ folders in Windows PATH
+darius path --add
+darius path --remove
+
+# Open the Darius DB desktop window from terminal
+darius gui
+```
+
+---
+
+## 6. How to Uninstall Darius DB
 
 ### Method 1: Windows Settings (Recommended)
 
@@ -175,7 +229,7 @@ If you used the portable folder without running an installer:
 
 ---
 
-## 6. How to Build from Source & Create Your Own Installer
+## 7. How to Build from Source & Create Your Own Installer
 
 ### Prerequisites
 
@@ -223,16 +277,16 @@ Pushing a version tag (for example `git tag v0.1.1 && git push origin v0.1.1`) t
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 - **"Port XXXX is already used by another program"** — Another local database server, container, or Windows service is already listening on that port. Open **Settings**, assign a different port (e.g. `3307` or `5433`), save, and start again.
 - **PostgreSQL `postgresql.conf` not found yet** — PostgreSQL creates `postgresql.conf` inside `data/postgresql-<major>/` during its first start (`initdb`). Start PostgreSQL once, then edit it in **Config & Logs**.
-- **PowerShell says running scripts is disabled** — Always launch `Install-DariusDB.bat` (or pass `-ExecutionPolicy Bypass` to `powershell`).
+- **PowerShell says running scripts is disabled** — Run the native `.exe` installer **`DariusDB-Setup-0.1.1.exe`** instead of `.ps1` scripts.
 - **Windows SmartScreen warning on unsigned open-source `.exe`** — Because Darius DB is a community open-source build without a paid code-signing certificate, Windows SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway** (or build directly from this source code).
 
 ---
 
-## 8. Credits & Release Info
+## 9. Credits & Release Info
 
 | Field | Details |
 |---|---|

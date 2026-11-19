@@ -36,6 +36,10 @@ try {
     go build -p 1 -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Uninstall.exe" ./cmd/uninstaller
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Uninstall.exe failed" }
 
+    Write-Host "==> Building darius.exe (Developer CLI for Visual Studio & VS Code)..." -ForegroundColor Cyan
+    go build -p 1 -ldflags "-s -w" -o "build\bin\darius.exe" ./cmd/cli
+    if ($LASTEXITCODE -ne 0) { throw "building darius.exe failed" }
+
     Write-Host "==> Building DariusDB-Setup-$Version.exe stub..." -ForegroundColor Cyan
     $stubExe = "build\bin\DariusDB-Setup-stub.exe"
     go build -p 1 -ldflags "-s -w -H=windowsgui" -o $stubExe ./cmd/installer
@@ -53,6 +57,7 @@ try {
     Copy-Item "build\bin\DariusDB.exe"           $stageDir
     Copy-Item "build\bin\DariusDB-Launcher.exe"  $stageDir
     Copy-Item "build\bin\DariusDB-Uninstall.exe" $stageDir
+    Copy-Item "build\bin\darius.exe"             $stageDir
     Copy-Item "LICENSE", "README.md", "GUIDE.md" $stageDir
 
     Remove-Item -Force $zipPath -ErrorAction SilentlyContinue

@@ -479,6 +479,15 @@ func (a *App) ConnectionString(engine, dbName string) string {
 	}
 }
 
+func (a *App) IDESnippet(engine, dbName string) (string, error) {
+	return core.IDESnippet(engine, a.settings.Engine(engine), dbName)
+}
+
+func (a *App) RegisterCLIInPath() error {
+	dirs := append([]string{a.paths.Root}, a.mgr.ClientPaths()...)
+	return core.UpdateUserPath(dirs, true)
+}
+
 func fallback(s, def string) string {
 	if s == "" {
 		return def

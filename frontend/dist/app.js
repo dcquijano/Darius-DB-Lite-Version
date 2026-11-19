@@ -1099,6 +1099,88 @@
       else window.open(url, "_blank");
       toast("Opened Official Darius DB Setup Installer folder (Google Drive)", "ok");
     };
+
+    const closeSysUpdater = () => ($("modalSysUpdater").hidden = true);
+    const refreshSystemUpdateModal = async () => {
+      const btn = $("btnSysUpCheckNow");
+      btn.disabled = true;
+      btn.textContent = "Checking...";
+      try {
+        const up = await api().CheckSystemUpdate();
+        $("sysUpCurVer").textContent = `Darius DB (Lite Version ${up.currentVersion})`;
+        $("sysUpLatVer").textContent = `Lite Version ${up.latestVersion}`;
+        const badge = $("sysUpBadge");
+        if (up.hasUpdate) {
+          badge.className = "pill warn";
+          badge.textContent = `Update Available (${up.latestVersion})`;
+        } else {
+          badge.className = "pill running";
+          badge.textContent = "Up to Date";
+        }
+        $("sysUpAnnounceText").textContent = up.announcement || "";
+        $("sysUpChangelogList").innerHTML = (up.changelog || [])
+          .map((item) => `<li>${esc(item)}</li>`)
+          .join("");
+        if (up.directSetupUrl && !$("sysUpDirectUrl").value) {
+          $("sysUpDirectUrl").value = up.directSetupUrl;
+        }
+      } catch (e) {
+        toast(errMsg(e), "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "↻ Check Online";
+      }
+    };
+    const openSysUpdater = () => {
+      $("modalSysUpdater").hidden = false;
+      refreshSystemUpdateModal();
+    };
+    $("btnOpenSysUpdater").onclick = openSysUpdater;
+    if ($("btnAnnounceSysUpdate")) $("btnAnnounceSysUpdate").onclick = openSysUpdater;
+    $("btnCloseSysUpdater").onclick = closeSysUpdater;
+    $("btnCancelSysUpdater").onclick = closeSysUpdater;
+    $("btnSysUpCheckNow").onclick = refreshSystemUpdateModal;
+    $("btnSysUpOpenDrive").onclick = () => {
+      const url =
+        state.info?.installerUrl ||
+        "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing";
+      if (rt()?.BrowserOpenURL) rt().BrowserOpenURL(url);
+      else window.open(url, "_blank");
+      toast("Opened Official Google Drive Installer Folder", "ok");
+    };
+    $("btnSysUpPickFile").onclick = async () => {
+      try {
+        const msg = await api().ApplySystemUpdateFromFileDialog();
+        if (msg) {
+          $("sysUpStatusMsg").textContent = msg;
+          toast(msg, "ok");
+        }
+      } catch (e) {
+        toast(errMsg(e), "err");
+      }
+    };
+    $("btnSysUpRunUrl").onclick = async () => {
+      const url = $("sysUpDirectUrl").value.trim();
+      if (!url) {
+        toast("Enter a direct .exe or .zip URL first, or click 'Select Setup .exe / Portable .zip'", "err");
+        return;
+      }
+      const btn = $("btnSysUpRunUrl");
+      btn.disabled = true;
+      btn.textContent = "Downloading...";
+      try {
+        const msg = await api().ApplySystemUpdateFromURL(url);
+        if (msg) {
+          $("sysUpStatusMsg").textContent = msg;
+          toast(msg, "ok");
+        }
+      } catch (e) {
+        toast(errMsg(e), "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "⬇️ Download & Update";
+      }
+    };
     $("btnAnnounceCheckVer").onclick = async () => {
       const btn = $("btnAnnounceCheckVer");
       const infoEl = $("announceUpdateInfo");
@@ -1740,6 +1822,7 @@
         if (!$("modalManual").hidden) closeManual();
         if (!$("modalRestore").hidden) closeRestore();
         if (!$("modalRepair").hidden) closeRepair();
+        if (!$("modalSysUpdater").hidden) closeSysUpdater();
       }
     });
   }

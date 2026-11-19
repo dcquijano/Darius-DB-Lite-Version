@@ -691,3 +691,45 @@ func (a *App) DeployWebsiteDialog() (string, error) {
 	}
 	return fmt.Sprintf("http://localhost:%d/%s/", port, siteName), nil
 }
+
+// ---------------------------------------------------------------- System Version Updater
+
+func (a *App) CheckSystemUpdate() (*core.SystemUpdateInfo, error) {
+	return core.CheckSystemUpdate(AppVersion)
+}
+
+func (a *App) ApplySystemUpdateFromURL(downloadURL string) (string, error) {
+	msg, err := core.ApplySystemUpdateFromURL(a.paths, downloadURL)
+	if err != nil {
+		return "", err
+	}
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		a.QuitApp()
+	}()
+	return msg, nil
+}
+
+func (a *App) ApplySystemUpdateFromFileDialog() (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("window not ready")
+	}
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select DariusDB-Setup-*.exe Installer or DariusDB-*-portable.zip to Update System",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Darius DB System Update (*.exe;*.zip)", Pattern: "*.exe;*.zip"},
+		},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	msg, err := core.ApplySystemUpdateFromFile(a.paths, path)
+	if err != nil {
+		return "", err
+	}
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		a.QuitApp()
+	}()
+	return msg, nil
+}

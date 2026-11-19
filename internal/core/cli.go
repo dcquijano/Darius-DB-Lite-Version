@@ -432,6 +432,40 @@ func RunCLI(root string, args []string) int {
 		fmt.Println("\n" + rep.Summary)
 		return 0
 
+	case "system-update", "self-update":
+		if len(rest) > 0 {
+			arg := strings.TrimSpace(rest[0])
+			var msg string
+			var err error
+			if strings.HasPrefix(strings.ToLower(arg), "http://") || strings.HasPrefix(strings.ToLower(arg), "https://") {
+				msg, err = ApplySystemUpdateFromURL(paths, arg)
+			} else {
+				msg, err = ApplySystemUpdateFromFile(paths, arg)
+			}
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				return 1
+			}
+			fmt.Println(msg)
+			return 0
+		}
+		up, err := CheckSystemUpdate(CLIAppVersion)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 1
+		}
+		fmt.Printf("%s — System Version Updater\n", CLIAppTitle)
+		fmt.Printf("Installed Version: Lite Version %s\n", up.CurrentVersion)
+		fmt.Printf("Latest Version:    Lite Version %s\n", up.LatestVersion)
+		if up.HasUpdate {
+			fmt.Printf("Status:            UPDATE AVAILABLE (v%s)\n", up.LatestVersion)
+		} else {
+			fmt.Printf("Status:            UP TO DATE\n")
+		}
+		fmt.Printf("Installer Folder:  %s\n\n", up.InstallerURL)
+		fmt.Printf("Announcement:\n  %s\n", up.Announcement)
+		return 0
+
 	case "path":
 		action := "show"
 		if len(rest) > 0 {

@@ -1,26 +1,32 @@
 {
   "mariadb": [
+    { "version": "13.0.2",   "url": "https://archive.mariadb.org/mariadb-13.0.2/winx64-packages/mariadb-13.0.2-winx64.zip",   "note": "Latest Stable" },
     { "version": "12.3.4",   "url": "https://archive.mariadb.org/mariadb-12.3.4/winx64-packages/mariadb-12.3.4-winx64.zip",   "note": "LTS" },
     { "version": "11.8.10",  "url": "https://archive.mariadb.org/mariadb-11.8.10/winx64-packages/mariadb-11.8.10-winx64.zip", "note": "LTS" },
     { "version": "11.4.14",  "url": "https://archive.mariadb.org/mariadb-11.4.14/winx64-packages/mariadb-11.4.14-winx64.zip", "note": "LTS" },
     { "version": "10.11.20", "url": "https://archive.mariadb.org/mariadb-10.11.20/winx64-packages/mariadb-10.11.20-winx64.zip", "note": "LTS" }
   ],
   "mysql": [
-    { "version": "9.7.2",  "url": "https://cdn.mysql.com/archives/mysql-9.7/mysql-9.7.2-winx64.zip",  "note": "LTS" },
-    { "version": "8.4.11", "url": "https://cdn.mysql.com/archives/mysql-8.4/mysql-8.4.11-winx64.zip", "note": "LTS" }
+    { "version": "9.7.2",  "url": "https://cdn.mysql.com/Downloads/MySQL-9.7/mysql-9.7.2-winx64.zip",  "note": "Latest" },
+    { "version": "8.4.11", "url": "https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.11-winx64.zip", "note": "LTS" },
+    { "version": "8.0.46", "url": "https://cdn.mysql.com/Downloads/MySQL-8.0/mysql-8.0.46-winx64.zip", "note": "LTS" }
   ],
   "postgresql": [
-    { "version": "18.7",  "url": "https://get.enterprisedb.com/postgresql/postgresql-18.7-1-windows-x64-binaries.zip" },
-    { "version": "17.12", "url": "https://get.enterprisedb.com/postgresql/postgresql-17.12-1-windows-x64-binaries.zip" },
-    { "version": "16.16", "url": "https://get.enterprisedb.com/postgresql/postgresql-16.16-1-windows-x64-binaries.zip" },
-    { "version": "15.20", "url": "https://get.enterprisedb.com/postgresql/postgresql-15.20-1-windows-x64-binaries.zip" }
+    { "version": "18.7",  "url": "https://get.enterprisedb.com/postgresql/postgresql-18.7-1-windows-x64-binaries.zip",  "note": "Latest" },
+    { "version": "17.12", "url": "https://get.enterprisedb.com/postgresql/postgresql-17.12-1-windows-x64-binaries.zip", "note": "Stable" },
+    { "version": "16.16", "url": "https://get.enterprisedb.com/postgresql/postgresql-16.16-1-windows-x64-binaries.zip", "note": "Stable" },
+    { "version": "15.20", "url": "https://get.enterprisedb.com/postgresql/postgresql-15.20-1-windows-x64-binaries.zip", "note": "Stable" },
+    { "version": "14.25", "url": "https://get.enterprisedb.com/postgresql/postgresql-14.25-1-windows-x64-binaries.zip", "note": "Stable" }
   ],
   "mssql": [
-    { "version": "1.10.0", "url": "https://github.com/microsoft/go-sqlcmd/releases/download/v1.10.0/sqlcmd-windows-amd64.zip", "note": "Portable sqlcmd CLI" }
+    { "version": "17.0.1000.7", "url": "https://github.com/microsoft/go-sqlcmd/releases/download/v1.10.0/sqlcmd-windows-amd64.zip", "note": "SQL Server 2025 (17.x RTM)" },
+    { "version": "16.0.1000.6", "url": "https://github.com/microsoft/go-sqlcmd/releases/download/v1.10.0/sqlcmd-windows-amd64.zip", "note": "SQL Server 2022 (16.x RTM)" }
   ],
   "redis": [
-    { "version": "8.10.3",   "url": "https://github.com/redis-windows/redis-windows/releases/download/8.10.3/Redis-8.10.3-Windows-x64-msys2.zip" },
-    { "version": "7.4.11",   "url": "https://github.com/redis-windows/redis-windows/releases/download/7.4.11/Redis-7.4.11-Windows-x64-msys2.zip" },
-    { "version": "5.0.14.1", "url": "https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.zip", "note": "legacy native build" }
+    { "version": "8.10.3",   "url": "https://github.com/redis-windows/redis-windows/releases/download/8.10.3/Redis-8.10.3-Windows-x64-msys2.zip", "note": "Latest" },
+    { "version": "8.8.3",    "url": "https://github.com/redis-windows/redis-windows/releases/download/8.8.3/Redis-8.8.3-Windows-x64-msys2.zip",  "note": "Stable" },
+    { "version": "7.4.11",   "url": "https://github.com/redis-windows/redis-windows/releases/download/7.4.11/Redis-7.4.11-Windows-x64-msys2.zip", "note": "LTS" },
+    { "version": "6.2.24",   "url": "https://github.com/redis-windows/redis-windows/releases/download/6.2.24/Redis-6.2.24-Windows-x64-msys2.zip", "note": "Stable" },
+    { "version": "5.0.14.1", "url": "https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.zip", "note": "Legacy Native" }
   ]
 }

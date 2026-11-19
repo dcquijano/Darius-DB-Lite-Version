@@ -114,20 +114,22 @@ func (m *mssqlEngine) PidOf(p *Paths, inst Installation) int {
 	return 0
 }
 
-// detectSystemMSSQL checks if SQL Server LocalDB or sqlcmd is installed on Windows.
+var dottedVerRe = regexp.MustCompile(`\d+\.\d+(?:\.\d+){0,2}`)
+
+// detectSystemMSSQL checks if SQL Server 2025 (17.x) LocalDB or sqlcmd is installed on Windows.
 func detectSystemMSSQL() (Installation, bool) {
 	if localDB := findSqlLocalDB(); localDB != "" {
-		ver := "17.0"
+		ver := "17.0.1000.7"
 		cmd := exec.Command(localDB, "versions")
 		hideWindow(cmd)
 		if out, err := cmd.CombinedOutput(); err == nil {
-			if m := versionRe.FindString(string(out)); m != "" {
+			if m := dottedVerRe.FindString(string(out)); m != "" {
 				ver = m
 			}
 		}
 		return Installation{
 			Engine:  "mssql",
-			Name:    "mssql-localdb-" + ver,
+			Name:    "mssql-2025-" + ver,
 			Version: ver,
 			Dir:     filepath.Dir(localDB),
 		}, true
@@ -135,8 +137,8 @@ func detectSystemMSSQL() (Installation, bool) {
 	if sc := findSystemSqlcmd(); sc != "" {
 		return Installation{
 			Engine:  "mssql",
-			Name:    "mssql-sqlcmd",
-			Version: "15.0",
+			Name:    "mssql-2025-17.0.1000.7",
+			Version: "17.0.1000.7",
 			Dir:     filepath.Dir(sc),
 		}, true
 	}

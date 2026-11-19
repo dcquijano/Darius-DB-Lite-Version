@@ -256,6 +256,7 @@ func mssqlRunQuery(s EngineSettings, dbName, q string) (*QueryResult, error) {
 	args := []string{
 		"-S", mssqlServerTarget(s),
 		"-d", dbName,
+		"-I",
 		"-W",
 		"-s", sep,
 		"-b",

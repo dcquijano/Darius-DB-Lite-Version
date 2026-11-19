@@ -202,6 +202,40 @@ func RunCLI(root string, args []string) int {
 		fmt.Printf("Dropped database %q on %s.\n", db, eng)
 		return 0
 
+	case "restore", "import":
+		if len(rest) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: darius restore <mssql|mariadb|mysql|postgresql> <file.bak|file.sql> [target-db]")
+			return 1
+		}
+		eng := normalizeEngineArg(rest[0])
+		file := rest[1]
+		targetDB := ""
+		if len(rest) > 2 {
+			targetDB = rest[2]
+		}
+		dbName, err := RestoreDatabase(paths, eng, st.Engine(eng), file, targetDB)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 1
+		}
+		fmt.Printf("Successfully restored %q into database %q on %s.\n", filepath.Base(file), dbName, eng)
+		return 0
+
+	case "backup", "export", "dump":
+		if len(rest) < 3 {
+			fmt.Fprintln(os.Stderr, "Usage: darius backup <mssql|mariadb|mysql|postgresql> <dbname> <output.bak|output.sql>")
+			return 1
+		}
+		eng := normalizeEngineArg(rest[0])
+		dbName := rest[1]
+		outFile := rest[2]
+		if err := BackupDatabase(paths, eng, st.Engine(eng), dbName, outFile); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 1
+		}
+		fmt.Printf("Successfully backed up %q (%s) to %s.\n", dbName, eng, outFile)
+		return 0
+
 	case "sql", "query", "exec":
 		if len(rest) < 2 {
 			fmt.Fprintln(os.Stderr, `Usage: darius sql <mariadb|mysql|postgresql|mssql|redis> "<query>" [-d <database>]`)
@@ -618,6 +652,8 @@ Usage:
   darius tables <engine> <database>              List all tables & views in a database
   darius createdb <engine> <db> [user] [pass]    Create a database (and optional user/login)
   darius dropdb <engine> <db>                    Drop a database
+  darius restore <engine> <file.bak|.sql> [db]   Restore a .bak backup or import a .sql script
+  darius backup <engine> <db> <out.bak|.sql>     Back up a database to a .bak or .sql file
   darius sql <engine> "<query>" [-d <database>]  Run SQL / T-SQL / Redis command & print ASCII table
   darius versions [engine]                       List installed & downloadable engine versions
   darius install <engine> [version]              Download & install a portable engine version

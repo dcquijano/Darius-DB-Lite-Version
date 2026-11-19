@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -554,6 +555,80 @@ func (a *App) CreateDatabase(engine, name, user, password string) error {
 
 func (a *App) DropDatabase(engine, name string) error {
 	return core.DropDatabase(engine, a.settings.Engine(engine), name)
+}
+
+type RestoreFileChoice struct {
+	Path        string `json:"path"`
+	SuggestedDB string `json:"suggestedDb"`
+}
+
+func (a *App) PickRestoreFile(engine string) (*RestoreFileChoice, error) {
+	if a.ctx == nil {
+		return nil, errors.New("window not ready")
+	}
+	filters := []runtime.FileFilter{
+		{DisplayName: "Database Backups & SQL (*.bak;*.sql;*.backup;*.dump)", Pattern: "*.bak;*.sql;*.backup;*.dump"},
+		{DisplayName: "MS SQL Server Backup (*.bak)", Pattern: "*.bak"},
+		{DisplayName: "SQL Script (*.sql)", Pattern: "*.sql"},
+		{DisplayName: "All Files (*.*)", Pattern: "*.*"},
+	}
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   "Select .bak Backup or .sql Script File to Restore",
+		Filters: filters,
+	})
+	if err != nil || path == "" {
+		return nil, err
+	}
+	return &RestoreFileChoice{
+		Path:        path,
+		SuggestedDB: core.DeriveDBNameFromFile(path),
+	}, nil
+}
+
+func (a *App) RestoreDatabase(engine, filePath, targetDB string) (string, error) {
+	return core.RestoreDatabase(a.paths, engine, a.settings.Engine(engine), filePath, targetDB)
+}
+
+func (a *App) BackupDatabaseDialog(engine, dbName, format string) (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("window not ready")
+	}
+	if strings.TrimSpace(dbName) == "" {
+		return "", errors.New("select a database to back up first")
+	}
+	ext := strings.ToLower(strings.TrimPrefix(format, "."))
+	if ext == "" {
+		if engine == "mssql" {
+			ext = "bak"
+		} else {
+			ext = "sql"
+		}
+	}
+	defaultName := fmt.Sprintf("%s_%s.%s", dbName, time.Now().Format("20060102"), ext)
+	var filters []runtime.FileFilter
+	if ext == "bak" {
+		filters = []runtime.FileFilter{
+			{DisplayName: "MS SQL Server Backup (*.bak)", Pattern: "*.bak"},
+			{DisplayName: "SQL Script (*.sql)", Pattern: "*.sql"},
+		}
+	} else {
+		filters = []runtime.FileFilter{
+			{DisplayName: "SQL Script (*.sql)", Pattern: "*.sql"},
+			{DisplayName: "MS SQL Server Backup (*.bak)", Pattern: "*.bak"},
+		}
+	}
+	outPath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           fmt.Sprintf("Backup %s database (%s)", dbName, engine),
+		DefaultFilename: defaultName,
+		Filters:         filters,
+	})
+	if err != nil || outPath == "" {
+		return "", err
+	}
+	if err := core.BackupDatabase(a.paths, engine, a.settings.Engine(engine), dbName, outPath); err != nil {
+		return "", err
+	}
+	return outPath, nil
 }
 
 func (a *App) RedisDatabases() ([]core.RedisDB, error) {

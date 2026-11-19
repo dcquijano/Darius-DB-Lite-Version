@@ -114,6 +114,9 @@
         <header class="view-head compact">
           <div class="seg-tabs" id="dbEngineTabs"></div>
           <div class="head-actions">
+            <button class="btn sm primary" id="btnOpenRestore" title="Restore a .bak backup or import a .sql script">Restore (.bak / .sql)</button>
+            <button class="btn sm accent" id="btnBackupBak" title="Back up selected database to .bak file" hidden>Backup .bak</button>
+            <button class="btn sm" id="btnBackupSql" title="Export selected database to .sql script">Export .sql</button>
             <button class="btn sm" id="btnCopyIDE" title="Copy Visual Studio (appsettings.json) &amp; VS Code (.env) config">VS / .env</button>
             <button class="btn sm" id="btnCopyConn" title="Copy connection URI">Copy URI</button>
             <button class="btn sm" id="btnDbRefresh">Refresh</button>
@@ -496,6 +499,36 @@
         <div class="modal-actions">
           <button type="button" class="btn" id="btnCancelManual">Cancel</button>
           <button type="submit" class="btn primary">Save &amp; Download</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Restore .bak / Import .sql Modal -->
+  <div class="modal-backdrop" id="modalRestore" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modalRestoreTitle">Restore .bak / Import .sql</h3>
+        <button class="icon-btn" id="btnCloseRestore" aria-label="Close">✕</button>
+      </div>
+      <form id="formRestore" class="modal-body">
+        <label class="field">
+          <span>Backup or SQL File (<code>.bak</code>, <code>.sql</code>, <code>.backup</code>) *</span>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="restoreFilePath" class="input" style="flex:1" required placeholder="C:\path\to\backup.bak or dump.sql" />
+            <button type="button" class="btn sm accent" id="btnBrowseRestore">Browse...</button>
+          </div>
+        </label>
+        <label class="field">
+          <span>Target Database Name *</span>
+          <input type="text" id="restoreDbName" class="input" required pattern="[A-Za-z0-9_][A-Za-z0-9_$\-]{0,62}" placeholder="Auto-filled from file or enter database name" />
+        </label>
+        <p class="muted" id="restoreHint" style="margin:0;font-size:11.5px">
+          For MS SQL Server <code>.bak</code> files, logical data &amp; log files are mapped automatically to <code>data/mssql/</code>. If the target database does not exist yet, it will be created automatically.
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnCancelRestore">Cancel</button>
+          <button type="submit" class="btn primary" id="btnSubmitRestore">Restore / Import</button>
         </div>
       </form>
     </div>

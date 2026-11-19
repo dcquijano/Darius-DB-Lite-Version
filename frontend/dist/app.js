@@ -317,6 +317,11 @@
     const stoppedEl = $("dbStoppedState");
     const sqlEl = $("sqlBrowser");
     const redisEl = $("redisBrowser");
+    const isSql = s ? s.isSql : state.dbEngine !== "redis";
+
+    $("btnOpenRestore").hidden = !isSql;
+    $("btnBackupSql").hidden = !isSql;
+    $("btnBackupBak").hidden = state.dbEngine !== "mssql";
 
     if (!s || s.state !== "running") {
       sqlEl.hidden = true;
@@ -1105,6 +1110,76 @@
 
     // Database tab events
     $("btnDbRefresh").onclick = () => loadDbView();
+
+    const closeRestore = () => ($("modalRestore").hidden = true);
+    $("btnOpenRestore").onclick = () => {
+      const s = getStatus(state.dbEngine);
+      $("modalRestoreTitle").textContent =
+        state.dbEngine === "mssql"
+          ? "Restore .bak Backup or Import .sql (MS SQL Server)"
+          : `Import / Restore .sql (${s ? s.name : state.dbEngine})`;
+      $("formRestore").reset();
+      if (state.sqlDb && !SYSTEM_DBS.has(state.sqlDb.toLowerCase())) {
+        $("restoreDbName").value = state.sqlDb;
+      }
+      $("modalRestore").hidden = false;
+    };
+    $("btnCloseRestore").onclick = closeRestore;
+    $("btnCancelRestore").onclick = closeRestore;
+    $("btnBrowseRestore").onclick = async () => {
+      try {
+        const res = await api().PickRestoreFile(state.dbEngine);
+        if (!res || !res.path) return;
+        $("restoreFilePath").value = res.path;
+        const curDb = $("restoreDbName").value.trim();
+        if (!curDb || SYSTEM_DBS.has(curDb.toLowerCase())) {
+          $("restoreDbName").value = res.suggestedDb || "";
+        }
+      } catch (e) {
+        toast(errMsg(e), "err");
+      }
+    };
+    $("formRestore").onsubmit = async (e) => {
+      e.preventDefault();
+      const filePath = $("restoreFilePath").value.trim();
+      const targetDb = $("restoreDbName").value.trim();
+      if (!filePath) return;
+      const btn = $("btnSubmitRestore");
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Restoring...";
+      try {
+        const restoredDb = await api().RestoreDatabase(state.dbEngine, filePath, targetDb);
+        closeRestore();
+        toast(`Successfully restored into database "${restoredDb}"!`, "ok");
+        state.sqlDb = restoredDb;
+        await loadSqlDatabases();
+      } catch (err) {
+        toast(errMsg(err), "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    };
+
+    const runBackupDialog = async (fmt) => {
+      if (!state.sqlDb) {
+        toast("Select a database on the left first", "err");
+        return;
+      }
+      try {
+        toast(`Creating .${fmt} backup of "${state.sqlDb}"...`, "info");
+        const outPath = await api().BackupDatabaseDialog(state.dbEngine, state.sqlDb, fmt);
+        if (outPath) {
+          toast(`Backup saved: ${outPath}`, "ok");
+        }
+      } catch (e) {
+        toast(errMsg(e), "err");
+      }
+    };
+    $("btnBackupBak").onclick = () => runBackupDialog("bak");
+    $("btnBackupSql").onclick = () => runBackupDialog("sql");
+
     $("btnCopyIDE").onclick = async () => {
       try {
         const snippet = await api().IDESnippet(state.dbEngine, state.sqlDb || "my_app");
@@ -1503,6 +1578,7 @@
         if (!$("modalConfirm").hidden) closeConfirm(false);
         if (!$("modalNewDb").hidden) closeNewDb();
         if (!$("modalManual").hidden) closeManual();
+        if (!$("modalRestore").hidden) closeRestore();
       }
     });
   }

@@ -1,13 +1,13 @@
 ; Inno Setup 6 Script for Darius DB
-; Created by Darius Cumpio - November 19, 2026 - v0.1.2 (MIT License)
+; Created by Darius Cumpio - November 19, 2026 - v0.1.3 (MIT License)
 ;
 ; Build with:
 ;   ISCC.exe installer\DariusDB.iss
 ; or run:
 ;   powershell -ExecutionPolicy Bypass -File installer\build-all.ps1
 
-#define MyAppName      "Darius DB (Lite Version 0.1.2)"
-#define MyAppVersion   "0.1.2"
+#define MyAppName      "Darius DB (Lite Version 0.1.3)"
+#define MyAppVersion   "0.1.3"
 #define MyAppPublisher "Darius Cumpio"
 #define MyAppExeName   "DariusDB.exe"
 #define MyLauncherExe  "DariusDB-Launcher.exe"
@@ -55,6 +55,8 @@ Name: "{app}\tmp"
 Source: "..\build\bin\DariusDB.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\bin\DariusDB-Launcher.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\bin\DariusDB-Uninstall.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\build\bin\DariusDB-Updater.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\build\bin\darius.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\GUIDE.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -62,6 +64,7 @@ Source: "..\GUIDE.md"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyLauncherExe}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\{#MyAppName} Terminal"; Filename: "{app}\{#MyLauncherExe}"; Parameters: "--terminal"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{group}\Update {#MyAppName}"; Filename: "{app}\DariusDB-Updater.exe"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\User Guide"; Filename: "{app}\GUIDE.md"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyLauncherExe}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon

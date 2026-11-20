@@ -708,7 +708,7 @@
         </div>
 
         <!-- Live Loading & Successfully Fetched Status Box -->
-        <div id="sysUpFetchBox" class="sysup-fetch-box" hidden>
+        <div id="sysUpFetchBox" class="sysup-fetch-box" role="status" aria-live="polite" hidden>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
             <div style="display:flex;align-items:center;gap:8px">
               <span id="sysUpFetchSpinner" class="sysup-spinner"></span>
@@ -724,6 +724,30 @@
           </div>
         </div>
 
+        <!-- 1-Click Install Banner when a Newer Release is Available -->
+        <div id="sysUpReadyBar" hidden
+          style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-radius:9px;border:1px solid rgba(34,197,94,0.45);background:rgba(34,197,94,0.12);flex-wrap:wrap">
+          <div style="font-size:12.5px">
+            <strong id="sysUpReadyTitle">🎉 New Darius DB Version Ready!</strong>
+            <div id="sysUpReadySub" class="muted" style="font-size:11.5px;margin-top:2px">Upgrades binaries in-place while keeping your <code>data/</code> and <code>www/</code> safe.</div>
+          </div>
+          <button type="button" class="btn sm primary" id="btnSysUpInstallNow">⬆️ Download &amp; Install Update Now</button>
+        </div>
+
+        <!-- Private GitHub Repo Token Box (shown when GitHub returns 404/401/403 or toggled) -->
+        <div id="sysUpTokenBox" hidden
+          style="padding:10px 14px;border-radius:9px;border:1px solid rgba(245,158,11,0.45);background:rgba(245,158,11,0.1);font-size:12px">
+          <strong>🔐 GitHub Access (Private Repository / Rate Limit Fix)</strong>
+          <p class="muted" style="margin:4px 0 8px;font-size:11.5px">
+            If <code>dcquijano/Darius-DB-Lite-Version</code> is <strong>Private</strong> on GitHub, make it <strong>Public</strong> in GitHub Settings → Danger Zone, <em>or</em> save a GitHub Personal Access Token (<code>Contents: Read-only</code>) below:
+          </p>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <input type="password" id="sysUpGithubToken" class="input" style="flex:1;min-width:200px"
+              placeholder="ghp_... or github_pat_... (stored locally in settings.json)" autocomplete="off" />
+            <button type="button" class="btn sm accent" id="btnSysUpSaveToken">Save Token &amp; Retry</button>
+          </div>
+        </div>
+
         <div id="sysUpCommitBar" class="muted" style="font-size:11.5px;padding:0 2px">
           Checking latest GitHub commit on <code>dcquijano/Darius-DB-Lite-Version</code>...
         </div>
@@ -735,24 +759,28 @@
           <ul id="sysUpChangelogList" style="margin:4px 0 0;padding-left:18px"></ul>
         </div>
 
-        <div class="divider-label">Option 1: Install Update from Downloaded Setup .exe or Portable .zip</div>
+        <div class="divider-label">Option 1: Standalone Updater, Downloaded Setup .exe, or Portable .zip</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button type="button" class="btn sm primary" id="btnSysUpPickFile">📂 Select Setup .exe / Portable .zip &amp;
             Update Now...</button>
-          <button type="button" class="btn sm accent" id="btnSysUpOpenDrive">📥 Open Official Google Drive Installer
+          <button type="button" class="btn sm accent" id="btnSysUpLaunchTool"
+            title="Open the native Windows DariusDB-Updater.exe utility">🚀 Open DariusDB-Updater.exe</button>
+          <button type="button" class="btn sm" id="btnSysUpOpenDrive">📥 Open Official Google Drive Installer
             Folder</button>
+          <button type="button" class="btn sm ghost" id="btnSysUpToggleToken"
+            title="Configure optional GitHub Token for Private Repositories">🔐 GitHub Token</button>
         </div>
 
         <div class="divider-label">Option 2: Direct Online Setup .exe / .zip Update URL</div>
         <div style="display:flex;gap:6px">
           <input type="url" id="sysUpDirectUrl" class="input" style="flex:1"
-            placeholder="https://.../DariusDB-Setup-0.1.3.exe or portable.zip" />
+            placeholder="https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.3/DariusDB-Setup-0.1.3.exe" />
           <button type="button" class="btn sm primary" id="btnSysUpRunUrl">⬇️ Download &amp; Update</button>
         </div>
 
         <p class="muted" id="sysUpStatusMsg" style="margin:0;font-size:11.5px">
           Updating Darius DB upgrades <code>DariusDB.exe</code>, <code>DariusDB-Launcher.exe</code>,
-          <code>DariusDB-Uninstall.exe</code>, and <code>darius.exe</code> in-place and automatically restarts the app
+          <code>DariusDB-Uninstall.exe</code>, <code>DariusDB-Updater.exe</code>, and <code>darius.exe</code> in-place and automatically restarts the app
           while keeping all your databases in <code>data/</code> and websites in <code>www/</code> untouched.
         </p>
 

@@ -1204,20 +1204,38 @@
       toast("Opened Official Darius DB Setup Installer folder (Google Drive)", "ok");
     };
 
+    let latestUpdateInfo = null;
     const closeSysUpdater = () => ($("modalSysUpdater").hidden = true);
     const applyUpdateInfoToUI = (up) => {
+      latestUpdateInfo = up;
       $("sysUpCurVer").textContent = `Darius DB (Lite Version ${up.currentVersion})`;
       $("sysUpLatVer").textContent = `Lite Version ${up.latestVersion}`;
       const badge = $("sysUpBadge");
-      if (up.hasUpdate) {
+      if (up.fetchOk === false) {
+        badge.className = "pill warn";
+        badge.textContent = "Fetch Failed";
+      } else if (up.hasUpdate) {
         badge.className = "pill warn";
         badge.textContent = `Update Available (${up.latestVersion})`;
       } else {
         badge.className = "pill running";
         badge.textContent = up.latestCommitSha ? `Synced (${up.latestCommitSha})` : "Up to Date";
       }
+      if ($("sysUpReadyBar")) {
+        const showReady = !!(up.fetchOk !== false && up.hasUpdate && (up.directSetupUrl || up.fallbackSetupUrl || up.directZipUrl));
+        $("sysUpReadyBar").hidden = !showReady;
+        if (showReady) {
+          $("sysUpReadyTitle").textContent = `🎉 Darius DB Lite Version ${up.latestVersion} is Available!`;
+          $("sysUpReadySub").textContent = `Upgrade from v${up.currentVersion} → v${up.latestVersion} in-place (keeps data/ and www/ safe).`;
+        }
+      }
+      if ($("sysUpTokenBox") && up.repoPrivateHint) {
+        $("sysUpTokenBox").hidden = false;
+      }
       if ($("sysUpCommitBar")) {
-        if (up.latestCommitSha) {
+        if (up.fetchOk === false && up.fetchError) {
+          $("sysUpCommitBar").innerHTML = `<span style="color:var(--red)">⚠️ ${esc(up.fetchError)}</span>`;
+        } else if (up.latestCommitSha) {
           $("sysUpCommitBar").innerHTML = `Latest GitHub Push: <code>${esc(up.latestCommitSha)}</code> — <strong>${esc(
             up.latestCommitMsg
           )}</strong> <span class="muted">(${esc(up.latestCommitDate)})</span>`;
@@ -1229,8 +1247,9 @@
       $("sysUpChangelogList").innerHTML = (up.changelog || [])
         .map((item) => `<li>${esc(item)}</li>`)
         .join("");
-      if (up.directSetupUrl && !$("sysUpDirectUrl").value) {
-        $("sysUpDirectUrl").value = up.directSetupUrl;
+      const bestUrl = up.directSetupUrl || up.fallbackSetupUrl || up.directZipUrl || "";
+      if (bestUrl && !$("sysUpDirectUrl").value) {
+        $("sysUpDirectUrl").value = bestUrl;
       }
       if ($("announceUpdateInfo") && up.latestCommitSha) {
         $("announceUpdateInfo").textContent = `Latest GitHub Update [${up.latestCommitSha}]: ${up.latestCommitMsg} (${up.latestCommitDate})`;
@@ -1258,23 +1277,40 @@
           "loading",
           35,
           "⏳ Loading & checking online GitHub release...",
-          "Querying <code>dcquijano/Darius-DB-Lite-Version</code> version.json &amp; commits..."
+          "Querying <code>dcquijano/Darius-DB-Lite-Version</code> version.json, commits &amp; releases..."
         );
       }
       try {
         const up = await api().CheckSystemUpdate();
         applyUpdateInfoToUI(up);
-        if (showLoadingBanner) {
+        if (up.fetchOk === false) {
+          setFetchProgress(
+            "error",
+            100,
+            "⚠️ Could Not Fetch Update from GitHub",
+            esc(up.fetchError || "GitHub returned an error. Check internet connection or repository visibility.")
+          );
+          if (showLoadingBanner) {
+            toast(up.fetchError || "Failed to fetch update from GitHub", "err");
+          }
+        } else if (showLoadingBanner) {
           setFetchProgress(
             "success",
             100,
-            "✅ Successfully Checked Online GitHub Release!",
+            up.hasUpdate
+              ? `🎉 Update Available: Lite Version ${up.latestVersion}!`
+              : "✅ Successfully Checked Online GitHub Release!",
             `Latest Release: <strong>Lite Version ${esc(up.latestVersion)}</strong>` +
               (up.latestCommitSha
                 ? ` · Commit <code>${esc(up.latestCommitSha)}</code>: "${esc(up.latestCommitMsg)}"`
                 : "")
           );
-          toast(`✅ Successfully checked online release (Lite Version ${up.latestVersion})`, "ok");
+          toast(
+            up.hasUpdate
+              ? `🎉 Update available: Darius DB Lite Version ${up.latestVersion}!`
+              : `✅ Successfully checked online release (Lite Version ${up.latestVersion})`,
+            "ok"
+          );
         }
       } catch (e) {
         if (showLoadingBanner) {
@@ -1311,10 +1347,24 @@
           applyUpdateInfoToUI(up);
           state.catalog = await api().Catalog();
           if (state.tab === "versions") renderVersions();
+          if (up.fetchOk === false) {
+            setFetchProgress(
+              "error",
+              100,
+              "⚠️ Could Not Fetch Updates from GitHub",
+              esc(up.fetchError || "GitHub returned HTTP 404. If the repo is Private, make it Public or save a GitHub Token below.")
+            );
+            toast(up.fetchError || "Could not fetch updates from GitHub", "err");
+            btn.disabled = false;
+            btn.textContent = "🔄 Fetch Latest from GitHub";
+            return;
+          }
           setFetchProgress(
             "success",
             100,
-            "✅ Successfully Fetched Latest Updates from GitHub!",
+            up.hasUpdate
+              ? `🎉 Update Found: Lite Version ${up.latestVersion} Ready to Install!`
+              : "✅ Successfully Fetched Latest Updates from GitHub!",
             `Synced <strong>Darius DB (Lite Version ${esc(up.latestVersion)})</strong>` +
               (up.latestCommitSha
                 ? ` · Latest Commit <code>${esc(up.latestCommitSha)}</code>: <strong>${esc(
@@ -1324,15 +1374,13 @@
           );
           btn.textContent = "✅ Successfully Fetched!";
           toast(
-            up.latestCommitSha
+            up.hasUpdate
+              ? `🎉 New update v${up.latestVersion} found! Click 'Download & Install Update Now' to upgrade.`
+              : up.latestCommitSha
               ? `✅ Successfully fetched latest GitHub update [${up.latestCommitSha}]: ${up.latestCommitMsg}`
               : "✅ Successfully fetched latest version.json and catalog from GitHub!",
             "ok"
           );
-          if (up.hasUpdate && up.directSetupUrl) {
-            const msg = await api().ApplySystemUpdateFromURL(up.directSetupUrl);
-            if (msg) toast(msg, "ok");
-          }
           setTimeout(() => {
             btn.disabled = false;
             btn.textContent = "🔄 Fetch Latest from GitHub";
@@ -1346,8 +1394,65 @@
         }
       };
     }
+    if ($("btnSysUpInstallNow")) {
+      $("btnSysUpInstallNow").onclick = async () => {
+        const up = latestUpdateInfo;
+        const primary = up?.directSetupUrl || $("sysUpDirectUrl").value.trim() || "";
+        const fallback = up?.fallbackSetupUrl || up?.directZipUrl || "";
+        const btn = $("btnSysUpInstallNow");
+        btn.disabled = true;
+        btn.textContent = "⏳ Downloading Update...";
+        setFetchProgress(
+          "loading",
+          50,
+          "⏳ Downloading Darius DB update package...",
+          `Downloading installer from GitHub and preparing safe in-place upgrade...`
+        );
+        try {
+          const msg = await api().ApplySystemUpdateAuto(primary, fallback);
+          if (msg) {
+            setFetchProgress("success", 100, "✅ Update Downloaded — Restarting Darius DB...", esc(msg));
+            $("sysUpStatusMsg").textContent = msg;
+            toast(msg, "ok");
+          }
+        } catch (e) {
+          setFetchProgress("error", 100, "⚠️ Failed to Download/Install Update", esc(errMsg(e)));
+          toast(errMsg(e), "err");
+          btn.disabled = false;
+          btn.textContent = "⬆️ Download & Install Update Now";
+        }
+      };
+    }
+    if ($("btnSysUpToggleToken")) {
+      $("btnSysUpToggleToken").onclick = () => {
+        $("sysUpTokenBox").hidden = !$("sysUpTokenBox").hidden;
+      };
+    }
+    if ($("btnSysUpSaveToken")) {
+      $("btnSysUpSaveToken").onclick = async () => {
+        const tok = $("sysUpGithubToken").value.trim();
+        try {
+          await api().SaveGitHubToken(tok);
+          toast(tok ? "Saved GitHub Token locally in settings.json — retrying fetch..." : "Cleared saved GitHub Token", "ok");
+          await refreshSystemUpdateModal(true);
+        } catch (e) {
+          toast(errMsg(e), "err");
+        }
+      };
+    }
+    if ($("btnSysUpLaunchTool")) {
+      $("btnSysUpLaunchTool").onclick = async () => {
+        try {
+          await api().LaunchUpdaterTool();
+          toast("Launched standalone DariusDB-Updater.exe", "ok");
+        } catch (e) {
+          toast(errMsg(e), "err");
+        }
+      };
+    }
     const openSysUpdater = () => {
       if ($("sysUpFetchBox")) $("sysUpFetchBox").hidden = true;
+      if ($("sysUpReadyBar")) $("sysUpReadyBar").hidden = true;
       $("modalSysUpdater").hidden = false;
       refreshSystemUpdateModal(false);
     };

@@ -433,14 +433,29 @@ func RunCLI(root string, args []string) int {
 		return 0
 
 	case "system-update", "self-update":
-		if len(rest) > 0 {
-			arg := strings.TrimSpace(rest[0])
+		tok := st.Get().GitHubToken
+		autoApply := false
+		var targetArg string
+		for _, a := range rest {
+			low := strings.ToLower(strings.TrimSpace(a))
+			switch {
+			case low == "--apply" || low == "--install" || low == "--auto":
+				autoApply = true
+			case strings.HasPrefix(low, "--token="):
+				tok = strings.TrimSpace(a[8:])
+			default:
+				if targetArg == "" {
+					targetArg = strings.TrimSpace(a)
+				}
+			}
+		}
+		if targetArg != "" {
 			var msg string
 			var err error
-			if strings.HasPrefix(strings.ToLower(arg), "http://") || strings.HasPrefix(strings.ToLower(arg), "https://") {
-				msg, err = ApplySystemUpdateFromURL(paths, arg)
+			if strings.HasPrefix(strings.ToLower(targetArg), "http://") || strings.HasPrefix(strings.ToLower(targetArg), "https://") {
+				msg, err = ApplySystemUpdateFromURL(paths, targetArg, tok)
 			} else {
-				msg, err = ApplySystemUpdateFromFile(paths, arg)
+				msg, err = ApplySystemUpdateFromFile(paths, targetArg)
 			}
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "Error:", err)
@@ -449,7 +464,7 @@ func RunCLI(root string, args []string) int {
 			fmt.Println(msg)
 			return 0
 		}
-		up, err := SyncFromGitHub(paths, CLIAppVersion)
+		up, err := SyncFromGitHub(paths, CLIAppVersion, tok)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 1
@@ -460,10 +475,28 @@ func RunCLI(root string, args []string) int {
 		if up.LatestCommitSHA != "" {
 			fmt.Printf("Latest GitHub:     [%s] %s (%s)\n", up.LatestCommitSHA, up.LatestCommitMsg, up.LatestCommitDate)
 		}
+		if !up.FetchOK {
+			fmt.Printf("Status:            FETCH FAILED — %s\n", up.FetchError)
+			fmt.Printf("Tip:               Run 'darius system-update --token=<YOUR_GITHUB_PAT>' or make the GitHub repo Public.\n")
+			return 1
+		}
 		if up.HasUpdate {
 			fmt.Printf("Status:            UPDATE AVAILABLE (v%s)\n", up.LatestVersion)
+			if autoApply {
+				msg, err := ApplySystemUpdateWithFallback(paths, up.DirectSetupURL, up.FallbackSetupURL, tok)
+				if err != nil {
+					fmt.Fprintln(os.Stderr, "Error applying update:", err)
+					return 1
+				}
+				fmt.Println(msg)
+				return 0
+			}
+			fmt.Printf("Install Update:    darius system-update --apply\n")
 		} else {
-			fmt.Printf("Status:            UP TO DATE & SYNCED WITH GITHUB\n")
+			fmt.Printf("Status:            UP TO DATE & SYNCED WITH GITHUB (%s)\n", up.FetchSource)
+		}
+		if up.DirectSetupURL != "" {
+			fmt.Printf("Direct Setup URL:  %s\n", up.DirectSetupURL)
 		}
 		fmt.Printf("Installer Folder:  %s\n\n", up.InstallerURL)
 		fmt.Printf("What's New (Fetched from GitHub):\n")
@@ -734,6 +767,7 @@ Usage:
   darius install <engine> [version]              Download & install a portable engine version
   darius use <engine> <version>                  Switch active version of an engine
   darius repair [all|<engine>] [--reset-config]  Repair directories, settings, configs, locks & PATH
+  darius system-update [--apply] [--token=PAT]   Check GitHub & install Darius DB system updates
   darius path [--add|--remove]                   Register Darius DB CLI & DB tools in Windows PATH
   darius gui                                     Open or focus the Darius DB desktop GUI
   darius version                                 Show version & credits

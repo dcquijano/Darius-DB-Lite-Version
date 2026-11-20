@@ -17,7 +17,10 @@ import (
 	"time"
 )
 
-const defaultRemoteCatalogURL = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/internal/core/catalog.json"
+const (
+	defaultRemoteCatalogURL    = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/internal/core/catalog.json"
+	defaultRemoteCatalogAPIURL = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/contents/internal/core/catalog.json"
+)
 
 //go:embed catalog.json
 var embeddedCatalog []byte
@@ -55,8 +58,15 @@ func LoadCatalog(p *Paths) Catalog {
 // APIs (MariaDB, PostgreSQL, Redis, GitHub repo catalog, and optional custom URL),
 // merges them into catalog.json, and returns the updated catalog.
 func RefreshCatalog(p *Paths, customURL string) (Catalog, error) {
+	return RefreshCatalogWithToken(p, customURL, "")
+}
+
+// RefreshCatalogWithToken behaves like RefreshCatalog while attaching an optional GitHub token
+// so private repository catalogs can also be refreshed.
+func RefreshCatalogWithToken(p *Paths, customURL, githubToken string) (Catalog, error) {
 	base := LoadCatalog(p)
 	client := &http.Client{Timeout: 12 * time.Second}
+	tok := resolveGitHubToken(githubToken)
 
 	merge := func(engine string, entry CatalogEntry) {
 		if entry.Version == "" || entry.URL == "" {
@@ -75,17 +85,26 @@ func RefreshCatalog(p *Paths, customURL string) (Catalog, error) {
 	}
 
 	// 1. Fetch remote catalog JSON (custom URL if set, plus official GitHub repo catalog)
-	urls := []string{defaultRemoteCatalogURL}
-	if strings.TrimSpace(customURL) != "" {
-		urls = append([]string{strings.TrimSpace(customURL)}, urls...)
+	type catSource struct {
+		url    string
+		accept string
 	}
-	for _, u := range urls {
-		if rem, err := fetchCatalogJSON(client, u); err == nil {
+	sources := []catSource{{defaultRemoteCatalogURL, ""}, {defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json"}}
+	if tok != "" {
+		sources = []catSource{{defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json"}, {defaultRemoteCatalogURL, ""}}
+	}
+	if strings.TrimSpace(customURL) != "" {
+		sources = append([]catSource{{strings.TrimSpace(customURL), ""}}, sources...)
+	}
+	for _, s := range sources {
+		var rem Catalog
+		if _, err := getJSONNoCache(client, s.url, tok, s.accept, &rem); err == nil && len(rem) > 0 {
 			for eng, entries := range rem {
 				for _, e := range entries {
 					merge(eng, e)
 				}
 			}
+			break
 		}
 	}
 

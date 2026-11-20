@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,10 +15,14 @@ import (
 )
 
 const (
+	defaultRepoOwner        = "dcquijano"
+	defaultRepoName         = "Darius-DB-Lite-Version"
 	defaultVersionJSONURL   = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/version.json"
+	defaultVersionAPIURL    = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/contents/version.json"
 	defaultGitHubRelURL     = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/releases/latest"
 	defaultGitHubCommitsURL = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/commits?per_page=8"
 	defaultDriveFolderURL   = "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing"
+	defaultRawInstallerBase = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer"
 )
 
 type GitHubCommitInfo struct {
@@ -37,6 +42,8 @@ type SystemUpdateInfo struct {
 	Author           string             `json:"author"`
 	InstallerURL     string             `json:"installerUrl"`
 	DirectSetupURL   string             `json:"directSetupUrl"`
+	DirectZipURL     string             `json:"directZipUrl"`
+	FallbackSetupURL string             `json:"fallbackSetupUrl"`
 	RepoURL          string             `json:"repoUrl"`
 	Announcement     string             `json:"announcement"`
 	Changelog        []string           `json:"changelog"`
@@ -45,42 +52,80 @@ type SystemUpdateInfo struct {
 	LatestCommitDate string             `json:"latestCommitDate"`
 	RecentCommits    []GitHubCommitInfo `json:"recentCommits"`
 	CheckedAt        string             `json:"checkedAt"`
+	FetchOK          bool               `json:"fetchOk"`
+	FetchError       string             `json:"fetchError,omitempty"`
+	FetchSource      string             `json:"fetchSource,omitempty"`
+	RepoPrivateHint  bool               `json:"repoPrivateHint,omitempty"`
 }
 
-func getJSONNoCache(client *http.Client, rawURL string, dest interface{}) error {
-	sep := "?"
-	if strings.Contains(rawURL, "?") {
-		sep = "&"
+func resolveGitHubToken(tokens ...string) string {
+	for _, t := range tokens {
+		if s := strings.TrimSpace(t); s != "" {
+			return s
+		}
 	}
-	bustURL := fmt.Sprintf("%s%st=%d", rawURL, sep, time.Now().UnixMilli())
-	req, err := http.NewRequest("GET", bustURL, nil)
+	for _, envKey := range []string{"DARIUSDB_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"} {
+		if s := strings.TrimSpace(os.Getenv(envKey)); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func isGitHubHost(rawURL string) bool {
+	low := strings.ToLower(rawURL)
+	return strings.Contains(low, "github.com") || strings.Contains(low, "githubusercontent.com")
+}
+
+func getJSONNoCache(client *http.Client, rawURL, token, accept string, dest interface{}) (int, error) {
+	reqURL := rawURL
+	// Bust CDN caches on raw.githubusercontent.com; keep GitHub REST API URLs clean
+	if strings.Contains(strings.ToLower(rawURL), "raw.githubusercontent.com") {
+		sep := "?"
+		if strings.Contains(rawURL, "?") {
+			sep = "&"
+		}
+		reqURL = fmt.Sprintf("%s%st=%d", rawURL, sep, time.Now().UnixMilli())
+	}
+	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.3")
 	req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	req.Header.Set("Pragma", "no-cache")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	if token != "" && isGitHubHost(rawURL) {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		return resp.StatusCode, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
-		return err
+		return resp.StatusCode, err
 	}
-	return json.Unmarshal(b, dest)
+	// Strip UTF-8 BOM if present
+	b = bytes.TrimPrefix(b, []byte{0xEF, 0xBB, 0xBF})
+	return resp.StatusCode, json.Unmarshal(b, dest)
 }
 
 // CheckSystemUpdate checks the official GitHub version.json, GitHub Commits API, and GitHub Releases API
 // (bypassing CDN cache) for newly pushed updates, announcements, and release binaries.
-func CheckSystemUpdate(currentVersion string) (*SystemUpdateInfo, error) {
+// Pass an optional GitHub Personal Access Token for private repositories.
+func CheckSystemUpdate(currentVersion string, tokens ...string) (*SystemUpdateInfo, error) {
 	if currentVersion == "" {
 		currentVersion = CLIAppVersion
 	}
+	tok := resolveGitHubToken(tokens...)
+
 	info := &SystemUpdateInfo{
 		Name:           "Darius DB (Lite Version " + currentVersion + ")",
 		CurrentVersion: currentVersion,
@@ -91,63 +136,111 @@ func CheckSystemUpdate(currentVersion string) (*SystemUpdateInfo, error) {
 		Author:         CLIAppAuthor,
 		InstallerURL:   defaultDriveFolderURL,
 		RepoURL:        CLIAppRepo,
-		Announcement:   "Darius DB (Lite Version 0.1.3) — Unified Full-Stack Apache 2.4 + PHP 8.x + MySQL / MariaDB (:3306) Release! Includes 5th-Picture Toggle-Switch Dashboard, Zend OPcache + PDO utf8mb4 + Security Headers, Unified MySQL/MariaDB Tabs, Live GitHub Updater Progress Bar, and Apache 2.4.66 Portable Provisioning.",
+		Announcement:   "Darius DB (Lite Version 0.1.3) — Unified Full-Stack Apache 2.4 + PHP 8.x + MySQL / MariaDB (:3306) Release! Includes standalone DariusDB-Updater.exe, GitHub Release & Private Repo Token support, 5th-Picture Toggle-Switch Dashboard, Zend OPcache + PDO utf8mb4 + Security Headers, and Apache 2.4.66 Portable Provisioning.",
 		Changelog: []string{
+			"Added standalone DariusDB-Updater.exe (Win32 GUI & CLI) and bundled Installer, Launcher, Uninstaller & Updater in GitHub",
+			"Fixed System Version Updater GitHub fetch diagnostics (Private repo HTTP 404 detection + optional GitHub Token + GitHub Release auto-download)",
 			"Unified Apache 2.4 + PHP 8.x and MySQL / MariaDB (:3306) across Dashboard, Database, Versions, Config & Logs, and Settings",
 			"Redesigned Services Dashboard with 5th-picture Toggle-Switch rows and interactive Full-Stack Architecture guide",
 			"Hardened PHP (Zend OPcache, PDO utf8mb4, secure sessions), Apache security headers, and MariaDB/MySQL InnoDB 256M configs",
-			"Added live Loading & 'Successfully Fetched!' progress banner to Darius DB System Version Updater",
-			"Fixed Apache 2.4.66 portable provisioning when upstream mirrors return HTML redirects",
-			"Added MS SQL Server Windows PC User Server Name (Dendo) and clean Windows Auth connection string",
+			"Fixed MySQL Error 1130 on 127.0.0.1 and auto-provisioned sqlcmd.exe for MS SQL Server",
 		},
 		RecentCommits: []GitHubCommitInfo{},
 		CheckedAt:     time.Now().Format("2006-01-02 15:04:05"),
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 12 * time.Second}
 
-	// 1. Check remote version.json in repository (cache-busted)
+	var (
+		gotVersion bool
+		gotCommits bool
+		gotRelease bool
+		lastStatus int
+		lastErr    error
+		sources    []string
+	)
+
+	recordErr := func(code int, err error) {
+		if code != 0 && (lastStatus == 0 || code == 404 || code == 401 || code == 403) {
+			lastStatus = code
+		}
+		if err != nil && lastErr == nil {
+			lastErr = err
+		}
+	}
+
+	// 1. Check remote version.json in repository (prefer GitHub Contents API with raw accept when token is set)
 	var rem struct {
-		Name           string   `json:"name"`
-		Version        string   `json:"version"`
-		Channel        string   `json:"channel"`
-		ReleasedAt     string   `json:"releasedAt"`
-		Author         string   `json:"author"`
-		InstallerURL   string   `json:"installerUrl"`
-		DirectSetupURL string   `json:"directSetupUrl"`
-		RepoURL        string   `json:"repoUrl"`
-		Announcement   string   `json:"announcement"`
-		Changelog      []string `json:"changelog"`
-	}
-	if getJSONNoCache(client, defaultVersionJSONURL, &rem) == nil && rem.Version != "" {
-		info.LatestVersion = strings.TrimPrefix(strings.TrimSpace(rem.Version), "v")
-		if rem.Name != "" {
-			info.Name = rem.Name
-		}
-		if rem.Channel != "" {
-			info.Channel = rem.Channel
-		}
-		if rem.ReleasedAt != "" {
-			info.ReleasedAt = rem.ReleasedAt
-		}
-		if rem.InstallerURL != "" {
-			info.InstallerURL = rem.InstallerURL
-		}
-		if rem.DirectSetupURL != "" {
-			info.DirectSetupURL = rem.DirectSetupURL
-		}
-		if rem.RepoURL != "" {
-			info.RepoURL = rem.RepoURL
-		}
-		if rem.Announcement != "" {
-			info.Announcement = rem.Announcement
-		}
-		if len(rem.Changelog) > 0 {
-			info.Changelog = rem.Changelog
-		}
+		Name             string   `json:"name"`
+		Version          string   `json:"version"`
+		Channel          string   `json:"channel"`
+		ReleasedAt       string   `json:"releasedAt"`
+		Author           string   `json:"author"`
+		InstallerURL     string   `json:"installerUrl"`
+		DirectSetupURL   string   `json:"directSetupUrl"`
+		DirectZipURL     string   `json:"directZipUrl"`
+		FallbackSetupURL string   `json:"fallbackSetupUrl"`
+		RepoURL          string   `json:"repoUrl"`
+		Announcement     string   `json:"announcement"`
+		Changelog        []string `json:"changelog"`
 	}
 
-	// 2. Fetch live recent commits pushed to GitHub (api.github.com/repos/dcquijano/Darius-DB-Lite-Version/commits)
+	type verEndpoint struct {
+		url    string
+		accept string
+	}
+	verEndpoints := []verEndpoint{
+		{defaultVersionJSONURL, ""},
+		{defaultVersionAPIURL, "application/vnd.github.raw+json"},
+	}
+	if tok != "" {
+		verEndpoints = []verEndpoint{
+			{defaultVersionAPIURL, "application/vnd.github.raw+json"},
+			{defaultVersionJSONURL, ""},
+		}
+	}
+	for _, ep := range verEndpoints {
+		code, err := getJSONNoCache(client, ep.url, tok, ep.accept, &rem)
+		if err == nil && rem.Version != "" {
+			gotVersion = true
+			sources = append(sources, "version.json")
+			info.LatestVersion = strings.TrimPrefix(strings.TrimSpace(rem.Version), "v")
+			if rem.Name != "" {
+				info.Name = rem.Name
+			}
+			if rem.Channel != "" {
+				info.Channel = rem.Channel
+			}
+			if rem.ReleasedAt != "" {
+				info.ReleasedAt = rem.ReleasedAt
+			}
+			if rem.InstallerURL != "" {
+				info.InstallerURL = rem.InstallerURL
+			}
+			if rem.DirectSetupURL != "" {
+				info.DirectSetupURL = rem.DirectSetupURL
+			}
+			if rem.DirectZipURL != "" {
+				info.DirectZipURL = rem.DirectZipURL
+			}
+			if rem.FallbackSetupURL != "" {
+				info.FallbackSetupURL = rem.FallbackSetupURL
+			}
+			if rem.RepoURL != "" {
+				info.RepoURL = rem.RepoURL
+			}
+			if rem.Announcement != "" {
+				info.Announcement = rem.Announcement
+			}
+			if len(rem.Changelog) > 0 {
+				info.Changelog = rem.Changelog
+			}
+			break
+		}
+		recordErr(code, err)
+	}
+
+	// 2. Fetch live recent commits pushed to GitHub
 	var ghCommits []struct {
 		SHA    string `json:"sha"`
 		Commit struct {
@@ -158,7 +251,9 @@ func CheckSystemUpdate(currentVersion string) (*SystemUpdateInfo, error) {
 			} `json:"author"`
 		} `json:"commit"`
 	}
-	if getJSONNoCache(client, defaultGitHubCommitsURL, &ghCommits) == nil && len(ghCommits) > 0 {
+	if code, err := getJSONNoCache(client, defaultGitHubCommitsURL, tok, "application/vnd.github+json", &ghCommits); err == nil && len(ghCommits) > 0 {
+		gotCommits = true
+		sources = append(sources, "commits")
 		seenMsg := map[string]bool{}
 		for _, c := range info.Changelog {
 			seenMsg[strings.ToLower(strings.TrimSpace(c))] = true
@@ -193,28 +288,90 @@ func CheckSystemUpdate(currentVersion string) (*SystemUpdateInfo, error) {
 		if len(newCommitItems) > 0 {
 			info.Changelog = append(newCommitItems, info.Changelog...)
 		}
+	} else {
+		recordErr(code, err)
 	}
 
-	// 3. Also check GitHub Releases API in case a tagged release has a direct Setup .exe asset
+	// 3. Check GitHub Releases API in case a tagged release has a direct Setup .exe / Portable .zip asset
 	var ghRel struct {
 		TagName     string `json:"tag_name"`
 		PublishedAt string `json:"published_at"`
 		Body        string `json:"body"`
 		Assets      []struct {
 			Name               string `json:"name"`
+			URL                string `json:"url"`
 			BrowserDownloadURL string `json:"browser_download_url"`
 		} `json:"assets"`
 	}
-	if getJSONNoCache(client, defaultGitHubRelURL, &ghRel) == nil && ghRel.TagName != "" {
+	if code, err := getJSONNoCache(client, defaultGitHubRelURL, tok, "application/vnd.github+json", &ghRel); err == nil && ghRel.TagName != "" {
+		gotRelease = true
+		sources = append(sources, "releases")
 		relVer := parseVersion(ghRel.TagName)
 		if relVer != "" && compareVersions(relVer, info.LatestVersion) >= 0 {
 			info.LatestVersion = relVer
 			for _, a := range ghRel.Assets {
 				low := strings.ToLower(a.Name)
-				if strings.HasSuffix(low, ".exe") && strings.Contains(low, "setup") {
-					info.DirectSetupURL = a.BrowserDownloadURL
-					break
+				dlURL := a.BrowserDownloadURL
+				if tok != "" && a.URL != "" {
+					dlURL = a.URL
 				}
+				if strings.HasSuffix(low, ".exe") && strings.Contains(low, "setup") {
+					info.DirectSetupURL = dlURL
+				} else if strings.HasSuffix(low, ".zip") && strings.Contains(low, "portable") {
+					info.DirectZipURL = dlURL
+				}
+			}
+		}
+	} else if code != 404 {
+		// 404 on /releases/latest just means no GitHub Release tag published yet
+		recordErr(code, err)
+	}
+
+	// Ensure a fallback raw setup URL is available whenever we know the latest version
+	if info.FallbackSetupURL == "" && info.LatestVersion != "" {
+		if tok != "" {
+			info.FallbackSetupURL = fmt.Sprintf(
+				"https://api.github.com/repos/%s/%s/contents/installer/DariusDB-Setup-%s.exe",
+				defaultRepoOwner, defaultRepoName, info.LatestVersion,
+			)
+		} else {
+			info.FallbackSetupURL = fmt.Sprintf("%s/DariusDB-Setup-%s.exe", defaultRawInstallerBase, info.LatestVersion)
+		}
+	}
+	if info.DirectSetupURL == "" && info.FallbackSetupURL != "" {
+		info.DirectSetupURL = info.FallbackSetupURL
+	}
+
+	info.FetchOK = gotVersion || gotCommits || gotRelease
+	if len(sources) > 0 {
+		info.FetchSource = "GitHub (" + strings.Join(sources, " + ") + ")"
+	}
+	if !info.FetchOK {
+		switch lastStatus {
+		case 404:
+			info.RepoPrivateHint = true
+			if tok != "" {
+				info.FetchError = fmt.Sprintf(
+					"GitHub returned HTTP 404 for %s/%s even with your token. Ensure the token has 'Contents: Read-only' (or 'repo') permission and the repository exists.",
+					defaultRepoOwner, defaultRepoName,
+				)
+			} else {
+				info.FetchError = fmt.Sprintf(
+					"GitHub returned HTTP 404 for %s/%s. This happens when the GitHub repository is set to Private. Fix: Make the repo Public in GitHub Settings → Danger Zone, OR save a GitHub Personal Access Token below.",
+					defaultRepoOwner, defaultRepoName,
+				)
+			}
+		case 401, 403:
+			info.RepoPrivateHint = true
+			info.FetchError = fmt.Sprintf(
+				"GitHub returned HTTP %d (authentication required or API rate limit reached). Add a valid GitHub Personal Access Token below or try again shortly.",
+				lastStatus,
+			)
+		default:
+			if lastErr != nil {
+				info.FetchError = fmt.Sprintf("Unable to reach GitHub: %v", lastErr)
+			} else {
+				info.FetchError = "Unable to fetch release metadata from GitHub."
 			}
 		}
 	}
@@ -225,65 +382,139 @@ func CheckSystemUpdate(currentVersion string) (*SystemUpdateInfo, error) {
 
 // SyncFromGitHub fetches the newest version.json, recent commits, and catalog.json
 // directly from GitHub and saves them into the portable root folder.
-func SyncFromGitHub(p *Paths, currentVersion string) (*SystemUpdateInfo, error) {
-	info, err := CheckSystemUpdate(currentVersion)
+func SyncFromGitHub(p *Paths, currentVersion string, tokens ...string) (*SystemUpdateInfo, error) {
+	tok := resolveGitHubToken(tokens...)
+	if tok == "" && p != nil {
+		tok = resolveGitHubToken(LoadSettings(p.Root).Get().GitHubToken)
+	}
+	info, err := CheckSystemUpdate(currentVersion, tok)
 	if err != nil {
 		return nil, err
 	}
-	// Save synced version.json locally in p.Root
-	if b, err := json.MarshalIndent(info, "", "  "); err == nil {
-		_ = os.WriteFile(filepath.Join(p.Root, "version.json"), b, 0o644)
+	// Only persist synced version.json when GitHub fetch actually succeeded
+	if info.FetchOK && p != nil {
+		if b, err := json.MarshalIndent(info, "", "  "); err == nil {
+			_ = os.WriteFile(filepath.Join(p.Root, "version.json"), b, 0o644)
+		}
 	}
 	// Also refresh catalog.json from GitHub + upstream APIs
-	_, _ = RefreshCatalog(p, "")
+	if p != nil {
+		_, _ = RefreshCatalogWithToken(p, "", tok)
+	}
 	return info, nil
 }
 
+// ApplySystemUpdateWithFallback tries primaryURL first, then fallbackURL if primaryURL fails.
+func ApplySystemUpdateWithFallback(p *Paths, primaryURL, fallbackURL string, tokens ...string) (string, error) {
+	primaryURL = strings.TrimSpace(primaryURL)
+	fallbackURL = strings.TrimSpace(fallbackURL)
+	if primaryURL == "" {
+		primaryURL = fallbackURL
+	}
+	if primaryURL == "" {
+		return "", errors.New("no direct download URL available — publish a GitHub Release or pick a local DariusDB-Setup-*.exe / .zip file")
+	}
+	msg, err := ApplySystemUpdateFromURL(p, primaryURL, tokens...)
+	if err == nil {
+		return msg, nil
+	}
+	if fallbackURL != "" && !strings.EqualFold(fallbackURL, primaryURL) {
+		if msg2, err2 := ApplySystemUpdateFromURL(p, fallbackURL, tokens...); err2 == nil {
+			return msg2, nil
+		}
+	}
+	return "", err
+}
+
 // ApplySystemUpdateFromURL downloads a Darius DB Setup .exe or Portable .zip from downloadURL
-// into tmp/ and launches the in-place system update.
-func ApplySystemUpdateFromURL(p *Paths, downloadURL string) (string, error) {
+// into %TEMP%\DariusDB-Update\ and launches the in-place system update.
+func ApplySystemUpdateFromURL(p *Paths, downloadURL string, tokens ...string) (string, error) {
 	downloadURL = strings.TrimSpace(downloadURL)
 	if downloadURL == "" {
-		return "", errors.New("no direct download URL provided — download DariusDB-Setup.exe from Google Drive or pick a local file")
+		return "", errors.New("no direct download URL provided — download DariusDB-Setup.exe from GitHub/Google Drive or pick a local file")
 	}
-	if err := os.MkdirAll(p.Tmp, 0o755); err != nil {
+	tok := resolveGitHubToken(tokens...)
+	if tok == "" && p != nil {
+		tok = resolveGitHubToken(LoadSettings(p.Root).Get().GitHubToken)
+	}
+
+	stageDir := filepath.Join(os.TempDir(), "DariusDB-Update")
+	if err := os.MkdirAll(stageDir, 0o755); err != nil {
 		return "", err
 	}
 	ext := ".exe"
 	if strings.Contains(strings.ToLower(downloadURL), ".zip") {
 		ext = ".zip"
 	}
-	dest := filepath.Join(p.Tmp, "DariusDB-System-Update"+ext)
+	dest := filepath.Join(stageDir, "DariusDB-System-Update"+ext)
 
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := &http.Client{Timeout: 10 * time.Minute}
 	req, err := http.NewRequest("GET", downloadURL, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.3")
+	if strings.Contains(strings.ToLower(downloadURL), "api.github.com/repos/") {
+		if strings.Contains(strings.ToLower(downloadURL), "/contents/") {
+			req.Header.Set("Accept", "application/vnd.github.raw+json")
+		} else {
+			req.Header.Set("Accept", "application/octet-stream")
+		}
+	}
+	if tok != "" && isGitHubHost(downloadURL) {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("download failed: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == 404 && isGitHubHost(downloadURL) && tok == "" {
+		return "", errors.New("GitHub returned HTTP 404 for the update binary — either the repository is Private (make it Public or save a GitHub Token) or the release asset is not uploaded yet")
+	}
 	if resp.StatusCode != 200 {
 		return "", fmt.Errorf("download returned HTTP %d", resp.StatusCode)
 	}
 	ct := strings.ToLower(resp.Header.Get("Content-Type"))
 	if strings.Contains(ct, "text/html") {
-		return "", errors.New("the URL points to a web page (e.g. Google Drive folder view) rather than a direct .exe/.zip binary — click 'Open Official Google Drive Installer Folder' to download the file, then click 'Select Setup .exe / Portable .zip & Update Now'")
+		return "", errors.New("the URL points to a web page (e.g. Google Drive folder view) rather than a direct .exe/.zip binary — download the file first, then click 'Select Setup .exe / Portable .zip & Update Now'")
 	}
 
 	out, err := os.Create(dest)
 	if err != nil {
 		return "", err
 	}
-	_, cerr := io.Copy(out, resp.Body)
+	n, cerr := io.Copy(out, resp.Body)
 	out.Close()
 	if cerr != nil {
+		_ = os.Remove(dest)
 		return "", cerr
 	}
+	if n < 64*1024 {
+		_ = os.Remove(dest)
+		return "", fmt.Errorf("downloaded file is too small (%d bytes) — verify the direct download URL", n)
+	}
 	return ApplySystemUpdateFromFile(p, dest)
+}
+
+func validateUpdateBinary(filePath, ext string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var hdr [4]byte
+	if _, err := io.ReadFull(f, hdr[:]); err != nil {
+		return fmt.Errorf("invalid or empty update file: %w", err)
+	}
+	if ext == ".exe" && (hdr[0] != 'M' || hdr[1] != 'Z') {
+		return errors.New("the selected .exe file is not a valid Windows executable (missing MZ header)")
+	}
+	if ext == ".zip" && (hdr[0] != 'P' || hdr[1] != 'K') {
+		return errors.New("the selected .zip file is not a valid ZIP archive (missing PK header)")
+	}
+	return nil
 }
 
 // ApplySystemUpdateFromFile launches an in-place update of Darius DB from a local
@@ -298,9 +529,16 @@ func ApplySystemUpdateFromFile(p *Paths, filePath string) (string, error) {
 	if ext != ".exe" && ext != ".zip" {
 		return "", errors.New("select a DariusDB-Setup-*.exe installer or DariusDB-*-portable-*.zip archive")
 	}
+	if err := validateUpdateBinary(filePath, ext); err != nil {
+		return "", err
+	}
 
-	_ = os.MkdirAll(p.Tmp, 0o755)
-	stagedPath := filepath.Join(p.Tmp, "staged-update"+ext)
+	// Stage outside p.Root (%TEMP%\DariusDB-Update) so killing processes inside p.Root never locks or deletes the updater
+	stageDir := filepath.Join(os.TempDir(), "DariusDB-Update")
+	if err := os.MkdirAll(stageDir, 0o755); err != nil {
+		return "", err
+	}
+	stagedPath := filepath.Join(stageDir, "staged-update"+ext)
 	if !strings.EqualFold(filepath.Clean(filePath), filepath.Clean(stagedPath)) {
 		in, err := os.Open(filePath)
 		if err != nil {
@@ -311,12 +549,15 @@ func ApplySystemUpdateFromFile(p *Paths, filePath string) (string, error) {
 			in.Close()
 			return "", err
 		}
-		_, _ = io.Copy(out, in)
+		_, copyErr := io.Copy(out, in)
 		out.Close()
 		in.Close()
+		if copyErr != nil {
+			return "", copyErr
+		}
 	}
 
-	scriptPath := filepath.Join(p.Tmp, "apply-system-update.ps1")
+	scriptPath := filepath.Join(stageDir, "apply-system-update.ps1")
 	escPS := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
 
 	var actionBlock string
@@ -326,28 +567,48 @@ func ApplySystemUpdateFromFile(p *Paths, filePath string) (string, error) {
 			escPS(stagedPath), escPS(p.Root),
 		)
 	} else {
-		actionBlock = fmt.Sprintf(
-			`Expand-Archive -LiteralPath '%s' -DestinationPath '%s' -Force`,
-			escPS(stagedPath), escPS(p.Root),
+		extractDir := filepath.Join(stageDir, "extract")
+		actionBlock = fmt.Sprintf(`Remove-Item -Recurse -Force '%s' -ErrorAction SilentlyContinue
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::ExtractToDirectory('%s', '%s')
+$allowed = @('DariusDB.exe','DariusDB-Launcher.exe','DariusDB-Uninstall.exe','DariusDB-Updater.exe','darius.exe','LICENSE','README.md','GUIDE.md','version.json')
+Get-ChildItem -LiteralPath '%s' -Recurse -File | Where-Object { $allowed -contains $_.Name } | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path '%s' $_.Name) -Force
+}
+Remove-Item -Recurse -Force '%s' -ErrorAction SilentlyContinue`,
+			escPS(extractDir),
+			escPS(stagedPath), escPS(extractDir),
+			escPS(extractDir), escPS(p.Root),
+			escPS(extractDir),
 		)
 	}
 
 	launcher := filepath.Join(p.Root, "DariusDB-Launcher.exe")
-	psContent := fmt.Sprintf(`Start-Sleep -Seconds 2
-Get-Process -Name "DariusDB*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 600
+	mainExe := filepath.Join(p.Root, "DariusDB.exe")
+	psContent := fmt.Sprintf(`$ProgressPreference = 'SilentlyContinue'
+Start-Sleep -Milliseconds 1500
+$rootClean = '%s'.TrimEnd('\').ToLower()
+Get-Process -Name "DariusDB","DariusDB-Launcher","DariusDB-Updater" -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+        if (-not $_.Path -or $_.Path.ToLower().StartsWith($rootClean)) {
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
+}
+Start-Sleep -Milliseconds 700
 %s
 Remove-Item -Force '%s' -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath '%s') {
-    Start-Process -FilePath '%s'
+    Start-Process -FilePath '%s' -WorkingDirectory '%s'
 } elseif (Test-Path -LiteralPath '%s') {
-    Start-Process -FilePath '%s'
+    Start-Process -FilePath '%s' -WorkingDirectory '%s'
 }
 `,
+		escPS(p.Root),
 		actionBlock,
 		escPS(stagedPath),
-		escPS(launcher), escPS(launcher),
-		escPS(filepath.Join(p.Root, "DariusDB.exe")), escPS(filepath.Join(p.Root, "DariusDB.exe")),
+		escPS(launcher), escPS(launcher), escPS(p.Root),
+		escPS(mainExe), escPS(mainExe), escPS(p.Root),
 	)
 
 	if err := os.WriteFile(scriptPath, []byte(strings.ReplaceAll(psContent, "\n", "\r\n")), 0o644); err != nil {
@@ -355,10 +616,27 @@ if (Test-Path -LiteralPath '%s') {
 	}
 
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
-	cmd.Dir = os.TempDir()
+	cmd.Dir = stageDir
 	hideWindow(cmd)
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("failed to start updater helper: %w", err)
 	}
 	return fmt.Sprintf("Updating Darius DB in %s from %s and restarting...", p.Root, filepath.Base(filePath)), nil
+}
+
+// LaunchStandaloneUpdater starts DariusDB-Updater.exe if present in the install directory or installer folder.
+func LaunchStandaloneUpdater(p *Paths) error {
+	candidates := []string{
+		filepath.Join(p.Root, "DariusDB-Updater.exe"),
+		filepath.Join(p.Root, "installer", "DariusDB-Updater.exe"),
+		filepath.Join(p.Root, "build", "bin", "DariusDB-Updater.exe"),
+	}
+	for _, c := range candidates {
+		if fileExists(c) {
+			cmd := exec.Command(c, "--dir="+p.Root)
+			cmd.Dir = p.Root
+			return cmd.Start()
+		}
+	}
+	return fmt.Errorf("DariusDB-Updater.exe was not found in %s", p.Root)
 }

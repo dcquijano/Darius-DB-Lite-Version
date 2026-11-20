@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Builds Darius DB (Lite Version 0.1.3) GUI, Launcher, Uninstaller, Portable ZIP, and Standalone Setup .exe.
+  Builds Darius DB (Lite Version 0.1.3) GUI, Launcher, Uninstaller, Updater, CLI, Portable ZIP, and Standalone Setup .exe.
   Created by Darius Cumpio - November 19, 2026 - v0.1.3
 #>
 param(
@@ -8,21 +8,25 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 
 $Version = "0.1.3"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Push-Location $RepoRoot
 
 try {
-    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path
     $goPath = (go env GOPATH).Trim()
     if ($goPath) { $env:Path += ';' + (Join-Path $goPath 'bin') }
 
-    Remove-Item -Force "dist\*", "installer\*.exe", "build\bin\*.exe" -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force "dist\*", "installer\*.exe", "build\bin\*.exe" -ErrorAction SilentlyContinue
 
-    # Ensure root rsrc_windows_amd64.syso is present so DariusDB.exe always embeds its Windows icon & manifest
+    # Ensure root and cmd/updater rsrc_windows_amd64.syso are present so every .exe embeds the Darius DB icon & manifest
     if (-not (Test-Path "rsrc_windows_amd64.syso") -and (Test-Path "cmd\installer\rsrc_windows_amd64.syso")) {
         Copy-Item -Force "cmd\installer\rsrc_windows_amd64.syso" "rsrc_windows_amd64.syso"
+    }
+    if (-not (Test-Path "cmd\updater\rsrc_windows_amd64.syso") -and (Test-Path "cmd\installer\rsrc_windows_amd64.syso")) {
+        Copy-Item -Force "cmd\installer\rsrc_windows_amd64.syso" "cmd\updater\rsrc_windows_amd64.syso"
     }
 
     # Incrementally warm Go build cache with unified build tags (-tags "desktop,production")
@@ -57,6 +61,10 @@ try {
     go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Uninstall.exe" ./cmd/uninstaller
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Uninstall.exe failed" }
 
+    Write-Host "==> Building DariusDB-Updater.exe (Standalone System Version Updater)..." -ForegroundColor Cyan
+    go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Updater.exe" ./cmd/updater
+    if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Updater.exe failed" }
+
     Write-Host "==> Building darius.exe (Developer CLI for Visual Studio & VS Code)..." -ForegroundColor Cyan
     go build -p 1 -tags $tags -ldflags "-s -w" -o "build\bin\darius.exe" ./cmd/cli
     if ($LASTEXITCODE -ne 0) { throw "building darius.exe failed" }
@@ -78,14 +86,15 @@ try {
     Copy-Item "build\bin\DariusDB.exe"           $stageDir
     Copy-Item "build\bin\DariusDB-Launcher.exe"  $stageDir
     Copy-Item "build\bin\DariusDB-Uninstall.exe" $stageDir
+    Copy-Item "build\bin\DariusDB-Updater.exe"   $stageDir
     Copy-Item "build\bin\darius.exe"             $stageDir
     Copy-Item "LICENSE", "README.md", "GUIDE.md" $stageDir
 
     Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
-    Compress-Archive -Path "$stageDir\*" -DestinationPath $zipPath
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($stageDir, $zipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
     Remove-Item -Recurse -Force $stageDir
 
-    # Create self-contained single-file DariusDB-Setup-0.1.1.exe (stub + zip payload + 16-byte trailer)
     # Create self-contained single-file DariusDB-Setup-0.1.3.exe (stub + zip payload + 16-byte trailer)
     Copy-Item -Force $stubExe $setupExe
     $zipBytes = [System.IO.File]::ReadAllBytes($zipPath)
@@ -102,10 +111,11 @@ try {
     }
     Remove-Item -Force $stubExe -ErrorAction SilentlyContinue
 
-    # Also place DariusDB-Setup-0.1.1.exe and DariusDB-Uninstall.exe in installer\ for direct click access
-    # Also place DariusDB-Setup-0.1.3.exe and DariusDB-Uninstall.exe in installer\ for direct click access
+    # Place Installer, Launcher, Uninstaller, and Updater in installer\ for direct click access & GitHub distribution
     Copy-Item -Force $setupExe "installer\DariusDB-Setup-$Version.exe"
+    Copy-Item -Force "build\bin\DariusDB-Launcher.exe" "installer\DariusDB-Launcher.exe"
     Copy-Item -Force "build\bin\DariusDB-Uninstall.exe" "installer\DariusDB-Uninstall.exe"
+    Copy-Item -Force "build\bin\DariusDB-Updater.exe" "installer\DariusDB-Updater.exe"
 
     Write-Host ""
     Write-Host "==> Build outputs:" -ForegroundColor Green

@@ -257,7 +257,8 @@ func (a *App) Uninstall(engine, name string) error { return a.mgr.Uninstall(engi
 func (a *App) Catalog() core.Catalog { return core.LoadCatalog(a.paths) }
 
 func (a *App) RefreshCatalog() (core.Catalog, error) {
-	return core.RefreshCatalog(a.paths, a.settings.Get().CatalogURL)
+	s := a.settings.Get()
+	return core.RefreshCatalogWithToken(a.paths, s.CatalogURL, s.GitHubToken)
 }
 
 func (a *App) AddCatalogEntry(engine, version, url, note string) (core.Catalog, error) {
@@ -692,15 +693,41 @@ func (a *App) DeployWebsiteDialog() (string, error) {
 // ---------------------------------------------------------------- System Version Updater
 
 func (a *App) CheckSystemUpdate() (*core.SystemUpdateInfo, error) {
-	return core.CheckSystemUpdate(AppVersion)
+	return core.CheckSystemUpdate(AppVersion, a.settings.Get().GitHubToken)
 }
 
 func (a *App) SyncFromGitHub() (*core.SystemUpdateInfo, error) {
-	return core.SyncFromGitHub(a.paths, AppVersion)
+	return core.SyncFromGitHub(a.paths, AppVersion, a.settings.Get().GitHubToken)
+}
+
+func (a *App) SaveGitHubToken(token string) error {
+	return a.settings.Update(func(s *core.Settings) {
+		s.GitHubToken = strings.TrimSpace(token)
+	})
+}
+
+func (a *App) HasGitHubToken() bool {
+	return strings.TrimSpace(a.settings.Get().GitHubToken) != ""
+}
+
+func (a *App) LaunchUpdaterTool() error {
+	return core.LaunchStandaloneUpdater(a.paths)
+}
+
+func (a *App) ApplySystemUpdateAuto(primaryURL, fallbackURL string) (string, error) {
+	msg, err := core.ApplySystemUpdateWithFallback(a.paths, primaryURL, fallbackURL, a.settings.Get().GitHubToken)
+	if err != nil {
+		return "", err
+	}
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		a.QuitApp()
+	}()
+	return msg, nil
 }
 
 func (a *App) ApplySystemUpdateFromURL(downloadURL string) (string, error) {
-	msg, err := core.ApplySystemUpdateFromURL(a.paths, downloadURL)
+	msg, err := core.ApplySystemUpdateFromURL(a.paths, downloadURL, a.settings.Get().GitHubToken)
 	if err != nil {
 		return "", err
 	}

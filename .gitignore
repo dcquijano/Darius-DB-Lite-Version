@@ -6,6 +6,10 @@
 /dist/
 /frontend/wailsjs/
 *.exe
+!installer/DariusDB-Setup-*.exe
+!installer/DariusDB-Launcher.exe
+!installer/DariusDB-Uninstall.exe
+!installer/DariusDB-Updater.exe
 *.syso
 !rsrc_windows_amd64.syso
 !cmd/*/rsrc_windows_amd64.syso

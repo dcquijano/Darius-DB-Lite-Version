@@ -93,11 +93,13 @@ func main() {
 		}
 	}
 
-	// 2. Check if Darius DB is already installed on this computer to prevent double installation
+	// 2. Check if Darius DB is already installed on this computer to prevent double installation (or offer 1-click upgrade!)
 	if !forceUpdate {
 		if existingDir := detectExistingInstallation(installDir); existingDir != "" {
+			installedVer := detectInstalledVersion(existingDir)
+			isUpgrade := installedVer != "" && installedVer != appVersion
 			if silent {
-				if !repairMode {
+				if !repairMode && !isUpgrade {
 					fmt.Fprintf(os.Stderr, "Darius DB is already installed in %s. Uninstall first or pass --repair / --force.\n", existingDir)
 					os.Exit(1)
 				}
@@ -105,6 +107,34 @@ func main() {
 			} else if repairMode {
 				wiz.repairMode = true
 				wiz.finalDir = existingDir
+			} else if isUpgrade {
+				ans := winui.MessageBox(
+					fmt.Sprintf("%s Setup — Upgrade from v%s", appFullTitle, installedVer),
+					fmt.Sprintf(
+						"Darius DB (Lite Version %s) is currently installed at:\n%s\n\n"+
+							"A newer installer (%s) is ready!\n\n"+
+							"• Click YES to UPGRADE in-place to v%s (updates DariusDB.exe, Launcher, Uninstaller, Updater & CLI while keeping all your databases in data/ and websites in www/ untouched)\n"+
+							"• Click NO to open the existing Darius DB application now\n"+
+							"• Click CANCEL to exit Setup",
+						installedVer, existingDir, appFullTitle, appVersion,
+					),
+					winui.MBYesNoCancel|winui.MBIconInfo,
+				)
+				if ans == winui.IDYES {
+					wiz.repairMode = true
+					wiz.finalDir = existingDir
+				} else {
+					if ans == winui.IDNO {
+						launcher := filepath.Join(existingDir, "DariusDB-Launcher.exe")
+						if !fileExists(launcher) {
+							launcher = filepath.Join(existingDir, "DariusDB.exe")
+						}
+						cmd := exec.Command(launcher)
+						cmd.Dir = existingDir
+						_ = cmd.Start()
+					}
+					return
+				}
 			} else {
 				ans := winui.MessageBox(
 					appFullTitle+" Setup — Already Installed (Repair or Launch)",
@@ -930,6 +960,7 @@ func extractEmbeddedZip(installDir string, step func(int, string)) (bool, error)
 		"DariusDB.exe":           true,
 		"DariusDB-Launcher.exe":  true,
 		"DariusDB-Uninstall.exe": true,
+		"DariusDB-Updater.exe":   true,
 		"darius.exe":             true,
 		"LICENSE":                true,
 		"README.md":              true,
@@ -942,7 +973,7 @@ func extractEmbeddedZip(installDir string, step func(int, string)) (bool, error)
 			continue
 		}
 		if pct < 70 {
-			pct += 7
+			pct += 6
 		}
 		step(pct, "Extracting "+base)
 		rc, err := zf.Open()
@@ -950,10 +981,16 @@ func extractEmbeddedZip(installDir string, step func(int, string)) (bool, error)
 			return false, err
 		}
 		dest := filepath.Join(installDir, base)
+		_ = os.Remove(dest + ".old")
 		out, err := os.Create(dest)
 		if err != nil {
-			rc.Close()
-			return false, err
+			// If executable was briefly locked, move it aside to .old and retry
+			_ = os.Rename(dest, dest+".old")
+			out, err = os.Create(dest)
+			if err != nil {
+				rc.Close()
+				return false, err
+			}
 		}
 		_, cerr := io.Copy(out, rc)
 		rc.Close()
@@ -987,13 +1024,13 @@ func copyFromLocalBuild(installDir string, step func(int, string)) error {
 		return fmt.Errorf("DariusDB.exe was not found next to the installer or in build\\bin\\")
 	}
 	pct := 25
-	for _, name := range []string{"DariusDB.exe", "DariusDB-Launcher.exe", "DariusDB-Uninstall.exe", "darius.exe", "LICENSE", "README.md", "GUIDE.md"} {
+	for _, name := range []string{"DariusDB.exe", "DariusDB-Launcher.exe", "DariusDB-Uninstall.exe", "DariusDB-Updater.exe", "darius.exe", "LICENSE", "README.md", "GUIDE.md"} {
 		src := findFile(name)
 		if src == "" {
 			continue
 		}
 		if pct < 70 {
-			pct += 7
+			pct += 6
 		}
 		step(pct, "Installing "+name)
 		if err := copyFile(src, filepath.Join(installDir, name)); err != nil {
@@ -1030,6 +1067,7 @@ func createShortcuts(installDir string, createMenu, createDesktop bool) {
 		launcherExe = mainExe
 	}
 	uninstExe := filepath.Join(installDir, "DariusDB-Uninstall.exe")
+	updaterExe := filepath.Join(installDir, "DariusDB-Updater.exe")
 
 	ps := fmt.Sprintf(`$w = New-Object -ComObject WScript.Shell; `+
 		`function mk($l,$t,$a,$d){ $s=$w.CreateShortcut($l); $s.TargetPath=$t; $s.Arguments=$a; $s.WorkingDirectory='%s'; $s.IconLocation='%s,0'; $s.Description=$d; $s.Save() }; `,
@@ -1041,10 +1079,12 @@ func createShortcuts(installDir string, createMenu, createDesktop bool) {
 		ps += fmt.Sprintf(
 			`mk '%s' '%s' '' 'Launch %s'; `+
 				`mk '%s' '%s' '--terminal' 'Open %s Terminal'; `+
+				`mk '%s' '%s' '' 'Update %s'; `+
 				`mk '%s' '%s' '--repair' 'Repair %s'; `+
 				`mk '%s' '%s' '' 'Uninstall %s'; `,
 			escPS(filepath.Join(startMenu, appShortName+".lnk")), escPS(launcherExe), escPS(appFullTitle),
 			escPS(filepath.Join(startMenu, appShortName+" Terminal.lnk")), escPS(launcherExe), escPS(appFullTitle),
+			escPS(filepath.Join(startMenu, "Update "+appShortName+".lnk")), escPS(updaterExe), escPS(appFullTitle),
 			escPS(filepath.Join(startMenu, "Repair "+appShortName+".lnk")), escPS(uninstExe), escPS(appFullTitle),
 			escPS(filepath.Join(startMenu, "Uninstall "+appShortName+".lnk")), escPS(uninstExe), escPS(appFullTitle),
 		)
@@ -1145,6 +1185,20 @@ func detectExistingInstallation(targetDir string) string {
 	}
 	if fileExists(filepath.Join(defaultDir, "DariusDB.exe")) {
 		return defaultDir
+	}
+	return ""
+}
+
+func detectInstalledVersion(installDir string) string {
+	if k, err := registry.OpenKey(registry.CURRENT_USER, uninstallKey, registry.QUERY_VALUE); err == nil {
+		loc, _, _ := k.GetStringValue("InstallLocation")
+		ver, _, errV := k.GetStringValue("DisplayVersion")
+		k.Close()
+		if errV == nil && strings.TrimSpace(ver) != "" {
+			if loc == "" || strings.EqualFold(filepath.Clean(loc), filepath.Clean(installDir)) {
+				return strings.TrimPrefix(strings.TrimSpace(ver), "v")
+			}
+		}
 	}
 	return ""
 }

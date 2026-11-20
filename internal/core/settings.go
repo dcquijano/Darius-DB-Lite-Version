@@ -24,6 +24,7 @@ type Settings struct {
 	StopOnExit        bool                       `json:"stopOnExit"`
 	CloseToTray       bool                       `json:"closeToTray"`
 	CatalogURL        string                     `json:"catalogUrl"`
+	GitHubToken       string                     `json:"githubToken,omitempty"`
 	Theme             string                     `json:"theme"` // system | dark | light
 }
 

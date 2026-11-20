@@ -801,15 +801,17 @@ func performUninstall(opts uninstOptions, report func(pct int, msg string)) erro
 		removeDirFromUserPath(opts.root)
 	}
 
-	step(78, "Removing Darius DB application binaries (DariusDB.exe, Launcher, CLI)")
+	step(78, "Removing Darius DB application binaries (DariusDB.exe, Launcher, Updater, CLI)")
 	programItems := []string{
 		"DariusDB.exe",
 		"DariusDB-Launcher.exe",
+		"DariusDB-Updater.exe",
 		"darius.exe",
 		"LICENSE",
 		"README.md",
 		"GUIDE.md",
 		"catalog.json",
+		"version.json",
 	}
 	if opts.removeBins {
 		programItems = append(programItems, "bin", "tmp", "logs")
@@ -881,6 +883,7 @@ func repairShortcuts(installDir string) {
 		launcherExe = mainExe
 	}
 	uninstExe := filepath.Join(installDir, "DariusDB-Uninstall.exe")
+	updaterExe := filepath.Join(installDir, "DariusDB-Updater.exe")
 	startMenu := filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs", appShortName)
 	_ = os.MkdirAll(startMenu, 0o755)
 
@@ -889,11 +892,13 @@ func repairShortcuts(installDir string) {
 		`function mk($l,$t,$a,$d){ $s=$w.CreateShortcut($l); $s.TargetPath=$t; $s.Arguments=$a; $s.WorkingDirectory='%s'; $s.IconLocation='%s,0'; $s.Description=$d; $s.Save() }; `+
 		`mk '%s' '%s' '' 'Launch %s'; `+
 		`mk '%s' '%s' '--terminal' 'Open %s Terminal'; `+
+		`mk '%s' '%s' '' 'Update %s'; `+
 		`mk '%s' '%s' '--repair' 'Repair %s'; `+
 		`mk '%s' '%s' '' 'Uninstall %s'; `,
 		escPS(installDir), escPS(mainExe),
 		escPS(filepath.Join(startMenu, appShortName+".lnk")), escPS(launcherExe), escPS(appFullTitle),
 		escPS(filepath.Join(startMenu, appShortName+" Terminal.lnk")), escPS(launcherExe), escPS(appFullTitle),
+		escPS(filepath.Join(startMenu, "Update "+appShortName+".lnk")), escPS(updaterExe), escPS(appFullTitle),
 		escPS(filepath.Join(startMenu, "Repair "+appShortName+".lnk")), escPS(uninstExe), escPS(appFullTitle),
 		escPS(filepath.Join(startMenu, "Uninstall "+appShortName+".lnk")), escPS(uninstExe), escPS(appFullTitle),
 	)

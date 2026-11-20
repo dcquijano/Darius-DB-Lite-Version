@@ -48,7 +48,7 @@ $desktop = [Environment]::GetFolderPath("Desktop")
 if ($desktop) { Remove-Item -Path (Join-Path $desktop "Darius DB.lnk") -Force -ErrorAction SilentlyContinue }
 
 if (Test-Path $InstallDir) {
-    $targets = @("DariusDB.exe", "DariusDB-Launcher.exe", "DariusDB-Uninstall.exe", "bin", "tmp", "logs", "LICENSE", "README.md", "GUIDE.md", "catalog.json")
+    $targets = @("DariusDB.exe", "DariusDB-Launcher.exe", "DariusDB-Uninstall.exe", "DariusDB-Updater.exe", "darius.exe", "bin", "tmp", "logs", "LICENSE", "README.md", "GUIDE.md", "catalog.json", "version.json")
     if ($RemoveData) { $targets += @("data", "etc", "settings.json") }
     foreach ($t in $targets) {
         Remove-Item -Path (Join-Path $InstallDir $t) -Recurse -Force -ErrorAction SilentlyContinue

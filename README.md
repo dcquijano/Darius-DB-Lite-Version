@@ -22,8 +22,10 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
   - **SQL (MariaDB / MySQL / PostgreSQL / MS SQL Server):** browse databases & tables, quick-create database + user/login with privileges, drop databases, run SQL / T-SQL (`Ctrl+Enter`), copy connection strings.
   - **Redis:** switch logical DBs (`db0`–`db15`), scan & filter keys, inspect values (with automatic JSON formatting & TTL), delete keys, and run interactive Redis CLI commands.
 - **Config Editor & Live Log Viewer** — Edit `httpd.conf`, `my.ini`, `postgresql.conf`, `mssql.conf`, and `redis.conf` inside the app (or Notepad) with *Save & Restart*, plus auto-refreshing logs.
-- **Native Launcher & 3-Step Win32 Uninstall & Maintenance Wizard**
+- **Native Launcher, Standalone Updater & 3-Step Win32 Uninstall Wizard**
+  - `DariusDB-Setup-0.1.3.exe` — self-contained 4-step Windows Setup Wizard with automatic in-place upgrade detection (e.g. `0.1.2 → 0.1.3`) and Repair Mode.
   - `DariusDB-Launcher.exe` — verifies WebView2, sets `DARIUSDB_HOME`, supports `--minimized`, `--terminal`, `--start-all`, `--stop-all`, `--version`.
+  - `DariusDB-Updater.exe` — native Win32 System Version Updater GUI & CLI (`--check`, `--silent`, `--token=PAT`) that detects installed version, checks GitHub (`version.json` + Releases + Commits) and local installers, and upgrades in-place while keeping `data/` and `www/` untouched.
   - `DariusDB-Uninstall.exe` — native 3-step Win32 wizard with **Uninstall** and **Repair** modes, live progress bar, scrolling log, and safe database preservation (`data/`, `www/`, `etc/`).
 - **Developer CLI (`darius.exe`) for Visual Studio, VS Code & Terminals** — Automatically added to your Windows `PATH` (`C:\DariusDB`). Run `darius status`, `darius start all`, `darius repair`, `darius restore`, `darius backup`, `darius env mssql MyApp`, `darius sql mssql "SELECT @@VERSION"`, `darius createdb`, `darius versions`, `darius update`, and `darius install` from any IDE or terminal.
 - **Pre-configured Multi-Mode Terminal** — Switch between Windows Shell, MariaDB, MySQL, PostgreSQL (`psql`), MS SQL (`sqlcmd`), and Redis CLI inside the app.
@@ -51,6 +53,7 @@ C:\DariusDB\
 ├── DariusDB.exe
 ├── DariusDB-Launcher.exe
 ├── DariusDB-Uninstall.exe
+├── DariusDB-Updater.exe
 ├── darius.exe
 ├── settings.json
 ├── GUIDE.md

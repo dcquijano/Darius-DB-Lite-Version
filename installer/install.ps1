@@ -48,6 +48,8 @@ if (-not $mainExe) {
 }
 $launcherExe  = Find-SourceFile "DariusDB-Launcher.exe"
 $uninstallExe = Find-SourceFile "DariusDB-Uninstall.exe"
+$updaterExe   = Find-SourceFile "DariusDB-Updater.exe"
+$cliExe       = Find-SourceFile "darius.exe"
 
 # Prevent double installation unless -Force is explicitly passed
 if (-not $Force) {
@@ -97,6 +99,8 @@ if ($runningProcs) {
 Copy-Item -Force $mainExe (Join-Path $InstallDir "DariusDB.exe")
 if ($launcherExe)  { Copy-Item -Force $launcherExe  (Join-Path $InstallDir "DariusDB-Launcher.exe") }
 if ($uninstallExe) { Copy-Item -Force $uninstallExe (Join-Path $InstallDir "DariusDB-Uninstall.exe") }
+if ($updaterExe)   { Copy-Item -Force $updaterExe   (Join-Path $InstallDir "DariusDB-Updater.exe") }
+if ($cliExe)       { Copy-Item -Force $cliExe       (Join-Path $InstallDir "darius.exe") }
 
 foreach ($doc in @("LICENSE", "README.md", "GUIDE.md")) {
     $src = Find-SourceFile $doc
@@ -123,6 +127,7 @@ function New-Shortcut([string]$LinkPath, [string]$TargetPath, [string]$Arguments
 $installedMain      = Join-Path $InstallDir "DariusDB.exe"
 $installedLauncher  = if (Test-Path (Join-Path $InstallDir "DariusDB-Launcher.exe")) { Join-Path $InstallDir "DariusDB-Launcher.exe" } else { $installedMain }
 $installedUninstall = Join-Path $InstallDir "DariusDB-Uninstall.exe"
+$installedUpdater   = Join-Path $InstallDir "DariusDB-Updater.exe"
 $iconRef            = "$installedMain,0"
 
 # Start Menu shortcuts
@@ -131,6 +136,9 @@ New-Item -ItemType Directory -Force -Path $startMenuDir | Out-Null
 New-Shortcut (Join-Path $startMenuDir "$AppName.lnk") $installedLauncher "" $iconRef "Launch $AppName"
 if (Test-Path (Join-Path $InstallDir "DariusDB-Launcher.exe")) {
     New-Shortcut (Join-Path $startMenuDir "$AppName Terminal.lnk") $installedLauncher "--terminal" $iconRef "Open $AppName Terminal with DB tools in PATH"
+}
+if (Test-Path $installedUpdater) {
+    New-Shortcut (Join-Path $startMenuDir "Update $AppName.lnk") $installedUpdater "" $iconRef "Check for updates and upgrade $AppName"
 }
 if (Test-Path $installedUninstall) {
     New-Shortcut (Join-Path $startMenuDir "Uninstall $AppName.lnk") $installedUninstall "" $iconRef "Uninstall $AppName"

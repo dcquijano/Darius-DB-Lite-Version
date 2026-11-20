@@ -46,11 +46,11 @@
    - Keep the recommended destination folder **`C:\DariusDB`** (or click **Browse...** to choose another folder) and select your shortcut/PATH/startup options.
    - Click **Install**.
 3. Setup automatically:
-   - Extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Uninstall.exe`, `darius.exe`, `LICENSE`, `README.md`, and `GUIDE.md`.
+   - Extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Uninstall.exe`, `DariusDB-Updater.exe`, `darius.exe`, `LICENSE`, `README.md`, and `GUIDE.md`.
    - Creates `www/`, `bin/`, `data/`, `etc/`, `logs/`, and `tmp/`.
-   - Creates Desktop & Start Menu shortcuts (**Darius DB**, **Darius DB Terminal**, **Repair Darius DB**, **Uninstall Darius DB**).
+   - Creates Desktop & Start Menu shortcuts (**Darius DB**, **Darius DB Terminal**, **Update Darius DB**, **Repair Darius DB**, **Uninstall Darius DB**).
    - Registers **Darius DB (Lite Version 0.1.3)** in **Windows Settings → Apps → Installed Apps** and adds `darius` CLI to your Windows `PATH`.
-   - **Double-Install Protection & Repair Mode:** If Darius DB is already installed on your PC, running `DariusDB-Setup-0.1.3.exe` blocks duplicate installation and offers **Repair Mode** to repair the existing installation in-place without losing your databases in `data/`.
+   - **Upgrade, Double-Install Protection & Repair Mode:** If an older version (e.g. `0.1.2`) is installed, running `DariusDB-Setup-0.1.3.exe` offers a 1-click **in-place upgrade** (keeping all databases in `data/` and websites in `www/` untouched). If the same version is already installed, it blocks duplicate installation and offers **Repair Mode**.
 4. Click **Finish** to launch **Darius DB (Lite Version 0.1.3)** immediately.
 
 > **Silent / Automated CLI install or repair:**
@@ -251,7 +251,7 @@ If you used the portable folder without running an installer:
 
 > **Note:** No C compiler (GCC/CGO) and no Node.js/npm build step are required!
 
-### One-Command Build (GUI + Launcher + Uninstaller + Portable ZIP + Setup EXE)
+### One-Command Build (GUI + Launcher + Uninstaller + Updater + CLI + Portable ZIP + Setup EXE)
 
 Run the build script from the repository root:
 
@@ -261,8 +261,10 @@ powershell -ExecutionPolicy Bypass -File installer\build-all.ps1
 
 This creates:
 - `build\bin\DariusDB.exe` — main desktop app (~13 MB)
-- `build\bin\DariusDB-Launcher.exe` — native launcher (~2–3 MB)
-- `build\bin\DariusDB-Uninstall.exe` — native uninstaller (~2–3 MB)
+- `build\bin\DariusDB-Launcher.exe` (and `installer\DariusDB-Launcher.exe`) — native launcher (~2–3 MB)
+- `build\bin\DariusDB-Uninstall.exe` (and `installer\DariusDB-Uninstall.exe`) — native 3-step uninstaller & repair wizard (~2–3 MB)
+- `build\bin\DariusDB-Updater.exe` (and `installer\DariusDB-Updater.exe`) — standalone native System Version Updater (~2–3 MB)
+- `build\bin\darius.exe` — Developer CLI
 - `dist\DariusDB-0.1.3-portable-windows-amd64.zip` — portable archive
 - `dist\DariusDB-Setup-0.1.3.exe` (and `installer\DariusDB-Setup-0.1.3.exe`) — standalone single-file native Windows installer `.exe`
 
@@ -274,9 +276,11 @@ If you already built `build\bin\*.exe` and want to compile just the Inno Setup `
 "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\DariusDB.iss
 ```
 
-### Automated GitHub Releases
+### Automated GitHub Releases & In-App Updates
 
-Pushing a version tag (for example `git tag v0.1.3 && git push origin v0.1.3`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which automatically runs tests, builds all binaries, packages the portable ZIP, compiles `DariusDB-Setup-*.exe` with Inno Setup, and uploads both artifacts!
+Pushing a version tag (for example `git tag v0.1.3 && git push origin v0.1.3`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which automatically runs tests, builds all binaries (including `DariusDB-Setup-*.exe`, `DariusDB-Launcher.exe`, `DariusDB-Uninstall.exe`, `DariusDB-Updater.exe`, and the portable ZIP), and publishes a **GitHub Release** with all assets attached.
+
+> **Important for In-App & Standalone Updates:** Ensure `dcquijano/Darius-DB-Lite-Version` is **Public** on GitHub so every user's **System Updater** and `DariusDB-Updater.exe` can fetch `version.json` and download release assets automatically. If you keep the repository **Private**, paste a GitHub Personal Access Token (`Contents: Read-only`) inside **System Updater → 🔐 GitHub Token** (or in `DariusDB-Updater.exe`).
 
 ---
 

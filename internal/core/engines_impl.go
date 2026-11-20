@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ---------------------------------------------------------------- MariaDB / MySQL
@@ -213,8 +214,10 @@ func (pg *postgres) Start(p *Paths, inst Installation, s EngineSettings) (*Start
 }
 
 func (pg *postgres) Stop(p *Paths, inst Installation, s EngineSettings) error {
-	return runQuiet(context.Background(), nil, filepath.Join(inst.Dir, "bin", "pg_ctl.exe"),
-		"stop", "-D", pg.DataDir(p, inst), "-m", "fast", "-w", "-t", "30")
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return runQuiet(ctx, nil, filepath.Join(inst.Dir, "bin", "pg_ctl.exe"),
+		"stop", "-D", pg.DataDir(p, inst), "-m", "fast", "-w", "-t", "6")
 }
 
 func (pg *postgres) PidOf(p *Paths, inst Installation) int {

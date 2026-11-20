@@ -118,7 +118,9 @@ func (m *mssqlEngine) Stop(p *Paths, inst Installation, s EngineSettings) error 
 	if localDB == "" {
 		return nil
 	}
-	return runQuiet(context.Background(), nil, localDB, "stop", mssqlInstance)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return runQuiet(ctx, nil, localDB, "stop", mssqlInstance)
 }
 
 func (m *mssqlEngine) PidOf(p *Paths, inst Installation) int {

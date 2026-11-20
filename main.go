@@ -29,7 +29,7 @@ func main() {
 		os.Exit(core.RunBuiltInMailpit(os.Args[2:]))
 	}
 
-	var forceShow, justUpdated, reqMinimized bool
+	var forceShow, justUpdated, allOff, reqMinimized bool
 	for _, arg := range os.Args[1:] {
 		switch arg {
 		case "--minimized", "-m":
@@ -39,6 +39,9 @@ func main() {
 		case "--updated":
 			justUpdated = true
 			forceShow = true
+			allOff = true
+		case "--all-off":
+			allOff = true
 		}
 	}
 
@@ -60,7 +63,7 @@ func main() {
 
 	startHidden := !forceShow && (st.Get().StartMinimized || reqMinimized)
 
-	app := NewApp(paths, st)
+	app := NewAppWithOptions(paths, st, allOff)
 	app.forceShow = forceShow
 	app.justUpdated = justUpdated
 

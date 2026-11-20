@@ -186,14 +186,17 @@
         const busy = s.state === "starting" || s.state === "stopping";
         const running = s.state === "running";
 
-        // Toggle switch on far left (exact match to 5th picture)
-        const toggleAct = !installed ? "install" : running ? "stop" : "start";
+        // Allow clicking an active or starting toggle to turn it OFF immediately
+        const toggleAct = !installed ? "install" : (running || s.state === "starting") ? "stop" : "start";
         const toggleTitle = !installed
           ? `Click to install ${s.name}`
-          : running
-            ? `Stop ${s.name}`
-            : `Start ${s.name}`;
-        const toggleBtn = `<button type="button" class="svc-toggle ${s.state}" data-act="${toggleAct}" data-engine="${s.engine}" ${busy ? "disabled" : ""} title="${esc(toggleTitle)}"></button>`;
+          : s.state === "starting"
+            ? `Cancel & turn off ${s.name}`
+            : running
+              ? `Stop ${s.name}`
+              : `Start ${s.name}`;
+        const toggleDisabled = s.state === "stopping" ? "disabled" : "";
+        const toggleBtn = `<button type="button" class="svc-toggle ${s.state}" data-act="${toggleAct}" data-engine="${s.engine}" ${toggleDisabled} title="${esc(toggleTitle)}"></button>`;
 
         // Version display / dropdown
         const cleanVer = (name, prefix) => {
@@ -1462,17 +1465,36 @@
 
     // Dashboard actions
     $("btnStartAll").onclick = async () => {
+      const btn = $("btnStartAll");
+      const prev = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "⏳ Starting...";
       try {
         await api().StartAll();
+        state.statuses = (await api().Status()) || [];
+        renderDashboard();
       } catch (e) {
         toast(errMsg(e), "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prev;
       }
     };
     $("btnStopAll").onclick = async () => {
+      const btn = $("btnStopAll");
+      const prev = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "⏳ Stopping All...";
       try {
         await api().StopAll();
+        state.statuses = (await api().Status()) || [];
+        renderDashboard();
+        toast("All dashboard services turned off", "ok");
       } catch (e) {
         toast(errMsg(e), "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prev;
       }
     };
     $("btnGoVersions").onclick = () => switchTab("versions");

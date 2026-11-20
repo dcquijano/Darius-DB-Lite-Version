@@ -64,14 +64,20 @@ type App struct {
 	quitting    bool
 	forceShow   bool
 	justUpdated bool
+	skipAdopt   bool
 }
 
 func NewApp(paths *core.Paths, st *core.SettingsStore) *App {
+	return NewAppWithOptions(paths, st, false)
+}
+
+func NewAppWithOptions(paths *core.Paths, st *core.SettingsStore, skipAdopt bool) *App {
 	a := &App{
-		paths:    paths,
-		settings: st,
+		paths:     paths,
+		settings:  st,
+		skipAdopt: skipAdopt,
 	}
-	a.mgr = core.NewManager(paths, st, a.emitStatus)
+	a.mgr = core.NewManagerWithOptions(paths, st, a.emitStatus, skipAdopt)
 	a.dl = core.NewDownloader(paths, a.emitProgress, func(engine, name string) {
 		a.mgr.OnInstalled(engine, name)
 	})
@@ -95,7 +101,7 @@ func (a *App) startup(ctx context.Context) {
 		a.tr = tr
 	}
 
-	if a.settings.Get().AutoStartServices {
+	if a.settings.Get().AutoStartServices && !a.skipAdopt && !a.justUpdated {
 		go func() { _ = a.mgr.StartAll() }()
 	}
 }
@@ -814,24 +820,26 @@ func (a *App) LaunchUpdaterTool() error {
 }
 
 func (a *App) ApplySystemUpdateAuto(primaryURL, fallbackURL string) (string, error) {
+	_ = a.mgr.StopAll()
 	msg, err := core.ApplySystemUpdateWithFallback(a.paths, primaryURL, fallbackURL, a.settings.Get().GitHubToken)
 	if err != nil {
 		return "", err
 	}
 	go func() {
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 		a.QuitApp()
 	}()
 	return msg, nil
 }
 
 func (a *App) ApplySystemUpdateFromURL(downloadURL string) (string, error) {
+	_ = a.mgr.StopAll()
 	msg, err := core.ApplySystemUpdateFromURL(a.paths, downloadURL, a.settings.Get().GitHubToken)
 	if err != nil {
 		return "", err
 	}
 	go func() {
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 		a.QuitApp()
 	}()
 	return msg, nil
@@ -850,12 +858,13 @@ func (a *App) ApplySystemUpdateFromFileDialog() (string, error) {
 	if err != nil || path == "" {
 		return "", err
 	}
+	_ = a.mgr.StopAll()
 	msg, err := core.ApplySystemUpdateFromFile(a.paths, path)
 	if err != nil {
 		return "", err
 	}
 	go func() {
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 		a.QuitApp()
 	}()
 	return msg, nil

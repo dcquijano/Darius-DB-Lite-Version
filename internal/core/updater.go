@@ -780,8 +780,8 @@ Log "Starting in-place update in %s"
 Start-Sleep -Milliseconds 900
 $rootClean = '%s'.TrimEnd('\').ToLower()
 for ($i = 0; $i -lt 20; $i++) {
-    $procs = Get-Process -Name "DariusDB","DariusDB-Launcher","DariusDB-Updater" -ErrorAction SilentlyContinue | Where-Object {
-        -not $_.Path -or $_.Path.ToLower().StartsWith($rootClean)
+    $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.Path -and $_.Path.ToLower().StartsWith($rootClean)
     }
     if (-not $procs) { break }
     if ($i -ge 2) {
@@ -789,21 +789,23 @@ for ($i = 0; $i -lt 20; $i++) {
     }
     Start-Sleep -Milliseconds 350
 }
+Get-ChildItem -LiteralPath (Join-Path '%s' 'tmp\run') -Filter '*.pid' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 300
 %s
 Remove-Item -Force '%s' -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 400
 if (Test-Path -LiteralPath '%s') {
-    Log "Relaunching DariusDB.exe --show --updated"
-    Start-Process -FilePath '%s' -ArgumentList '--show','--updated' -WorkingDirectory '%s' -WindowStyle Normal
+    Log "Relaunching DariusDB.exe --show --updated --all-off"
+    Start-Process -FilePath '%s' -ArgumentList '--show','--updated','--all-off' -WorkingDirectory '%s' -WindowStyle Normal
 } elseif (Test-Path -LiteralPath '%s') {
-    Log "Relaunching DariusDB-Launcher.exe --show --updated"
-    Start-Process -FilePath '%s' -ArgumentList '--show','--updated' -WorkingDirectory '%s' -WindowStyle Normal
+    Log "Relaunching DariusDB-Launcher.exe --show --updated --all-off"
+    Start-Process -FilePath '%s' -ArgumentList '--show','--updated','--all-off' -WorkingDirectory '%s' -WindowStyle Normal
 } else {
     Log "ERROR: DariusDB.exe not found after update"
 }
 `,
 		escPS(logPath),
+		escPS(p.Root),
 		escPS(p.Root),
 		escPS(p.Root),
 		actionBlock,

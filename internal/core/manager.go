@@ -47,6 +47,7 @@ type service struct {
 	inst    Installation
 	cmd     *exec.Cmd     // nil for detached/adopted processes
 	exited  chan struct{} // closed when cmd exits
+	stopReq bool
 }
 
 type Manager struct {
@@ -59,6 +60,12 @@ type Manager struct {
 }
 
 func NewManager(p *Paths, st *SettingsStore, onChange func()) *Manager {
+	return NewManagerWithOptions(p, st, onChange, false)
+}
+
+// NewManagerWithOptions creates a service manager, optionally skipping process adoption
+// and forcing all services offline (used on post-update reboots).
+func NewManagerWithOptions(p *Paths, st *SettingsStore, onChange func(), skipAdopt bool) *Manager {
 	m := &Manager{p: p, st: st, onChange: onChange, svc: map[string]*service{}, ops: map[string]*sync.Mutex{}}
 	for _, id := range EngineIDs {
 		m.svc[id] = &service{state: StateStopped}
@@ -66,7 +73,11 @@ func NewManager(p *Paths, st *SettingsStore, onChange func()) *Manager {
 	}
 	m.ensureActiveVersions()
 	ensureWwwIndex(p.Www)
-	m.adopt()
+	if skipAdopt {
+		m.ForceOffAll()
+	} else {
+		m.adopt()
+	}
 	go m.monitor()
 	return m
 }
@@ -259,10 +270,10 @@ func (m *Manager) Start(id string) error {
 		return err
 	}
 
-	m.set(id, func(s *service) { s.state, s.message, s.inst = StateStarting, "", inst })
+	m.set(id, func(s *service) { s.state, s.message, s.inst, s.stopReq = StateStarting, "", inst, false })
 	fail := func(err error) error {
 		m.logf(id)("ERROR: " + err.Error())
-		m.set(id, func(s *service) { s.state, s.message, s.pid, s.cmd = StateError, err.Error(), 0, nil })
+		m.set(id, func(s *service) { s.state, s.message, s.pid, s.cmd, s.stopReq = StateError, err.Error(), 0, nil, false })
 		return err
 	}
 
@@ -342,10 +353,13 @@ func (m *Manager) Start(id string) error {
 		}()
 	}
 
-	// wait for the server to accept connections
+	// wait for the server to accept connections (aborts promptly if Stop is requested)
 	ready := waitFor(90*time.Second, func() bool {
-		if !m.IsRunning(id) {
-			return true // exited, handled above
+		m.mu.Lock()
+		stopped := m.svc[id].stopReq || !m.IsRunningUnlocked(id)
+		m.mu.Unlock()
+		if stopped {
+			return true
 		}
 		if id == "mssql" && eng.PidOf(m.p, inst) > 0 {
 			return true
@@ -355,7 +369,17 @@ func (m *Manager) Start(id string) error {
 	m.mu.Lock()
 	s := m.svc[id]
 	state := s.state
+	cancelled := s.stopReq
+	pid := s.pid
 	m.mu.Unlock()
+	if cancelled {
+		if pid > 0 {
+			_ = killProcess(pid)
+		}
+		os.Remove(m.p.PidFile(id))
+		m.set(id, func(s *service) { s.state, s.message, s.pid, s.cmd, s.stopReq = StateStopped, "", 0, nil, false })
+		return nil
+	}
 	if state == StateError {
 		return errors.New(s.message)
 	}
@@ -367,12 +391,27 @@ func (m *Manager) Start(id string) error {
 	return nil
 }
 
+func (m *Manager) IsRunningUnlocked(id string) bool {
+	s := m.svc[id]
+	return s != nil && (s.state == StateRunning || s.state == StateStarting)
+}
+
 // Stop shuts the engine down gracefully, killing it after a timeout.
 func (m *Manager) Stop(id string) error {
 	eng, err := GetEngine(id)
 	if err != nil {
 		return err
 	}
+	// Signal any in-progress Start() wait loop to abort immediately
+	m.mu.Lock()
+	if s := m.svc[id]; s != nil {
+		s.stopReq = true
+		if s.state == StateStarting && s.pid > 0 {
+			_ = killProcess(s.pid)
+		}
+	}
+	m.mu.Unlock()
+
 	op := m.ops[id]
 	op.Lock()
 	defer op.Unlock()
@@ -380,10 +419,9 @@ func (m *Manager) Stop(id string) error {
 	m.mu.Lock()
 	s := m.svc[id]
 	if s.state != StateRunning && s.state != StateStarting {
-		if s.state == StateError {
-			s.state, s.message = StateStopped, ""
-		}
+		s.state, s.message, s.pid, s.cmd, s.stopReq = StateStopped, "", 0, nil, false
 		m.mu.Unlock()
+		os.Remove(m.p.PidFile(id))
 		m.changed()
 		return nil
 	}
@@ -396,25 +434,28 @@ func (m *Manager) Stop(id string) error {
 	logf := m.logf(id)
 	logf("Stopping " + eng.Name())
 	CloseSQLPools(id, "")
-	waitTimeout := 20 * time.Second
 	if err := eng.Stop(m.p, inst, m.st.Engine(id)); err != nil {
 		logf("graceful stop failed: " + err.Error())
-		waitTimeout = 2 * time.Second
-	}
-	gone := waitFor(waitTimeout, func() bool { return !processAlive(pid) })
-	if !gone {
-		logf("server did not stop in time - killing process")
-		_ = killProcess(pid)
-		waitFor(5*time.Second, func() bool { return !processAlive(pid) })
+		if pid > 0 {
+			_ = killProcess(pid)
+		}
+		waitFor(2*time.Second, func() bool { return !processAlive(pid) })
+	} else {
+		gone := waitFor(6*time.Second, func() bool { return !processAlive(pid) })
+		if !gone && pid > 0 {
+			logf("server did not stop in time - killing process")
+			_ = killProcess(pid)
+			waitFor(3*time.Second, func() bool { return !processAlive(pid) })
+		}
 	}
 	if hasCmd && exited != nil {
 		select {
 		case <-exited:
-		case <-time.After(3 * time.Second):
+		case <-time.After(2 * time.Second):
 		}
 	}
 	os.Remove(m.p.PidFile(id))
-	m.set(id, func(s *service) { s.state, s.message, s.pid, s.cmd = StateStopped, "", 0, nil })
+	m.set(id, func(s *service) { s.state, s.message, s.pid, s.cmd, s.stopReq = StateStopped, "", 0, nil, false })
 	logf(eng.Name() + " stopped")
 	return nil
 }
@@ -441,7 +482,49 @@ func (m *Manager) StartAll() error {
 }
 
 func (m *Manager) StopAll() error {
-	return m.forAll(m.Stop)
+	err := m.forAll(m.Stop)
+	CloseSQLPools("", "")
+	killProcessesInDir(m.p.Bin)
+	for _, id := range EngineIDs {
+		os.Remove(m.p.PidFile(id))
+	}
+	m.mu.Lock()
+	for _, id := range EngineIDs {
+		if s := m.svc[id]; s != nil && s.state != StateNotInstalled {
+			s.state, s.message, s.pid, s.cmd, s.stopReq = StateStopped, "", 0, nil, false
+		}
+	}
+	m.mu.Unlock()
+	m.changed()
+	return err
+}
+
+// ForceOffAll terminates any lingering engine processes/PID files left by a previous
+// session or system update and resets all services to StateStopped.
+func (m *Manager) ForceOffAll() {
+	CloseSQLPools("", "")
+	killProcessesInDir(m.p.Bin)
+	for _, id := range EngineIDs {
+		if b, err := os.ReadFile(m.p.PidFile(id)); err == nil {
+			if pid, perr := strconv.Atoi(strings.TrimSpace(string(b))); perr == nil && pid > 0 && pid != os.Getpid() {
+				_ = killProcess(pid)
+			}
+		}
+		os.Remove(m.p.PidFile(id))
+	}
+	if localDB := findSqlLocalDB(); localDB != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = runQuiet(ctx, nil, localDB, "stop", mssqlInstance)
+		cancel()
+	}
+	m.mu.Lock()
+	for _, id := range EngineIDs {
+		if s := m.svc[id]; s != nil {
+			s.state, s.message, s.pid, s.cmd, s.stopReq = StateStopped, "", 0, nil, false
+		}
+	}
+	m.mu.Unlock()
+	m.changed()
 }
 
 func (m *Manager) forAll(fn func(string) error) error {

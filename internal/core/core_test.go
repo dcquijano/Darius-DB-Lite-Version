@@ -429,3 +429,25 @@ func TestIsPostgresArchiveDumpDetection(t *testing.T) {
 	}
 }
 
+func TestManagerSkipAdoptAndStopAllClearsErrors(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPaths(dir)
+	if err := p.Ensure(); err != nil {
+		t.Fatalf("Paths.Ensure: %v", err)
+	}
+	st := LoadSettings(dir)
+	mgr := NewManagerWithOptions(p, st, nil, true)
+	mgr.set("mssql", func(s *service) { s.state, s.message = StateStopped, "process exited" })
+	if err := mgr.StopAll(); err != nil {
+		t.Fatalf("StopAll: %v", err)
+	}
+	for _, s := range mgr.Status() {
+		if s.State == StateRunning || s.State == StateStarting {
+			t.Fatalf("expected %s to be stopped/offline, got %s", s.Engine, s.State)
+		}
+		if s.Message != "" {
+			t.Fatalf("expected %s error message cleared on StopAll, got %q", s.Engine, s.Message)
+		}
+	}
+}
+

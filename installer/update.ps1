@@ -1,8 +1,8 @@
-<#
+i#
 .SYNOPSIS
-  Darius DB (Lite Version 0.1.4) System Updater script for Windows.
-  Upgrades an existing installation (e.g. v0.1.3 -> v0.1.4) in-place while keeping data/, www/, and etc/ safe.
-  Created by Darius Cumpio - November 19, 2026 - v0.1.4 (MIT License)
+Darius DB (Lite Version 0.1.4) System Updater script for Windows.
+Upgrades an existing installation (e.g. v0.1.3 -> v0.1.4) in-place while keeping data/, www/, and etc/ safe.
+Created by Darius Cumpio - November 19, 2026 - v0.1.4 (MIT License)
 #>
 param(
     [string]$InstallDir = "",
@@ -19,7 +19,8 @@ if (-not $InstallDir) {
     $reg = Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DariusDB" -ErrorAction SilentlyContinue
     if ($reg -and $reg.InstallLocation) {
         $InstallDir = $reg.InstallLocation
-    } else {
+    }
+    else {
         $InstallDir = "C:\DariusDB"
     }
 }
@@ -29,9 +30,9 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # 1. If the native GUI Updater binary is present and not running silently with a specific file, launch it
 if (-not $Silent -and -not $SetupFile) {
     foreach ($candidate in @(
-        (Join-Path $ScriptDir "DariusDB-Updater.exe"),
-        (Join-Path $InstallDir "DariusDB-Updater.exe")
-    )) {
+            (Join-Path $ScriptDir "DariusDB-Updater.exe"),
+            (Join-Path $InstallDir "DariusDB-Updater.exe")
+        )) {
         if (Test-Path -LiteralPath $candidate) {
             $argsList = @("--dir=$InstallDir")
             if ($Token) { $argsList += "--token=$Token" }
@@ -51,7 +52,7 @@ Write-Host ""
 # 2. Resolve setup executable (explicit param -> local installer folder -> download from GitHub)
 if (-not $SetupFile) {
     $localSetup = Get-ChildItem -Path $ScriptDir -Filter "DariusDB-Setup-*.exe" -ErrorAction SilentlyContinue |
-        Sort-Object Name -Descending | Select-Object -First 1
+    Sort-Object Name -Descending | Select-Object -First 1
     if ($localSetup) {
         $SetupFile = $localSetup.FullName
         Write-Host "Found local installer: $($localSetup.Name)" -ForegroundColor Green
@@ -66,14 +67,16 @@ if (-not $SetupFile) {
     Write-Host "Checking GitHub for latest Darius DB release..." -ForegroundColor Cyan
     $verUrl = if ($Token) {
         "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/contents/version.json"
-    } else {
+    }
+    else {
         "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/version.json?t=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
     }
     if ($Token) { $headers["Accept"] = "application/vnd.github.raw+json" }
 
     try {
         $verInfo = Invoke-RestMethod -Uri $verUrl -Headers $headers -ErrorAction Stop
-    } catch {
+    }
+    catch {
         Write-Host "ERROR: Could not fetch version.json from GitHub ($($_.Exception.Message))." -ForegroundColor Red
         Write-Host "If dcquijano/Darius-DB-Lite-Version is Private, make it Public on GitHub or pass -Token <GITHUB_PAT>." -ForegroundColor Yellow
         exit 1
@@ -103,7 +106,8 @@ if (-not $SetupFile) {
                 $downloaded = $true
                 break
             }
-        } catch {
+        }
+        catch {
             Write-Host "  Could not download from $u ($($_.Exception.Message))" -ForegroundColor DarkYellow
         }
     }
@@ -118,19 +122,20 @@ $existingLauncher = Join-Path $InstallDir "DariusDB-Launcher.exe"
 if (Test-Path -LiteralPath $existingLauncher) {
     Start-Process -FilePath $existingLauncher -ArgumentList "--stop-all" -Wait -ErrorAction SilentlyContinue
 }
-Get-Process -Name "DariusDB","DariusDB-Launcher","DariusDB-Updater" -ErrorAction SilentlyContinue |
-    Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "DariusDB", "DariusDB-Launcher", "DariusDB-Updater" -ErrorAction SilentlyContinue |
+Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 600
 
 Write-Host "Applying in-place upgrade from $(Split-Path -Leaf $SetupFile)..." -ForegroundColor Green
-Start-Process -FilePath $SetupFile -ArgumentList "--silent","--force","--dir=$InstallDir" -Wait
+Start-Process -FilePath $SetupFile -ArgumentList "--silent", "--force", "--dir=$InstallDir" -Wait
 
 Write-Host ""
 Write-Host "Darius DB upgrade complete! Your databases (data/) and websites (www/) were kept safe." -ForegroundColor Green
 if (-not $NoLaunch) {
     if (Test-Path -LiteralPath $existingLauncher) {
         Start-Process -FilePath $existingLauncher -WorkingDirectory $InstallDir
-    } elseif (Test-Path -LiteralPath (Join-Path $InstallDir "DariusDB.exe")) {
+    }
+    elseif (Test-Path -LiteralPath (Join-Path $InstallDir "DariusDB.exe")) {
         Start-Process -FilePath (Join-Path $InstallDir "DariusDB.exe") -WorkingDirectory $InstallDir
     }
 }

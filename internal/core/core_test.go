@@ -555,3 +555,25 @@ func TestSchedulerRetentionPurgeAndDueWindow(t *testing.T) {
 	}
 }
 
+func TestReconcileMSSQLIdentityInserts(t *testing.T) {
+	dstMap := map[string]bool{
+		"[dbo].[announcements]": false, // existing target table WITHOUT identity -> Msg 8106 guard
+		"[dbo].[users]":         true,  // existing target table WITH identity -> Msg 544 guard
+	}
+	in := strings.Join([]string{
+		"SET IDENTITY_INSERT [dbo].[Announcements] ON;",
+		"INSERT INTO [dbo].[Announcements] ([Id], [Title]) VALUES (N'1', N'Hi');",
+		"SET IDENTITY_INSERT [dbo].[Announcements] OFF;",
+		"GO",
+		"INSERT INTO [dbo].[Users] ([Id], [Name]) VALUES (N'5', N'Alice');",
+		"GO",
+	}, "\r\n")
+	got := reconcileMSSQLIdentityInserts(in, dstMap)
+	if strings.Contains(got, "SET IDENTITY_INSERT [dbo].[Announcements]") {
+		t.Fatalf("expected SET IDENTITY_INSERT stripped for non-identity target table, got:\n%s", got)
+	}
+	if !strings.Contains(got, "SET IDENTITY_INSERT [dbo].[Users] ON;") || !strings.Contains(got, "SET IDENTITY_INSERT [dbo].[Users] OFF;") {
+		t.Fatalf("expected SET IDENTITY_INSERT injected for identity target table, got:\n%s", got)
+	}
+}
+

@@ -24,7 +24,7 @@ const (
 )
 
 // CLIAppBuild identifies the build timestamp (overridden via -ldflags at build time).
-var CLIAppBuild = "202611201815"
+var CLIAppBuild = "202611201820"
 
 // RunCLI executes a CLI subcommand and returns an process exit code.
 func RunCLI(root string, args []string) int {

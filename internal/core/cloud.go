@@ -494,6 +494,8 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 			text = strings.Replace(text, fmt.Sprintf("USE %s;\r\nGO\r\n", mssqlBracket(srcDB)), "", 1)
 		}
 		if dstEngine == "mssql" {
+			dstIdentity := fetchMSSQLTargetIdentityMap(dstCfg, dstDB)
+			text = reconcileMSSQLIdentityInserts(text, dstIdentity)
 			text = wrapMSSQLSyncRefresh(text, tables, dstDB)
 		}
 		_ = os.WriteFile(dumpPath, []byte(text), 0o644)
@@ -573,7 +575,7 @@ func wrapMSSQLSyncRefresh(sqlText string, tables []TableInfo, dstDB string) stri
 		fmt.Fprintf(&pre, "USE %s;\r\nGO\r\n", mssqlBracket(dstDB))
 	}
 	for _, id := range idents {
-		fmt.Fprintf(&pre, "IF OBJECT_ID(N'%s', N'U') IS NOT NULL BEGIN TRY ALTER TABLE %s NOCHECK CONSTRAINT ALL; END TRY BEGIN CATCH END CATCH;\r\n", id, id)
+		fmt.Fprintf(&pre, "IF OBJECT_ID(N'%s', N'U') IS NOT NULL BEGIN TRY ALTER TABLE %s NOCHECK CONSTRAINT ALL; DISABLE TRIGGER ALL ON %s; END TRY BEGIN CATCH END CATCH;\r\n", id, id, id)
 	}
 	pre.WriteString("GO\r\n")
 	maxPasses := len(idents)
@@ -591,8 +593,106 @@ func wrapMSSQLSyncRefresh(sqlText string, tables []TableInfo, dstDB string) stri
 	var post strings.Builder
 	post.WriteString("\r\nGO\r\n")
 	for _, id := range idents {
-		fmt.Fprintf(&post, "IF OBJECT_ID(N'%s', N'U') IS NOT NULL BEGIN TRY ALTER TABLE %s WITH CHECK CHECK CONSTRAINT ALL; END TRY BEGIN CATCH END CATCH;\r\n", id, id)
+		fmt.Fprintf(&post, "IF OBJECT_ID(N'%s', N'U') IS NOT NULL BEGIN TRY ENABLE TRIGGER ALL ON %s; ALTER TABLE %s WITH CHECK CHECK CONSTRAINT ALL; END TRY BEGIN CATCH END CATCH;\r\n", id, id, id)
 	}
 	post.WriteString("GO\r\n")
 	return pre.String() + sqlText + post.String()
+}
+
+func fetchMSSQLTargetIdentityMap(s EngineSettings, dbName string) map[string]bool {
+	out := map[string]bool{}
+	if strings.TrimSpace(dbName) == "" {
+		return out
+	}
+	q := "SET NOCOUNT ON; SELECT QUOTENAME(s.name) + N'.' + QUOTENAME(o.name), ISNULL(OBJECTPROPERTY(o.object_id, N'TableHasIdentity'), 0) " +
+		"FROM sys.objects o JOIN sys.schemas s ON o.schema_id = s.schema_id WHERE o.type = N'U';"
+	res, err := mssqlRunQueryWithLimit(s, dbName, q, maxShowRows)
+	if err != nil {
+		return out
+	}
+	for _, r := range res.Rows {
+		name := strings.ToLower(strings.TrimSpace(valAt(r, 0)))
+		if name != "" {
+			out[name] = valAt(r, 1) == "1"
+		}
+	}
+	return out
+}
+
+// reconcileMSSQLIdentityInserts matches SET IDENTITY_INSERT statements against the target DB's
+// actual existing tables: if a target table already exists WITHOUT an identity column (Msg 8106),
+// SET IDENTITY_INSERT is omitted; if a target table exists WITH an identity column and the script
+// didn't wrap INSERTs in SET IDENTITY_INSERT ON/OFF (Msg 544), it adds the wrapper automatically.
+func reconcileMSSQLIdentityInserts(sqlText string, dstHasIdentity map[string]bool) string {
+	if len(dstHasIdentity) == 0 {
+		return sqlText
+	}
+	eol := "\r\n"
+	if !strings.Contains(sqlText, "\r\n") {
+		eol = "\n"
+	}
+	lines := strings.Split(strings.ReplaceAll(sqlText, "\r\n", "\n"), "\n")
+	out := make([]string, 0, len(lines))
+	activeInjected := ""
+	explicitOn := ""
+
+	closeInjected := func() {
+		if activeInjected != "" {
+			out = append(out, fmt.Sprintf("SET IDENTITY_INSERT %s OFF;", activeInjected))
+			activeInjected = ""
+		}
+	}
+
+	for _, line := range lines {
+		tr := strings.TrimSpace(line)
+		low := strings.ToLower(tr)
+
+		if strings.HasPrefix(low, "set identity_insert ") && (strings.HasSuffix(low, " on;") || strings.HasSuffix(low, " off;")) {
+			isOn := strings.HasSuffix(low, " on;")
+			rest := strings.TrimSpace(tr[len("SET IDENTITY_INSERT "):])
+			if isOn {
+				rest = strings.TrimSpace(rest[:len(rest)-3]) // strip ON;
+			} else {
+				rest = strings.TrimSpace(rest[:len(rest)-4]) // strip OFF;
+			}
+			key := strings.ToLower(rest)
+			if existsHasID, exists := dstHasIdentity[key]; exists && !existsHasID {
+				// Target table exists WITHOUT identity -> drop SET IDENTITY_INSERT to avoid Msg 8106
+				continue
+			}
+			if isOn {
+				closeInjected()
+				explicitOn = key
+			} else if explicitOn == key {
+				explicitOn = ""
+			}
+			out = append(out, line)
+			continue
+		}
+
+		if strings.HasPrefix(low, "insert into ") {
+			after := strings.TrimSpace(tr[len("INSERT INTO "):])
+			endIdx := strings.IndexAny(after, " (")
+			if endIdx > 0 {
+				ident := after[:endIdx]
+				key := strings.ToLower(ident)
+				if existsHasID, exists := dstHasIdentity[key]; exists && existsHasID && explicitOn != key {
+					if activeInjected != "" && !strings.EqualFold(activeInjected, ident) {
+						closeInjected()
+					}
+					if activeInjected == "" {
+						out = append(out, fmt.Sprintf("SET IDENTITY_INSERT %s ON;", ident))
+						activeInjected = ident
+					}
+					out = append(out, line)
+					continue
+				}
+			}
+		}
+
+		closeInjected()
+		out = append(out, line)
+	}
+	closeInjected()
+	return strings.Join(out, eol)
 }

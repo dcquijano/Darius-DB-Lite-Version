@@ -3382,8 +3382,32 @@ try {
         }
       }
       await loadSyncLocalDbs();
+      if ($("cloudSyncBox")) $("cloudSyncBox").hidden = true;
       $("modalCloudSync").hidden = false;
     };
+
+    const setSyncProgress = (pct, mode, title, detail) => {
+      const box = $("cloudSyncBox");
+      if (!box) return;
+      const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
+      box.hidden = false;
+      box.className = "sysup-fetch-box" + (mode === "done" ? " success" : mode === "error" ? " error" : "");
+      const sp = $("cloudSyncSpinner");
+      if (sp) sp.hidden = mode !== "running";
+      if ($("cloudSyncTitle")) $("cloudSyncTitle").textContent = title || "Syncing...";
+      if ($("cloudSyncPct")) $("cloudSyncPct").textContent = `${clamped}%`;
+      if ($("cloudSyncBar")) $("cloudSyncBar").style.width = `${clamped}%`;
+      if ($("cloudSyncSub")) $("cloudSyncSub").textContent = detail || "";
+      const btn = $("btnRunCloudSync");
+      if (btn && mode === "running") {
+        btn.textContent = `⏳ Syncing ${clamped}%`;
+      }
+    };
+
+    rt()?.EventsOn?.("cloud-sync-progress", (p) => {
+      if (!p || $("modalCloudSync")?.hidden) return;
+      setSyncProgress(p.percent, p.state || "running", p.stage || "Syncing...", p.detail || "");
+    });
 
     $("syncCloudProfile").addEventListener("change", () => {
       const c = (state.cloudProfiles || []).find((p) => p.id === $("syncCloudProfile").value);
@@ -3408,16 +3432,29 @@ try {
       const cloudDb = $("syncCloudDb").value.trim();
       const btn = $("btnRunCloudSync");
       btn.disabled = true;
-      btn.textContent = "⏳ Syncing...";
+      btn.textContent = "⏳ Syncing 0%";
+      setSyncProgress(
+        2,
+        "running",
+        "⏳ Starting database sync...",
+        dir === "push"
+          ? `Preparing Push: Local (${localEng}/${localDb}) → Cloud (${cloudDb})`
+          : `Preparing Pull: Cloud (${cloudDb}) → Local (${localEng}/${localDb})`
+      );
       try {
         const msg = dir === "push"
           ? await api().CloudSyncDatabase(localEng, localDb, "cloud:" + cloudId, cloudDb)
           : await api().CloudSyncDatabase("cloud:" + cloudId, cloudDb, localEng, localDb);
-        closeCloudSync();
+        setSyncProgress(100, "done", "✅ Sync Complete!", msg || "Database synced successfully.");
         toast(msg || "Sync complete!", "ok");
         if (state.tab === "database") await loadSqlDatabases();
+        setTimeout(() => {
+          if (!$("modalCloudSync").hidden) closeCloudSync();
+        }, 900);
       } catch (err) {
-        toast(errMsg(err), "err");
+        const em = errMsg(err);
+        setSyncProgress(Number($("cloudSyncPct")?.textContent?.replace("%", "")) || 0, "error", "⚠️ Sync Failed", em);
+        toast(em, "err");
       } finally {
         btn.disabled = false;
         btn.textContent = "🔄 Sync Now";

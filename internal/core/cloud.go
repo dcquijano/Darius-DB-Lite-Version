@@ -370,31 +370,63 @@ func TestCloudConnection(c CloudConnection) (*CloudTestResult, error) {
 	}, nil
 }
 
+type CloudSyncProgress struct {
+	Percent int    `json:"percent"`
+	State   string `json:"state"` // running | done | error
+	Stage   string `json:"stage"`
+	Detail  string `json:"detail"`
+}
+
 // CloudSyncDatabase exports srcDB from srcEngine/srcCfg into a temporary SQL script
 // and imports it into dstDB on dstEngine/dstCfg (supporting Local -> Cloud and Cloud -> Local).
 func CloudSyncDatabase(p *Paths, srcEngine string, srcCfg EngineSettings, srcDB, dstEngine string, dstCfg EngineSettings, dstDB string) (string, error) {
+	return CloudSyncDatabaseWithProgress(p, srcEngine, srcCfg, srcDB, dstEngine, dstCfg, dstDB, nil)
+}
+
+// CloudSyncDatabaseWithProgress runs CloudSyncDatabase while emitting stage & percentage progress updates.
+func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSettings, srcDB, dstEngine string, dstCfg EngineSettings, dstDB string, onProgress func(CloudSyncProgress)) (string, error) {
+	lastPct := 0
+	report := func(pct int, state, stage, detail string) {
+		if pct > lastPct {
+			lastPct = pct
+		} else if state == "running" {
+			pct = lastPct
+		}
+		if onProgress != nil {
+			onProgress(CloudSyncProgress{Percent: pct, State: state, Stage: stage, Detail: detail})
+		}
+	}
+
 	srcDB = strings.TrimSpace(srcDB)
 	dstDB = strings.TrimSpace(dstDB)
 	if srcDB == "" {
-		return "", errors.New("source database is required")
+		err := errors.New("source database is required")
+		report(0, "error", "Sync Failed", err.Error())
+		return "", err
 	}
 	if dstDB == "" {
 		dstDB = srcDB
 	}
 	if srcEngine == "redis" || dstEngine == "redis" {
-		return "", errors.New("one-click SQL sync is supported for MySQL, MariaDB, PostgreSQL, and MS SQL Server databases")
+		err := errors.New("one-click SQL sync is supported for MySQL, MariaDB, PostgreSQL, and MS SQL Server databases")
+		report(0, "error", "Sync Failed", err.Error())
+		return "", err
 	}
 
 	tmpDir := filepath.Join(os.TempDir(), "DariusDB-CloudSync")
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		report(0, "error", "Sync Failed", err.Error())
 		return "", err
 	}
 	dumpPath := filepath.Join(tmpDir, fmt.Sprintf("sync_%s_%d.sql", srcDB, time.Now().Unix()))
 	defer os.Remove(dumpPath)
 
+	report(5, "running", "Connecting to source...", fmt.Sprintf("Inspecting base tables in %s (%s)...", srcDB, strings.ToUpper(srcEngine)))
 	tables, err := ListTables(srcEngine, srcCfg, srcDB)
 	if err != nil {
-		return "", fmt.Errorf("failed reading source tables: %w", err)
+		outErr := fmt.Errorf("failed reading source tables: %w", err)
+		report(lastPct, "error", "Sync Failed", outErr.Error())
+		return "", outErr
 	}
 	tblNames := make([]string, 0, len(tables))
 	for _, t := range tables {
@@ -403,22 +435,104 @@ func CloudSyncDatabase(p *Paths, srcEngine string, srcCfg EngineSettings, srcDB,
 		}
 	}
 	if len(tblNames) == 0 {
-		return "", fmt.Errorf("source database %q has no base tables to sync", srcDB)
+		outErr := fmt.Errorf("source database %q has no base tables to sync", srcDB)
+		report(lastPct, "error", "Sync Failed", outErr.Error())
+		return "", outErr
 	}
-	if err := ExportDatabaseSelection(p, srcEngine, srcCfg, srcDB, tblNames, "sql", true, true, dumpPath); err != nil {
-		return "", fmt.Errorf("export failed: %w", err)
+
+	report(15, "running", "Exporting source tables...", fmt.Sprintf("Found %d base table(s) in %q — exporting schema & data...", len(tblNames), srcDB))
+
+	formatDumpBytes := func(n int64) string {
+		if n < 1024 {
+			return fmt.Sprintf("%d B", n)
+		}
+		if n < 1024*1024 {
+			return fmt.Sprintf("%.1f KB", float64(n)/1024.0)
+		}
+		return fmt.Sprintf("%.1f MB", float64(n)/(1024.0*1024.0))
 	}
+
+	expDone := make(chan struct{})
+	expStart := time.Now()
+	go func() {
+		tick := time.NewTicker(350 * time.Millisecond)
+		defer tick.Stop()
+		steps := 0
+		for {
+			select {
+			case <-expDone:
+				return
+			case <-tick.C:
+				steps++
+				var sz int64
+				if st, serr := os.Stat(dumpPath); serr == nil {
+					sz = st.Size()
+				}
+				bump := steps * 2
+				if sz > 0 {
+					bump += int(sz / (64 * 1024))
+				}
+				if bump > 36 {
+					bump = 36
+				}
+				elapsed := int(time.Since(expStart).Seconds())
+				report(16+bump, "running", "Exporting source tables...", fmt.Sprintf("Exporting %d table(s) from %q (%s written · %ds)...", len(tblNames), srcDB, formatDumpBytes(sz), elapsed))
+			}
+		}
+	}()
+
+	err = ExportDatabaseSelection(p, srcEngine, srcCfg, srcDB, tblNames, "sql", true, true, dumpPath)
+	close(expDone)
+	if err != nil {
+		outErr := fmt.Errorf("export failed: %w", err)
+		report(lastPct, "error", "Export Failed", outErr.Error())
+		return "", outErr
+	}
+
+	var dumpSize int64
 	if b, err := os.ReadFile(dumpPath); err == nil {
 		text := string(b)
 		if srcDB != dstDB && srcEngine == "mssql" {
 			text = strings.Replace(text, fmt.Sprintf("USE %s;\r\nGO\r\n", mssqlBracket(srcDB)), "", 1)
 			_ = os.WriteFile(dumpPath, []byte(text), 0o644)
 		}
+		dumpSize = int64(len(text))
+	} else if st, serr := os.Stat(dumpPath); serr == nil {
+		dumpSize = st.Size()
 	}
 
+	report(55, "running", "Uploading & importing...", fmt.Sprintf("Exported %s (%d table(s)). Importing into %q (%s)...", formatDumpBytes(dumpSize), len(tblNames), dstDB, strings.ToUpper(dstEngine)))
+
+	impDone := make(chan struct{})
+	impStart := time.Now()
+	go func() {
+		tick := time.NewTicker(400 * time.Millisecond)
+		defer tick.Stop()
+		steps := 0
+		for {
+			select {
+			case <-impDone:
+				return
+			case <-tick.C:
+				steps++
+				bump := steps * 2
+				if bump > 38 {
+					bump = 38
+				}
+				elapsed := int(time.Since(impStart).Seconds())
+				report(56+bump, "running", "Importing into target...", fmt.Sprintf("Applying %s across %d table(s) to %q (%ds)...", formatDumpBytes(dumpSize), len(tblNames), dstDB, elapsed))
+			}
+		}
+	}()
+
 	restored, err := RestoreDatabase(p, dstEngine, dstCfg, dumpPath, dstDB)
+	close(impDone)
 	if err != nil {
-		return "", fmt.Errorf("import into %q failed: %w", dstDB, err)
+		outErr := fmt.Errorf("import into %q failed: %w", dstDB, err)
+		report(lastPct, "error", "Import Failed", outErr.Error())
+		return "", outErr
 	}
-	return fmt.Sprintf("Synced %d table(s) from %q to %q", len(tblNames), srcDB, restored), nil
+	msg := fmt.Sprintf("Synced %d table(s) from %q to %q", len(tblNames), srcDB, restored)
+	report(100, "done", "Sync Complete!", msg)
+	return msg, nil
 }

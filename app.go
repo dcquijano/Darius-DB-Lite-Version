@@ -933,7 +933,11 @@ func (a *App) TestCloudProfile(conn core.CloudConnection) (*core.CloudTestResult
 func (a *App) CloudSyncDatabase(srcTarget, srcDB, dstTarget, dstDB string) (string, error) {
 	srcEng, srcEs, _ := a.resolveTarget(srcTarget)
 	dstEng, dstEs, _ := a.resolveTarget(dstTarget)
-	return core.CloudSyncDatabase(a.paths, srcEng, srcEs, srcDB, dstEng, dstEs, dstDB)
+	return core.CloudSyncDatabaseWithProgress(a.paths, srcEng, srcEs, srcDB, dstEng, dstEs, dstDB, func(prog core.CloudSyncProgress) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "cloud-sync-progress", prog)
+		}
+	})
 }
 
 func (a *App) CloudRedisDatabases(target string) ([]core.RedisDB, error) {

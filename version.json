@@ -1,7 +1,7 @@
 {
   "name": "Darius DB (Lite Version 0.1.3)",
   "version": "0.1.3",
-  "build": "202611201735",
+  "build": "202611201745",
   "channel": "Lite Version",
   "releasedAt": "2026-11-20",
   "author": "Darius Cumpio",
@@ -10,8 +10,9 @@
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.3/DariusDB-0.1.3-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.3.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.3) — Local + Cloud Database Manager! Fixed Cloud & Sync modal grid/width overflow, includes SQL Result Pagination (50 to Max/All), 📦 Backup Full .zip, and Local ↔ Cloud Sync!",
+  "announcement": "Darius DB (Lite Version 0.1.3) — Local + Cloud Database Manager! Added live percentage progress bar (0%–100%) to Local ↔ Cloud Database Sync, SQL Result Pagination (50 to Max/All), and 📦 Backup Full .zip!",
   "changelog": [
+    "Added Live Percentage Progress Bar to Local ↔ Cloud Sync: displays real-time 0%–100% progress bar, table count, exported byte size, elapsed time, and completion/error status during push/pull sync",
     "Fixed Cloud & Sync Modal UI Layout: set explicit modal widths so max-width wasn't capped at 410px, constrained grid inputs/selects with minmax(0, 1fr) so long Cloud Profile hostnames never clip Cloud Database inputs, and added backdrop blur",
     "Added SQL Results Pagination: configurable page sizes (50, 100, 250, 500, 1000, 5000, 10000, and Max/All), First/Prev/Page Numbers/Next/Last + page jump controls, automatic LIMIT/TOP expansion, and up to 250,000-row Max cap",
     "Fixed post-update reboot crash/no-display: prevented NewManagerWithOptions(skipAdopt=true) from triggering emitStatus() before a.mgr was assigned, and added nil guard in App.emitStatus",

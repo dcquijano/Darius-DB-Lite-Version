@@ -6,26 +6,21 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 
 - **Repository:** [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version)
 - 📥 **Official Installer & Portable Download (Google Drive):** [**Download DariusDB-Setup-0.1.3.exe**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing)
+- 🖼️ **System Screenshots & Examples:** [**example/**](example/)
 - 📖 **Full Step-by-Step Guide:** [**GUIDE.md**](GUIDE.md)
 
 ---
 
-## System Preview
+## System Preview ([`example/`](example/))
 
-### 1. Services Dashboard & Unified Web + PHP + Database Stack
-Toggle Apache + PHP (8.2 / 8.3 / 8.4), MariaDB, MySQL, PostgreSQL, MS SQL Server, Redis, and Mailpit with 1-click controls, live port monitoring, Drag & Drop `www/` hosting, and stack architecture overview.
+### Services Dashboard & Full-Stack Switcher
+![Darius DB Services Dashboard](example/dashboard-overview.png)
 
-![Darius DB Services Dashboard & Unified Stack](docs/screenshots/dashboard-services-stack.jpg)
+### Database Manager, SQL Browser & Row CRUD
+![Darius DB Database Manager](example/database-manager.png)
 
-### 2. Database Explorer, SQL Browser, Import / Export & Full Row CRUD
-Browse databases and tables, execute SQL/T-SQL (`Ctrl+Enter`), import `.sql` / `.csv` / `.bak` files, export single tables, selected tables, or full databases (`.sql` / `.csv`), and inspect/create/edit/delete rows (`Show`, `Edit`, `Delete`, `Show All`).
-
-![Darius DB Database Explorer & SQL Query Browser](docs/screenshots/database-explorer-crud.jpg)
-
-### 3. System Version Updater (Check Online & 1-Click GitHub Auto-Update)
-Check live GitHub releases, build IDs, commit history, and update announcements, then fetch & reboot Darius DB in-place while preserving `data/` and `www/`.
-
-![Darius DB System Version Updater](docs/screenshots/system-version-updater.jpg)
+### GitHub System Version Updater
+![Darius DB System Version Updater](example/system-updater.png)
 
 ---
 

@@ -399,3 +399,33 @@ func TestAcquireSingleInstanceReturnsTrueFirstTime(t *testing.T) {
 	ReleaseSingleInstance(h)
 }
 
+func TestIsPostgresArchiveDumpDetection(t *testing.T) {
+	dir := t.TempDir()
+	customSQL := filepath.Join(dir, "ewater.sql")
+	if err := os.WriteFile(customSQL, []byte("PGDMP\x01\x0e\x00"), 0o644); err != nil {
+		t.Fatalf("WriteFile customSQL: %v", err)
+	}
+	if !isPostgresArchiveDump(customSQL) {
+		t.Fatal("expected PGDMP custom dump with .sql extension to be detected as archive dump")
+	}
+
+	plainSQL := filepath.Join(dir, "plain.backup")
+	if err := os.WriteFile(plainSQL, []byte("-- PostgreSQL database dump\nSELECT 1;\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile plainSQL: %v", err)
+	}
+	if isPostgresArchiveDump(plainSQL) {
+		t.Fatal("expected plain SQL text not to be detected as archive dump")
+	}
+
+	dirDump := filepath.Join(dir, "dir_dump")
+	if err := os.MkdirAll(dirDump, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dirDump, "toc.dat"), []byte("PGDMP"), 0o644); err != nil {
+		t.Fatalf("WriteFile toc.dat: %v", err)
+	}
+	if !isPostgresArchiveDump(dirDump) {
+		t.Fatal("expected directory dump with toc.dat to be detected as archive dump")
+	}
+}
+

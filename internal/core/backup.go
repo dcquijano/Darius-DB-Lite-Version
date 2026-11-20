@@ -3,6 +3,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"errors"
@@ -460,6 +461,53 @@ func mysqlBackupSQL(p *Paths, engine string, s EngineSettings, dbName, outPath s
 
 // ---------------------------------------------------------------- PostgreSQL (.sql & .backup/.dump)
 
+// isPostgresArchiveDump inspects file contents to detect PostgreSQL custom-format
+// ("PGDMP"), tar-format ("ustar" containing toc.dat), or directory-format dumps,
+// even when saved with a .sql extension.
+func isPostgresArchiveDump(filePath string) bool {
+	if st, err := os.Stat(filePath); err == nil && st.IsDir() {
+		return fileExists(filepath.Join(filePath, "toc.dat"))
+	}
+	f, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var hdr [512]byte
+	n, err := io.ReadAtLeast(f, hdr[:], 5)
+	if err != nil && n < 5 {
+		return false
+	}
+	if bytes.HasPrefix(hdr[:n], []byte("PGDMP")) {
+		return true
+	}
+	if n >= 265 && string(hdr[257:262]) == "ustar" && bytes.Contains(hdr[:100], []byte("toc.dat")) {
+		return true
+	}
+	return false
+}
+
+func findPostgresTool(p *Paths, s EngineSettings, toolName string) string {
+	if inst, ok := FindInstallation(p, "postgresql", s.Version); ok {
+		cand := filepath.Join(inst.Dir, "bin", toolName)
+		if fileExists(cand) {
+			return cand
+		}
+	}
+	if p != nil {
+		for _, inst := range ListInstallations(p, "postgresql") {
+			cand := filepath.Join(inst.Dir, "bin", toolName)
+			if fileExists(cand) {
+				return cand
+			}
+		}
+	}
+	if lp, err := exec.LookPath(toolName); err == nil {
+		return lp
+	}
+	return ""
+}
+
 func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string) error {
 	if !nameRe.MatchString(targetDB) {
 		return errors.New("database name may only contain letters, digits, _ $ -")
@@ -479,46 +527,66 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 		return err
 	}
 
-	if inst, ok := FindInstallation(p, "postgresql", s.Version); ok {
-		user := fallbackStr(s.User, "postgres")
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
+	user := fallbackStr(s.User, "postgres")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
 
-		if ext == ".backup" || ext == ".dump" {
-			pgRestore := filepath.Join(inst.Dir, "bin", "pg_restore.exe")
-			if fileExists(pgRestore) {
-				cmd := exec.CommandContext(ctx, pgRestore,
-					"-h", "127.0.0.1", "-p", fmt.Sprint(s.Port), "-U", user,
-					"-d", targetDB, "--clean", "--if-exists", "--no-owner", filePath,
-				)
-				hideWindow(cmd)
-				if s.Password != "" {
-					cmd.Env = append(os.Environ(), "PGPASSWORD="+s.Password)
-				}
-				out, err := cmd.CombinedOutput()
-				if err != nil {
-					return fmt.Errorf("%s", strings.TrimSpace(string(out)))
-				}
-				return nil
-			}
+	runPgRestore := func() error {
+		pgRestore := findPostgresTool(p, s, "pg_restore.exe")
+		if pgRestore == "" {
+			return errors.New("this file is a PostgreSQL custom/archive dump — install PostgreSQL in Versions so pg_restore.exe is available")
 		}
+		args := []string{
+			"-h", "127.0.0.1", "-p", fmt.Sprint(s.Port), "-U", user,
+			"-d", targetDB, "--no-owner", "--no-acl",
+		}
+		if exists {
+			args = append(args, "--clean", "--if-exists")
+		}
+		args = append(args, filePath)
+		cmd := exec.CommandContext(ctx, pgRestore, args...)
+		hideWindow(cmd)
+		if s.Password != "" {
+			cmd.Env = append(os.Environ(), "PGPASSWORD="+s.Password)
+		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			msg := strings.TrimSpace(string(out))
+			if msg == "" {
+				msg = err.Error()
+			}
+			return errors.New(msg)
+		}
+		return nil
+	}
 
-		psql := filepath.Join(inst.Dir, "bin", "psql.exe")
-		if fileExists(psql) {
-			cmd := exec.CommandContext(ctx, psql,
-				"-h", "127.0.0.1", "-p", fmt.Sprint(s.Port), "-U", user,
-				"-d", targetDB, "-v", "ON_ERROR_STOP=1", "-f", filePath,
-			)
-			hideWindow(cmd)
-			if s.Password != "" {
-				cmd.Env = append(os.Environ(), "PGPASSWORD="+s.Password)
-			}
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("%s", strings.TrimSpace(string(out)))
-			}
-			return nil
+	if isPostgresArchiveDump(filePath) {
+		return runPgRestore()
+	}
+
+	if psql := findPostgresTool(p, s, "psql.exe"); psql != "" {
+		cmd := exec.CommandContext(ctx, psql,
+			"-h", "127.0.0.1", "-p", fmt.Sprint(s.Port), "-U", user,
+			"-d", targetDB, "-v", "ON_ERROR_STOP=1", "-f", filePath,
+		)
+		hideWindow(cmd)
+		if s.Password != "" {
+			cmd.Env = append(os.Environ(), "PGPASSWORD="+s.Password)
 		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			msg := strings.TrimSpace(string(out))
+			// Fallback: if psql still identifies an archive dump, hand off to pg_restore automatically
+			if strings.Contains(strings.ToLower(msg), "pg_restore") {
+				return runPgRestore()
+			}
+			return fmt.Errorf("%s", msg)
+		}
+		return nil
+	}
+
+	if ext == ".backup" || ext == ".dump" {
+		return runPgRestore()
 	}
 
 	// Fallback: execute SQL directly
@@ -536,32 +604,29 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 }
 
 func postgresBackupSQL(p *Paths, s EngineSettings, dbName, outPath string) error {
-	if inst, ok := FindInstallation(p, "postgresql", s.Version); ok {
-		pgDump := filepath.Join(inst.Dir, "bin", "pg_dump.exe")
-		if fileExists(pgDump) {
-			user := fallbackStr(s.User, "postgres")
-			args := []string{"-h", "127.0.0.1", "-p", fmt.Sprint(s.Port), "-U", user, "-f", outPath}
-			ext := strings.ToLower(filepath.Ext(outPath))
-			if ext == ".backup" || ext == ".dump" {
-				args = append(args, "-F", "c")
-			} else {
-				args = append(args, "--clean", "--if-exists", "--no-owner")
-			}
-			args = append(args, dbName)
-
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, pgDump, args...)
-			hideWindow(cmd)
-			if s.Password != "" {
-				cmd.Env = append(os.Environ(), "PGPASSWORD="+s.Password)
-			}
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("%s", strings.TrimSpace(string(out)))
-			}
-			return nil
+	if pgDump := findPostgresTool(p, s, "pg_dump.exe"); pgDump != "" {
+		user := fallbackStr(s.User, "postgres")
+		args := []string{"-h", "127.0.0.1", "-p", fmt.Sprint(s.Port), "-U", user, "-f", outPath}
+		ext := strings.ToLower(filepath.Ext(outPath))
+		if ext == ".backup" || ext == ".dump" {
+			args = append(args, "-F", "c")
+		} else {
+			args = append(args, "--clean", "--if-exists", "--no-owner")
 		}
+		args = append(args, dbName)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, pgDump, args...)
+		hideWindow(cmd)
+		if s.Password != "" {
+			cmd.Env = append(os.Environ(), "PGPASSWORD="+s.Password)
+		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		}
+		return nil
 	}
 	return errors.New("pg_dump.exe not found — install a PostgreSQL version in Versions")
 }

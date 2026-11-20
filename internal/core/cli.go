@@ -22,6 +22,9 @@ const (
 	CLIAppInstallerURL = "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing"
 )
 
+// CLIAppBuild identifies the build timestamp (overridden via -ldflags at build time).
+var CLIAppBuild = "202611201155"
+
 // RunCLI executes a CLI subcommand and returns an process exit code.
 func RunCLI(root string, args []string) int {
 	paths := NewPaths(root)
@@ -44,8 +47,8 @@ func RunCLI(root string, args []string) int {
 		return 0
 
 	case "version", "v":
-		fmt.Printf("%s\nCreated by: %s\nCreated:    %s\nLicense:    MIT Open Source\nRepository: %s\nInstaller:  %s\nHome:       %s\n",
-			CLIAppTitle, CLIAppAuthor, CLIAppCreated, CLIAppRepo, CLIAppInstallerURL, root)
+		fmt.Printf("%s (build %s)\nCreated by: %s\nCreated:    %s\nLicense:    MIT Open Source\nRepository: %s\nInstaller:  %s\nHome:       %s\n",
+			CLIAppTitle, CLIAppBuild, CLIAppAuthor, CLIAppCreated, CLIAppRepo, CLIAppInstallerURL, root)
 		return 0
 
 	case "status", "ps", "services":

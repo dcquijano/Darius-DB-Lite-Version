@@ -1623,12 +1623,25 @@
             btn.textContent = "🔄 Fetch Latest from GitHub";
             return;
           }
+          if (up.hasUpdate && (up.directSetupUrl || up.fallbackSetupUrl || up.directZipUrl)) {
+            const primary = up.directSetupUrl || "";
+            const fallback = up.fallbackSetupUrl || up.directZipUrl || "";
+            setFetchProgress(
+              "loading",
+              82,
+              `🎉 Update Found (Lite Version ${esc(up.latestVersion)}) — Downloading & Updating...`,
+              "Step 3/3: Downloading latest Darius DB installer and restarting automatically..."
+            );
+            btn.textContent = "⏳ Updating & Restarting...";
+            const msg = await api().ApplySystemUpdateAuto(primary, fallback);
+            setFetchProgress("success", 100, "✅ Update Downloaded — Restarting Darius DB...", esc(msg || "Restarting..."));
+            if (msg) toast(msg, "ok");
+            return;
+          }
           setFetchProgress(
             "success",
             100,
-            up.hasUpdate
-              ? `🎉 Update Found: Lite Version ${up.latestVersion} Ready to Install!`
-              : "✅ Successfully Fetched Latest Updates from GitHub!",
+            "✅ Successfully Fetched Latest Updates from GitHub!",
             `Synced <strong>Darius DB (Lite Version ${esc(up.latestVersion)})</strong>` +
             (up.latestCommitSha
               ? ` · Latest Commit <code>${esc(up.latestCommitSha)}</code>: <strong>${esc(
@@ -1638,11 +1651,9 @@
           );
           btn.textContent = "✅ Successfully Fetched!";
           toast(
-            up.hasUpdate
-              ? `🎉 New update v${up.latestVersion} found! Click 'Download & Install Update Now' to upgrade.`
-              : up.latestCommitSha
-                ? `✅ Successfully fetched latest GitHub update [${up.latestCommitSha}]: ${up.latestCommitMsg}`
-                : "✅ Successfully fetched latest version.json and catalog from GitHub!",
+            up.latestCommitSha
+              ? `✅ Successfully fetched latest GitHub update [${up.latestCommitSha}]: ${up.latestCommitMsg}`
+              : "✅ Successfully fetched latest version.json and catalog from GitHub!",
             "ok"
           );
           setTimeout(() => {

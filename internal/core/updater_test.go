@@ -62,3 +62,9 @@ func TestBuildCandidateTokensDeduplicates(t *testing.T) {
 		t.Fatalf("unexpected candidate tokens order: %v", toks)
 	}
 }
+
+func TestHasUpdateByBuildID(t *testing.T) {
+	if !(compareVersions("0.1.3", "0.1.3") == 0 && "202611201155" > "202611201100") {
+		t.Fatal("expected newer build ID on same version to compare greater")
+	}
+}

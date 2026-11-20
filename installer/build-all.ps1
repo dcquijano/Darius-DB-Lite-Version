@@ -15,6 +15,14 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Push-Location $RepoRoot
 
 try {
+    $BuildID = ""
+    if (Test-Path "version.json") {
+        try {
+            $vj = Get-Content "version.json" -Raw | ConvertFrom-Json
+            if ($vj.build) { $BuildID = [string]$vj.build }
+        } catch {}
+    }
+    $ldBuild = if ($BuildID) { " -X dariusdb/internal/core.CLIAppBuild=$BuildID" } else { "" }
     $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path
     $goPath = (go env GOPATH).Trim()
     if ($goPath) { $env:Path += ';' + (Join-Path $goPath 'bin') }
@@ -50,7 +58,7 @@ try {
 
     Write-Host "==> Building DariusDB.exe (Wails production build)..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Force -Path "build\bin" | Out-Null
-    go build -p 1 -tags $tags -ldflags "-s -w -H windowsgui" -o "build\bin\DariusDB.exe" .
+    go build -p 1 -tags $tags -ldflags "-s -w -H windowsgui$ldBuild" -o "build\bin\DariusDB.exe" .
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB.exe failed" }
 
     Write-Host "==> Building DariusDB-Launcher.exe..." -ForegroundColor Cyan
@@ -62,11 +70,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Uninstall.exe failed" }
 
     Write-Host "==> Building DariusDB-Updater.exe (Standalone System Version Updater)..." -ForegroundColor Cyan
-    go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Updater.exe" ./cmd/updater
+    go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui$ldBuild" -o "build\bin\DariusDB-Updater.exe" ./cmd/updater
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Updater.exe failed" }
 
     Write-Host "==> Building darius.exe (Developer CLI for Visual Studio & VS Code)..." -ForegroundColor Cyan
-    go build -p 1 -tags $tags -ldflags "-s -w" -o "build\bin\darius.exe" ./cmd/cli
+    go build -p 1 -tags $tags -ldflags "-s -w$ldBuild" -o "build\bin\darius.exe" ./cmd/cli
     if ($LASTEXITCODE -ne 0) { throw "building darius.exe failed" }
 
     Write-Host "==> Building DariusDB-Setup-$Version.exe stub..." -ForegroundColor Cyan

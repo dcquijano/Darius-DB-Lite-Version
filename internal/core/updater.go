@@ -38,6 +38,8 @@ type SystemUpdateInfo struct {
 	Name             string             `json:"name"`
 	CurrentVersion   string             `json:"currentVersion"`
 	LatestVersion    string             `json:"latestVersion"`
+	CurrentBuild     string             `json:"currentBuild,omitempty"`
+	LatestBuild      string             `json:"latestBuild,omitempty"`
 	HasUpdate        bool               `json:"hasUpdate"`
 	Channel          string             `json:"channel"`
 	ReleasedAt       string             `json:"releasedAt"`
@@ -212,6 +214,8 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 		Name:           "Darius DB (Lite Version " + currentVersion + ")",
 		CurrentVersion: currentVersion,
 		LatestVersion:  currentVersion,
+		CurrentBuild:   CLIAppBuild,
+		LatestBuild:    CLIAppBuild,
 		HasUpdate:      false,
 		Channel:        "Lite Version",
 		ReleasedAt:     "2026-11-19",
@@ -255,6 +259,7 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 	var rem struct {
 		Name             string   `json:"name"`
 		Version          string   `json:"version"`
+		Build            string   `json:"build"`
 		Channel          string   `json:"channel"`
 		ReleasedAt       string   `json:"releasedAt"`
 		Author           string   `json:"author"`
@@ -287,6 +292,9 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 			gotVersion = true
 			sources = append(sources, "version.json")
 			info.LatestVersion = strings.TrimPrefix(strings.TrimSpace(rem.Version), "v")
+			if strings.TrimSpace(rem.Build) != "" {
+				info.LatestBuild = strings.TrimSpace(rem.Build)
+			}
 			if rem.Name != "" {
 				info.Name = rem.Name
 			}
@@ -458,7 +466,8 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 		}
 	}
 
-	info.HasUpdate = compareVersions(info.LatestVersion, info.CurrentVersion) > 0
+	verCmp := compareVersions(info.LatestVersion, info.CurrentVersion)
+	info.HasUpdate = verCmp > 0 || (verCmp == 0 && info.LatestBuild != "" && info.LatestBuild > info.CurrentBuild)
 	return info
 }
 

@@ -484,8 +484,11 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 		text := string(b)
 		if srcDB != dstDB && srcEngine == "mssql" {
 			text = strings.Replace(text, fmt.Sprintf("USE %s;\r\nGO\r\n", mssqlBracket(srcDB)), "", 1)
-			_ = os.WriteFile(dumpPath, []byte(text), 0o644)
 		}
+		if dstEngine == "mssql" {
+			text = wrapMSSQLSyncRefresh(text, tables, dstDB)
+		}
+		_ = os.WriteFile(dumpPath, []byte(text), 0o644)
 		dumpSize = int64(len(text))
 	} else if st, serr := os.Stat(dumpPath); serr == nil {
 		dumpSize = st.Size()
@@ -535,4 +538,53 @@ func formatByteSize(n int64) string {
 		return fmt.Sprintf("%.1f KB", float64(n)/1024.0)
 	}
 	return fmt.Sprintf("%.1f MB", float64(n)/(1024.0*1024.0))
+}
+
+// wrapMSSQLSyncRefresh disables constraints, clears existing synced tables in an FK-safe
+// multi-pass loop before importing, and re-enables constraints afterward so repeated
+// Local <-> Cloud syncs never collide on primary keys or foreign keys.
+func wrapMSSQLSyncRefresh(sqlText string, tables []TableInfo, dstDB string) string {
+	var idents []string
+	for _, t := range tables {
+		if strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
+			continue
+		}
+		tbl := t.Name
+		if idx := strings.IndexByte(tbl, '.'); idx >= 0 {
+			tbl = tbl[idx+1:]
+		}
+		sch := fallbackStr(t.Schema, "dbo")
+		idents = append(idents, mssqlBracket(sch)+"."+mssqlBracket(tbl))
+	}
+	if len(idents) == 0 {
+		return sqlText
+	}
+	var pre strings.Builder
+	pre.WriteString("SET NOCOUNT ON;\r\n")
+	if dstDB != "" {
+		fmt.Fprintf(&pre, "USE %s;\r\nGO\r\n", mssqlBracket(dstDB))
+	}
+	for _, id := range idents {
+		fmt.Fprintf(&pre, "IF OBJECT_ID(N'%s', N'U') IS NOT NULL BEGIN TRY ALTER TABLE %s NOCHECK CONSTRAINT ALL; END TRY BEGIN CATCH END CATCH;\r\n", id, id)
+	}
+	pre.WriteString("GO\r\n")
+	maxPasses := len(idents)
+	if maxPasses > 8 {
+		maxPasses = 8
+	}
+	for pass := 0; pass < maxPasses; pass++ {
+		for i := len(idents) - 1; i >= 0; i-- {
+			id := idents[i]
+			fmt.Fprintf(&pre, "IF OBJECT_ID(N'%s', N'U') IS NOT NULL BEGIN TRY DELETE FROM %s; END TRY BEGIN CATCH END CATCH;\r\n", id, id)
+		}
+	}
+	pre.WriteString("GO\r\n")
+
+	var post strings.Builder
+	post.WriteString("\r\nGO\r\n")
+	for _, id := range idents {
+		fmt.Fprintf(&post, "IF OBJECT_ID(N'%s', N'U') IS NOT NULL BEGIN TRY ALTER TABLE %s WITH CHECK CHECK CONSTRAINT ALL; END TRY BEGIN CATCH END CATCH;\r\n", id, id)
+	}
+	post.WriteString("GO\r\n")
+	return pre.String() + sqlText + post.String()
 }

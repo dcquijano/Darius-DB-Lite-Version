@@ -221,13 +221,35 @@ func mssqlImportSQL(s EngineSettings, sqlPath, targetDB string) error {
 	hideWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if msg == "" {
-			msg = err.Error()
-		}
+		msg := formatSqlcmdError(string(out), err)
 		return errors.New(msg)
 	}
 	return nil
+}
+
+var sqlcmdRowCountRe = regexp.MustCompile(`(?i)^\(\d+\s+rows?\s+affected\)$`)
+
+func formatSqlcmdError(raw string, err error) string {
+	var keep []string
+	for _, line := range strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n") {
+		tr := strings.TrimSpace(line)
+		if tr == "" || sqlcmdRowCountRe.MatchString(tr) {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(tr), "changed database context to") {
+			continue
+		}
+		keep = append(keep, tr)
+	}
+	msg := strings.TrimSpace(strings.Join(keep, "\n"))
+	if msg == "" && err != nil {
+		msg = err.Error()
+	}
+	if len(msg) > 1200 {
+		msg = msg[len(msg)-1200:]
+		msg = "…" + msg
+	}
+	return msg
 }
 
 func mssqlBackupBak(s EngineSettings, dbName, outPath string) error {
@@ -249,75 +271,176 @@ func mssqlExportSQL(s EngineSettings, dbName, outPath string) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) MS SQL Server SQL Dump\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
 		dbName, time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(&b, "IF DB_ID(N'%s') IS NULL CREATE DATABASE %s;\r\nGO\r\nUSE %s;\r\nGO\r\n\r\n",
+	fmt.Fprintf(&b, "SET NOCOUNT ON;\r\nIF DB_ID(N'%s') IS NULL CREATE DATABASE %s;\r\nGO\r\nUSE %s;\r\nGO\r\n\r\n",
 		strings.ReplaceAll(dbName, "'", "''"), mssqlBracket(dbName), mssqlBracket(dbName))
 
 	for _, t := range tables {
 		if strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
 			continue
 		}
-		tableName := t.Name
-		if idx := strings.IndexByte(tableName, '.'); idx >= 0 {
-			tableName = tableName[idx+1:]
-		}
-		fullIdent := mssqlBracket(t.Schema) + "." + mssqlBracket(tableName)
+		mssqlWriteTableSQL(&b, s, dbName, t, true, true)
+	}
+	return os.WriteFile(outPath, []byte(b.String()), 0o644)
+}
 
-		// Column definitions
-		colQ := fmt.Sprintf(
-			"SET NOCOUNT ON; SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE "+
-				"FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'%s' AND TABLE_NAME = N'%s' ORDER BY ORDINAL_POSITION;",
-			strings.ReplaceAll(t.Schema, "'", "''"), strings.ReplaceAll(tableName, "'", "''"),
-		)
-		colRes, err := mssqlRunQuery(s, dbName, colQ)
-		if err == nil && len(colRes.Rows) > 0 {
-			fmt.Fprintf(&b, "IF OBJECT_ID(N'%s', N'U') IS NULL\r\nCREATE TABLE %s (\r\n", fullIdent, fullIdent)
-			for i, cr := range colRes.Rows {
-				cName, dType, maxLen, isNull := valAt(cr, 0), valAt(cr, 1), valAt(cr, 2), valAt(cr, 3)
-				typeSpec := dType
-				switch strings.ToLower(dType) {
-				case "varchar", "nvarchar", "char", "nchar", "varbinary":
-					if maxLen == "-1" {
-						typeSpec += "(MAX)"
-					} else if maxLen != "" && maxLen != "NULL" {
-						typeSpec += "(" + maxLen + ")"
+type mssqlColMeta struct {
+	name       string
+	dataType   string
+	maxLen     string
+	isNullable string
+	isIdentity bool
+	isComputed bool
+	precision  string
+	scale      string
+}
+
+func isMSSQLBinaryType(dt string) bool {
+	switch strings.ToLower(dt) {
+	case "binary", "varbinary", "image":
+		return true
+	}
+	return false
+}
+
+func isMSSQLAutoTimestampType(dt string) bool {
+	switch strings.ToLower(dt) {
+	case "timestamp", "rowversion":
+		return true
+	}
+	return false
+}
+
+func mssqlWriteTableSQL(b *strings.Builder, s EngineSettings, dbName string, t TableInfo, includeSchema, includeData bool) {
+	tableName := t.Name
+	if idx := strings.IndexByte(tableName, '.'); idx >= 0 {
+		tableName = tableName[idx+1:]
+	}
+	fullIdent := mssqlBracket(t.Schema) + "." + mssqlBracket(tableName)
+
+	colQ := fmt.Sprintf(
+		"SET NOCOUNT ON; SELECT COLUMN_NAME, DATA_TYPE, "+
+			"ISNULL(CAST(CHARACTER_MAXIMUM_LENGTH AS VARCHAR(20)), ''), "+
+			"ISNULL(IS_NULLABLE, 'YES'), "+
+			"ISNULL(COLUMNPROPERTY(OBJECT_ID(QUOTENAME(TABLE_SCHEMA)+N'.'+QUOTENAME(TABLE_NAME)), COLUMN_NAME, 'IsIdentity'), 0), "+
+			"ISNULL(COLUMNPROPERTY(OBJECT_ID(QUOTENAME(TABLE_SCHEMA)+N'.'+QUOTENAME(TABLE_NAME)), COLUMN_NAME, 'IsComputed'), 0), "+
+			"ISNULL(CAST(NUMERIC_PRECISION AS VARCHAR(20)), ''), "+
+			"ISNULL(CAST(NUMERIC_SCALE AS VARCHAR(20)), '') "+
+			"FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'%s' AND TABLE_NAME = N'%s' ORDER BY ORDINAL_POSITION;",
+		strings.ReplaceAll(t.Schema, "'", "''"), strings.ReplaceAll(tableName, "'", "''"),
+	)
+	var cols []mssqlColMeta
+	if colRes, err := mssqlRunQuery(s, dbName, colQ); err == nil {
+		for _, cr := range colRes.Rows {
+			cols = append(cols, mssqlColMeta{
+				name:       valAt(cr, 0),
+				dataType:   valAt(cr, 1),
+				maxLen:     valAt(cr, 2),
+				isNullable: valAt(cr, 3),
+				isIdentity: valAt(cr, 4) == "1",
+				isComputed: valAt(cr, 5) == "1",
+				precision:  valAt(cr, 6),
+				scale:      valAt(cr, 7),
+			})
+		}
+	}
+
+	if includeSchema && len(cols) > 0 {
+		fmt.Fprintf(b, "IF OBJECT_ID(N'%s', N'U') IS NULL\r\nCREATE TABLE %s (\r\n", fullIdent, fullIdent)
+		for i, c := range cols {
+			typeSpec := c.dataType
+			switch strings.ToLower(c.dataType) {
+			case "varchar", "nvarchar", "char", "nchar", "varbinary", "binary":
+				if c.maxLen == "-1" {
+					typeSpec += "(MAX)"
+				} else if c.maxLen != "" && c.maxLen != "NULL" {
+					typeSpec += "(" + c.maxLen + ")"
+				}
+			case "decimal", "numeric":
+				if c.precision != "" && c.precision != "NULL" {
+					if c.scale != "" && c.scale != "NULL" {
+						typeSpec += "(" + c.precision + "," + c.scale + ")"
+					} else {
+						typeSpec += "(" + c.precision + ")"
 					}
 				}
-				nullSpec := "NULL"
-				if strings.EqualFold(isNull, "NO") {
-					nullSpec = "NOT NULL"
-				}
-				comma := ","
-				if i == len(colRes.Rows)-1 {
-					comma = ""
-				}
-				fmt.Fprintf(&b, "  %s %s %s%s\r\n", mssqlBracket(cName), typeSpec, nullSpec, comma)
 			}
-			b.WriteString(");\r\nGO\r\n")
+			idSpec := ""
+			if c.isIdentity {
+				idSpec = " IDENTITY(1,1)"
+			}
+			nullSpec := "NULL"
+			if strings.EqualFold(c.isNullable, "NO") {
+				nullSpec = "NOT NULL"
+			}
+			comma := ","
+			if i == len(cols)-1 {
+				comma = ""
+			}
+			fmt.Fprintf(b, "  %s %s%s %s%s\r\n", mssqlBracket(c.name), typeSpec, idSpec, nullSpec, comma)
+		}
+		b.WriteString(");\r\nGO\r\n")
+	}
+
+	if includeData {
+		var insertCols []mssqlColMeta
+		for _, c := range cols {
+			// Skip auto-generated SQL Server timestamp/rowversion and computed columns (Msg 273)
+			if isMSSQLAutoTimestampType(c.dataType) || c.isComputed {
+				continue
+			}
+			insertCols = append(insertCols, c)
+		}
+		var selectQ string
+		if len(insertCols) > 0 {
+			var selExprs []string
+			for _, c := range insertCols {
+				br := mssqlBracket(c.name)
+				if isMSSQLBinaryType(c.dataType) {
+					selExprs = append(selExprs, fmt.Sprintf("CONVERT(VARCHAR(MAX), %s, 1) AS %s", br, br))
+				} else {
+					selExprs = append(selExprs, br)
+				}
+			}
+			selectQ = fmt.Sprintf("SELECT %s FROM %s;", strings.Join(selExprs, ", "), fullIdent)
+		} else if len(cols) == 0 {
+			selectQ = "SELECT * FROM " + fullIdent + ";"
+		} else {
+			return
 		}
 
-		// Table data rows
-		dataRes, err := mssqlRunQuery(s, dbName, "SELECT * FROM "+fullIdent+";")
+		dataRes, err := mssqlRunQueryWithLimit(s, dbName, selectQ, maxShowRows)
 		if err == nil && len(dataRes.Rows) > 0 && len(dataRes.Columns) > 0 {
 			var colList []string
-			for _, c := range dataRes.Columns {
-				colList = append(colList, mssqlBracket(c))
+			hasIdentity := false
+			for i, cName := range dataRes.Columns {
+				colList = append(colList, mssqlBracket(cName))
+				if i < len(insertCols) && insertCols[i].isIdentity {
+					hasIdentity = true
+				}
 			}
 			colsJoined := strings.Join(colList, ", ")
+			if hasIdentity {
+				fmt.Fprintf(b, "SET IDENTITY_INSERT %s ON;\r\n", fullIdent)
+			}
 			for _, row := range dataRes.Rows {
 				var vals []string
-				for _, cell := range row {
+				for i, cell := range row {
 					if cell == nil {
 						vals = append(vals, "NULL")
+					} else if i < len(insertCols) && isMSSQLBinaryType(insertCols[i].dataType) && strings.HasPrefix(strings.ToLower(strings.TrimSpace(*cell)), "0x") {
+						vals = append(vals, strings.TrimSpace(*cell))
 					} else {
 						vals = append(vals, "N'"+strings.ReplaceAll(*cell, "'", "''")+"'")
 					}
 				}
-				fmt.Fprintf(&b, "INSERT INTO %s (%s) VALUES (%s);\r\n", fullIdent, colsJoined, strings.Join(vals, ", "))
+				fmt.Fprintf(b, "INSERT INTO %s (%s) VALUES (%s);\r\n", fullIdent, colsJoined, strings.Join(vals, ", "))
+			}
+			if hasIdentity {
+				fmt.Fprintf(b, "SET IDENTITY_INSERT %s OFF;\r\n", fullIdent)
 			}
 			b.WriteString("GO\r\n\r\n")
 		}
 	}
-	return os.WriteFile(outPath, []byte(b.String()), 0o644)
 }
 
 func valAt(row []*string, idx int) string {
@@ -1426,7 +1549,7 @@ func mssqlExportTablesSQL(s EngineSettings, dbName string, tables []string, incl
 	var b strings.Builder
 	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) MS SQL Server SQL Export\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
 		dbName, time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(&b, "USE %s;\r\nGO\r\n\r\n", mssqlBracket(dbName))
+	fmt.Fprintf(&b, "SET NOCOUNT ON;\r\nUSE %s;\r\nGO\r\n\r\n", mssqlBracket(dbName))
 
 	for _, t := range allTables {
 		if len(selected) > 0 && !selected[strings.ToLower(t.Name)] {
@@ -1435,68 +1558,7 @@ func mssqlExportTablesSQL(s EngineSettings, dbName string, tables []string, incl
 		if strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
 			continue
 		}
-		tableName := t.Name
-		if idx := strings.IndexByte(tableName, '.'); idx >= 0 {
-			tableName = tableName[idx+1:]
-		}
-		fullIdent := mssqlBracket(t.Schema) + "." + mssqlBracket(tableName)
-
-		if includeSchema {
-			colQ := fmt.Sprintf(
-				"SET NOCOUNT ON; SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE "+
-					"FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'%s' AND TABLE_NAME = N'%s' ORDER BY ORDINAL_POSITION;",
-				strings.ReplaceAll(t.Schema, "'", "''"), strings.ReplaceAll(tableName, "'", "''"),
-			)
-			colRes, err := mssqlRunQuery(s, dbName, colQ)
-			if err == nil && len(colRes.Rows) > 0 {
-				fmt.Fprintf(&b, "IF OBJECT_ID(N'%s', N'U') IS NULL\r\nCREATE TABLE %s (\r\n", fullIdent, fullIdent)
-				for i, cr := range colRes.Rows {
-					cName, dType, maxLen, isNull := valAt(cr, 0), valAt(cr, 1), valAt(cr, 2), valAt(cr, 3)
-					typeSpec := dType
-					switch strings.ToLower(dType) {
-					case "varchar", "nvarchar", "char", "nchar", "varbinary":
-						if maxLen == "-1" {
-							typeSpec += "(MAX)"
-						} else if maxLen != "" && maxLen != "NULL" {
-							typeSpec += "(" + maxLen + ")"
-						}
-					}
-					nullSpec := "NULL"
-					if strings.EqualFold(isNull, "NO") {
-						nullSpec = "NOT NULL"
-					}
-					comma := ","
-					if i == len(colRes.Rows)-1 {
-						comma = ""
-					}
-					fmt.Fprintf(&b, "  %s %s %s%s\r\n", mssqlBracket(cName), typeSpec, nullSpec, comma)
-				}
-				b.WriteString(");\r\nGO\r\n")
-			}
-		}
-
-		if includeData {
-			dataRes, err := mssqlRunQueryWithLimit(s, dbName, "SELECT * FROM "+fullIdent+";", maxShowRows)
-			if err == nil && len(dataRes.Rows) > 0 && len(dataRes.Columns) > 0 {
-				var colList []string
-				for _, c := range dataRes.Columns {
-					colList = append(colList, mssqlBracket(c))
-				}
-				colsJoined := strings.Join(colList, ", ")
-				for _, row := range dataRes.Rows {
-					var vals []string
-					for _, cell := range row {
-						if cell == nil {
-							vals = append(vals, "NULL")
-						} else {
-							vals = append(vals, "N'"+strings.ReplaceAll(*cell, "'", "''")+"'")
-						}
-					}
-					fmt.Fprintf(&b, "INSERT INTO %s (%s) VALUES (%s);\r\n", fullIdent, colsJoined, strings.Join(vals, ", "))
-				}
-				b.WriteString("GO\r\n\r\n")
-			}
-		}
+		mssqlWriteTableSQL(&b, s, dbName, t, includeSchema, includeData)
 	}
 	return os.WriteFile(outPath, []byte(b.String()), 0o644)
 }

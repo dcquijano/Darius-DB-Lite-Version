@@ -487,3 +487,21 @@ func TestCloudURIParserAndSettings(t *testing.T) {
 	}
 }
 
+func TestMSSQLSyncAndErrorHelpers(t *testing.T) {
+	raw := "(1 rows affected)\r\n(1 rows affected)\r\nChanged database context to 'hris'.\r\nMsg 273, Level 16, State 1, Line 1 Cannot insert an explicit value into a timestamp column."
+	got := formatSqlcmdError(raw, nil)
+	if strings.Contains(got, "rows affected") || strings.Contains(got, "Changed database context") {
+		t.Fatalf("expected noisy sqlcmd lines stripped, got %q", got)
+	}
+	if !strings.Contains(got, "Msg 273") {
+		t.Fatalf("expected Msg 273 preserved, got %q", got)
+	}
+	if !isMSSQLAutoTimestampType("timestamp") || !isMSSQLAutoTimestampType("rowversion") || isMSSQLAutoTimestampType("datetime2") {
+		t.Fatal("unexpected timestamp/rowversion detection")
+	}
+	wrapped := wrapMSSQLSyncRefresh("INSERT INTO [dbo].[Users] VALUES (1);", []TableInfo{{Schema: "dbo", Name: "Users", Kind: "BASE TABLE"}}, "hris")
+	if !strings.Contains(wrapped, "NOCHECK CONSTRAINT ALL") || !strings.Contains(wrapped, "WITH CHECK CHECK CONSTRAINT ALL") || !strings.Contains(wrapped, "DELETE FROM [dbo].[Users]") {
+		t.Fatalf("unexpected wrapped T-SQL: %s", wrapped)
+	}
+}
+

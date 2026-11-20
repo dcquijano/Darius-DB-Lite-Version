@@ -1515,6 +1515,9 @@
       $("sysUpChangelogList").innerHTML = (up.changelog || [])
         .map((item) => `<li>${esc(item)}</li>`)
         .join("");
+      if ($("announceBodyText") && up.announcement) {
+        $("announceBodyText").textContent = up.announcement;
+      }
       if ($("announceUpdateInfo") && up.latestCommitSha) {
         $("announceUpdateInfo").textContent = `Latest GitHub Update [${up.latestCommitSha}]: ${up.latestCommitMsg} (${up.latestCommitDate})`;
       }
@@ -2721,6 +2724,20 @@ try {
     applyTheme(settings.theme);
 
     renderDashboard();
+
+    // Non-blocking live announcement & GitHub commit check on startup
+    api().CheckSystemUpdate().then((up) => {
+      if (!up) return;
+      if ($("announceBodyText") && up.announcement) {
+        $("announceBodyText").textContent = up.announcement;
+      }
+      if ($("announceUpdateInfo") && up.latestCommitSha) {
+        $("announceUpdateInfo").textContent = `Latest GitHub Update [${up.latestCommitSha}]: ${up.latestCommitMsg} (${up.latestCommitDate})`;
+      }
+      if (up.fetchOk && up.hasUpdate && $("btnAnnounceSysUpdate")) {
+        $("btnAnnounceSysUpdate").textContent = `⬆️ Update to ${up.latestVersion}`;
+      }
+    }).catch(() => {});
 
     onEvent("status", (list) => {
       const prev = getStatus(state.dbEngine)?.state;

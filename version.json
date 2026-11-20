@@ -1,23 +1,23 @@
 {
   "name": "Darius DB (Lite Version 0.1.3)",
   "version": "0.1.3",
-  "build": "202611201155",
+  "build": "202611201202",
   "channel": "Lite Version",
-  "releasedAt": "2026-11-19",
+  "releasedAt": "2026-11-20",
   "author": "Darius Cumpio",
   "installerUrl": "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing",
   "directSetupUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.3/DariusDB-Setup-0.1.3.exe",
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.3/DariusDB-0.1.3-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.3.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.3) — Unified Full-Stack Apache 2.4 + PHP 8.x + MySQL / MariaDB (:3306) Release! Includes standalone DariusDB-Updater.exe, GitHub Release & Private Repo Token support, Installer/Launcher/Uninstaller/Updater executables on GitHub, 5th-Picture Toggle-Switch Dashboard, and MySQL Error 1130 + sqlcmd.exe auto-provisioning fixes.",
+  "announcement": "Darius DB (Lite Version 0.1.3) — Full-Stack Web & Database Manager! Now includes Database Import (.sql/.csv/.bak), Full Row/Table CRUD (Create, Show, Edit, Delete, Show All), Single & Selected-Table Export (.sql/.csv), 1-Click GitHub Auto-Updater & Restart, standalone DariusDB-Updater.exe, and Toggle-Switch Apache 2.4 + PHP 8.x + MySQL/MariaDB (:3306).",
   "changelog": [
-    "Added standalone DariusDB-Updater.exe (Win32 GUI & CLI) and bundled Installer, Launcher, Uninstaller & Updater in GitHub",
-    "Fixed System Version Updater GitHub fetch diagnostics (Private repo HTTP 404 detection + optional GitHub Token + 1-Click GitHub Release auto-download)",
+    "Added Database Import (.sql, .csv, .bak) and Full CRUD (Create Row, Create Table, Show Details, Edit Row, Delete, Show All)",
+    "Added Single-Table, Selected-Tables, and Full-Database Export (.sql with Structure/Data toggles & .csv)",
+    "Added 1-Click GitHub System Updater with BuildID tracking, automatic update download, and automatic app restart",
+    "Added standalone DariusDB-Updater.exe and bundled Installer, Launcher, Uninstaller & Updater executables on GitHub",
     "Fixed MySQL Error 1130 on 127.0.0.1, removed username/password from mssql.conf, and auto-provisioned sqlcmd.exe",
-    "Separated MariaDB and MySQL into individual rows and tabs across Dashboard, Database, Versions, Config & Logs, and Settings",
-    "Redesigned Services Dashboard with 5th-picture Toggle-Switch rows and interactive Full-Stack Architecture guide",
-    "Hardened PHP (Zend OPcache, PDO utf8mb4, secure sessions), Apache security headers, and MariaDB/MySQL InnoDB 256M configs",
-    "Fixed Apache 2.4.66 portable provisioning when upstream mirrors return HTML redirects"
+    "Separated MariaDB and MySQL rows/tabs and redesigned Dashboard with Toggle-Switch rows & Full-Stack guide",
+    "Hardened PHP (Zend OPcache, PDO utf8mb4, secure sessions), Apache security headers, and MariaDB/MySQL InnoDB 256M configs"
   ]
 }

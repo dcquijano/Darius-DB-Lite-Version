@@ -269,7 +269,7 @@ func mssqlExportSQL(s EngineSettings, dbName, outPath string) error {
 		return err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) MS SQL Server SQL Dump\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) MS SQL Server SQL Dump\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
 		dbName, time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(&b, "SET NOCOUNT ON;\r\nIF DB_ID(N'%s') IS NULL CREATE DATABASE %s;\r\nGO\r\nUSE %s;\r\nGO\r\n\r\n",
 		strings.ReplaceAll(dbName, "'", "''"), mssqlBracket(dbName), mssqlBracket(dbName))
@@ -562,7 +562,7 @@ func mysqlBackupSQL(p *Paths, engine string, s EngineSettings, dbName, outPath s
 		return err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) SQL Dump\n-- Engine: %s  Database: %s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", engine, dbName)
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) SQL Dump\n-- Engine: %s  Database: %s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", engine, dbName)
 	for _, t := range tables {
 		var tbl, createSQL string
 		if err := db.QueryRow("SHOW CREATE TABLE "+quoteIdent(engine, t.Name)).Scan(&tbl, &createSQL); err == nil {
@@ -1209,7 +1209,7 @@ func ExportDatabaseFullZipWithProgress(p *Paths, engine string, s EngineSettings
 		TableCount    int      `json:"tableCount"`
 		Tables        []string `json:"tables"`
 	}{
-		App:           "Darius DB (Lite Version 0.1.3)",
+		App:           "Darius DB (Lite Version 0.1.4)",
 		Engine:        engine,
 		Host:          fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1"),
 		Database:      dbName,
@@ -1389,7 +1389,7 @@ func mysqlExportTablesSQL(p *Paths, engine string, s EngineSettings, dbName stri
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) SQL Export\n-- Engine: %s  Database: %s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", engine, dbName)
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) SQL Export\n-- Engine: %s  Database: %s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", engine, dbName)
 	for _, t := range allTables {
 		if len(selected) > 0 && !selected[strings.ToLower(t.Name)] {
 			continue
@@ -1474,7 +1474,7 @@ func postgresExportTablesPureGo(s EngineSettings, dbName string, tables []string
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) PostgreSQL SQL Export\n-- Database: %s\n\n", dbName)
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) PostgreSQL SQL Export\n-- Database: %s\n\n", dbName)
 	for _, t := range allTables {
 		if len(selected) > 0 && !selected[strings.ToLower(t.Name)] {
 			continue
@@ -1547,7 +1547,7 @@ func mssqlExportTablesSQL(s EngineSettings, dbName string, tables []string, incl
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) MS SQL Server SQL Export\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) MS SQL Server SQL Export\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
 		dbName, time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(&b, "SET NOCOUNT ON;\r\nUSE %s;\r\nGO\r\n\r\n", mssqlBracket(dbName))
 

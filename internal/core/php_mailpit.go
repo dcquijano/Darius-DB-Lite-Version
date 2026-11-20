@@ -51,7 +51,7 @@ func (p *phpEngine) RouterFile(paths *Paths) string {
 }
 
 const defaultPhpRouter = `<?php
-// Darius DB (Lite Version 0.1.3) - Built-in PHP Development Server Router
+// Darius DB (Lite Version 0.1.4) - Built-in PHP Development Server Router
 // Handles /__darius_www__/* Drag & Drop Website Deployer API and routes all other requests to www/.
 
 $uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
@@ -253,7 +253,7 @@ if (is_dir($fullPath)) {
 return false;
 `
 
-const defaultPhpIni = `; Darius DB (Lite Version 0.1.3) - Full-Stack PHP + Apache + MariaDB/MySQL Configuration
+const defaultPhpIni = `; Darius DB (Lite Version 0.1.4) - Full-Stack PHP + Apache + MariaDB/MySQL Configuration
 ; DocumentRoot: www/ | Integrated with Apache 2.4, MariaDB (:3306), MySQL (:3307), and Mailpit SMTP (127.0.0.1:1025)
 
 [PHP]
@@ -472,7 +472,7 @@ func (m *mailpitEngine) ConfigFile(p *Paths, _ Installation) string {
 	return filepath.Join(p.EngineEtc("mailpit"), "mailpit.conf")
 }
 
-const defaultMailpitConf = `# Darius DB (Lite Version 0.1.3) - Mailpit Email Testing Server Configuration
+const defaultMailpitConf = `# Darius DB (Lite Version 0.1.4) - Mailpit Email Testing Server Configuration
 # Captures all local outgoing emails via SMTP and displays them in the Web Inbox UI.
 http_port = 8025
 smtp_port = 1025
@@ -722,10 +722,10 @@ func RunBuiltInMailpit(args []string) int {
 		w.Header().Set("Content-Type", "application/json")
 		msg := "From: Darius DB <no-reply@dariusdb.local>\r\n" +
 			"To: developer@localhost\r\n" +
-			"Subject: Welcome to Darius DB (Lite Version 0.1.3) Mailpit!\r\n" +
+			"Subject: Welcome to Darius DB (Lite Version 0.1.4) Mailpit!\r\n" +
 			"Date: " + time.Now().Format(time.RFC1123Z) + "\r\n" +
 			"Content-Type: text/plain; charset=utf-8\r\n\r\n" +
-			"Hello from Darius DB (Lite Version 0.1.3) Mailpit!\r\n\r\n" +
+			"Hello from Darius DB (Lite Version 0.1.4) Mailpit!\r\n\r\n" +
 			"Your local SMTP email capture server is running on 127.0.0.1:" + strconv.Itoa(smtpPort) + ".\r\n" +
 			"Any emails sent from PHP mail(), Laravel, ASP.NET / Visual Studio, Node.js, or Python to 127.0.0.1:" + strconv.Itoa(smtpPort) + " will appear right here in real time.\r\n\r\n" +
 			"— Created by Darius Cumpio (MIT Open Source)"
@@ -819,7 +819,7 @@ const mailpitWebUIHTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mailpit — Darius DB (Lite Version 0.1.3)</title>
+  <title>Mailpit — Darius DB (Lite Version 0.1.4)</title>
   <style>
     :root { --bg:#0c1220; --panel:#162033; --subtle:#0e1626; --border:rgba(148,163,184,0.18); --text:#e6edf7; --muted:#8ea0ba; --accent:#14b8a6; --green:#22c55e; --danger:#ef4444; }
     * { box-sizing:border-box; }
@@ -846,7 +846,7 @@ const mailpitWebUIHTML = `<!DOCTYPE html>
 <body>
   <header>
     <div class="brand">
-      <strong style="font-size:16px">📬 Mailpit — Darius DB (Lite Version 0.1.3)</strong>
+      <strong style="font-size:16px">📬 Mailpit — Darius DB (Lite Version 0.1.4)</strong>
       <span class="badge" id="smtpBadge">SMTP 127.0.0.1:1025</span>
     </div>
     <div class="actions">

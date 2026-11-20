@@ -154,7 +154,7 @@ func getJSONNoCache(client *http.Client, rawURL, token, accept string, dest inte
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.3")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.4")
 	req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	req.Header.Set("Pragma", "no-cache")
 	if accept != "" {
@@ -223,7 +223,7 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 		Author:         CLIAppAuthor,
 		InstallerURL:   defaultDriveFolderURL,
 		RepoURL:        CLIAppRepo,
-		Announcement:   "Darius DB (Lite Version 0.1.3) — Full-Stack Web & Database Manager! Now includes Database Import (.sql/.csv/.bak), Full Row/Table CRUD (Create, Show, Edit, Delete, Show All), Single & Selected-Table Export (.sql/.csv), 1-Click GitHub Auto-Updater & Restart, standalone DariusDB-Updater.exe, and Toggle-Switch Apache 2.4 + PHP 8.x + MySQL/MariaDB (:3306).",
+		Announcement:   "Darius DB (Lite Version 0.1.4) — Full-Stack Web & Database Manager! Now includes Database Import (.sql/.csv/.bak), Full Row/Table CRUD (Create, Show, Edit, Delete, Show All), Single & Selected-Table Export (.sql/.csv), 1-Click GitHub Auto-Updater & Restart, standalone DariusDB-Updater.exe, and Toggle-Switch Apache 2.4 + PHP 8.x + MySQL/MariaDB (:3306).",
 		Changelog: []string{
 			"Added Database Import (.sql, .csv, .bak) and Full CRUD (Create Row, Create Table, Show Details, Edit Row, Delete, Show All)",
 			"Added Single-Table, Selected-Tables, and Full-Database Export (.sql with Structure/Data toggles & .csv)",
@@ -428,7 +428,7 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 		recordErr(code, err)
 	}
 
-	// For same-version builds pushed to main (e.g. build 2026112013xx on v0.1.3),
+	// For same-version builds pushed to main (e.g. build 2026112013xx on v0.1.4),
 	// main/installer/DariusDB-Setup-<ver>.exe always reflects the newest pushed binaries immediately,
 	// whereas tagged GitHub Release assets update later via CI. Prefer main when same version.
 	if info.LatestVersion != "" {
@@ -623,7 +623,7 @@ func ApplySystemUpdateFromURL(p *Paths, downloadURL string, tokens ...string) (s
 		if err != nil {
 			return "", err
 		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.3")
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.4")
 		if strings.Contains(strings.ToLower(targetURL), "api.github.com/repos/") {
 			if strings.Contains(strings.ToLower(targetURL), "/contents/") {
 				req.Header.Set("Accept", "application/vnd.github.raw+json")

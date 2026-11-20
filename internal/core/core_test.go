@@ -200,7 +200,7 @@ func TestBuiltInTerminal(t *testing.T) {
 	mgr := NewManager(p, st, nil)
 	term := NewTerminal(p, st, mgr, nil)
 
-	if !strings.Contains(term.Banner(), "Darius DB (Lite Version 0.1.3) Built-in Terminal") {
+	if !strings.Contains(term.Banner(), "Darius DB (Lite Version 0.1.4) Built-in Terminal") {
 		t.Fatalf("unexpected banner: %s", term.Banner())
 	}
 

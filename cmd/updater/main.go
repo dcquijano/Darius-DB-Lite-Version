@@ -28,8 +28,8 @@ import (
 
 const (
 	appShortName = "Darius DB"
-	appFullTitle = "Darius DB (Lite Version 0.1.3)"
-	updaterVer   = "0.1.3"
+	appFullTitle = "Darius DB (Lite Version 0.1.4)"
+	updaterVer   = "0.1.4"
 	defaultDir   = `C:\DariusDB`
 	uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\DariusDB`
 )

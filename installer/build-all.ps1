@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Builds Darius DB (Lite Version 0.1.3) GUI, Launcher, Uninstaller, Updater, CLI, Portable ZIP, and Standalone Setup .exe.
-  Created by Darius Cumpio - November 19, 2026 - v0.1.3
+  Builds Darius DB (Lite Version 0.1.4) GUI, Launcher, Uninstaller, Updater, CLI, Portable ZIP, and Standalone Setup .exe.
+  Created by Darius Cumpio - November 19, 2026 - v0.1.4
 #>
 param(
     [switch]$SkipTests
@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$Version = "0.1.3"
+$Version = "0.1.4"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Push-Location $RepoRoot
 
@@ -103,7 +103,7 @@ try {
     [System.IO.Compression.ZipFile]::CreateFromDirectory($stageDir, $zipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
     Remove-Item -Recurse -Force $stageDir
 
-    # Create self-contained single-file DariusDB-Setup-0.1.3.exe (stub + zip payload + 16-byte trailer)
+    # Create self-contained single-file DariusDB-Setup-0.1.4.exe (stub + zip payload + 16-byte trailer)
     Copy-Item -Force $stubExe $setupExe
     $zipBytes = [System.IO.File]::ReadAllBytes($zipPath)
     $sizeBytes = [System.BitConverter]::GetBytes([uint64]$zipBytes.Length)

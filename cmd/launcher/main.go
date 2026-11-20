@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	appTitle    = "Darius DB (Lite Version 0.1.3) Launcher"
-	appVersion  = "0.1.3"
+	appTitle    = "Darius DB (Lite Version 0.1.4) Launcher"
+	appVersion  = "0.1.4"
 	appAuthor   = "Darius Cumpio"
 	appCreated  = "November 19, 2026"
 	appRepo     = "https://github.com/dcquijano/Darius-DB-Lite-Version"

@@ -62,7 +62,7 @@ func (a *apacheEngine) ConfigFile(p *Paths, _ Installation) string {
 	return filepath.Join(p.EngineEtc("apache"), "httpd.conf")
 }
 
-const apacheHttpdConf = `# Darius DB (Lite Version 0.1.3) - Apache HTTP Server configuration
+const apacheHttpdConf = `# Darius DB (Lite Version 0.1.4) - Apache HTTP Server configuration
 # DocumentRoot (www/) and Listen port are passed automatically by Darius DB.
 ServerName localhost
 
@@ -141,7 +141,7 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Darius DB (Lite Version 0.1.3) — Local Web Server & Drag-and-Drop Hosting</title>
+  <title>Darius DB (Lite Version 0.1.4) — Local Web Server & Drag-and-Drop Hosting</title>
   <style>
     :root { --bg:#0c1220; --card:#162033; --subtle:#0e1626; --border:rgba(148,163,184,0.18); --text:#e6edf7; --muted:#8ea0ba; --accent:#14b8a6; --accent-hover:#0d9488; --green:#22c55e; --danger:#ef4444; }
     * { box-sizing:border-box; }
@@ -206,7 +206,7 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
       </div>
       <code id="wwwPathBadge">www/</code>
     </div>
-    <h1>Darius DB (Lite Version 0.1.3)</h1>
+    <h1>Darius DB (Lite Version 0.1.4)</h1>
     <p>Your local web server is active and serving websites directly from your portable <code>www/</code> directory.</p>
 
     <!-- Trust Author & Folder Permissions Modal -->
@@ -273,7 +273,7 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
 
     <div class="foot">
       <span>Created by Darius Cumpio · MIT Open Source</span>
-      <span>Darius DB (Lite Version 0.1.3)</span>
+      <span>Darius DB (Lite Version 0.1.4)</span>
     </div>
   </div>
 
@@ -721,7 +721,7 @@ func RunBuiltInHTTPD(args []string) int {
 	fs := http.FileServer(http.Dir(wwwDir))
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		w.Header().Set("Server", "Apache/2.4 (DariusDB-Lite/0.1.3)")
+		w.Header().Set("Server", "Apache/2.4 (DariusDB-Lite/0.1.4)")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -1357,7 +1357,7 @@ func servePHPFile(w http.ResponseWriter, r *http.Request, wwwDir, scriptPath str
 			"REDIRECT_STATUS=200",
 			"GATEWAY_INTERFACE=CGI/1.1",
 			"SERVER_PROTOCOL=HTTP/1.1",
-			"SERVER_SOFTWARE=Apache/2.4 (DariusDB-Lite/0.1.3)",
+			"SERVER_SOFTWARE=Apache/2.4 (DariusDB-Lite/0.1.4)",
 			"SERVER_NAME=localhost",
 			"SERVER_ADDR=127.0.0.1",
 			"SERVER_PORT="+strconv.Itoa(port),

@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-  Darius DB (Lite Version 0.1.3) System Updater script for Windows.
-  Upgrades an existing installation (e.g. v0.1.2 -> v0.1.3) in-place while keeping data/, www/, and etc/ safe.
-  Created by Darius Cumpio - November 19, 2026 - v0.1.3 (MIT License)
+  Darius DB (Lite Version 0.1.4) System Updater script for Windows.
+  Upgrades an existing installation (e.g. v0.1.3 -> v0.1.4) in-place while keeping data/, www/, and etc/ safe.
+  Created by Darius Cumpio - November 19, 2026 - v0.1.4 (MIT License)
 #>
 param(
     [string]$InstallDir = "",
@@ -59,7 +59,7 @@ if (-not $SetupFile) {
 }
 
 if (-not $SetupFile) {
-    $headers = @{ "User-Agent" = "DariusDB-Updater/0.1.3" }
+    $headers = @{ "User-Agent" = "DariusDB-Updater/0.1.4" }
     if (-not $Token -and $env:GITHUB_TOKEN) { $Token = $env:GITHUB_TOKEN }
     if ($Token) { $headers["Authorization"] = "Bearer $Token" }
 
@@ -95,7 +95,7 @@ if (-not $SetupFile) {
     foreach ($u in ($dlUrls | Select-Object -Unique)) {
         Write-Host "Downloading $u ..." -ForegroundColor Cyan
         try {
-            $dlHeaders = @{ "User-Agent" = "DariusDB-Updater/0.1.3" }
+            $dlHeaders = @{ "User-Agent" = "DariusDB-Updater/0.1.4" }
             if ($Token) { $dlHeaders["Authorization"] = "Bearer $Token" }
             Invoke-WebRequest -Uri $u -Headers $dlHeaders -OutFile $destExe -UseBasicParsing -ErrorAction Stop
             if ((Get-Item $destExe).Length -gt 65536) {

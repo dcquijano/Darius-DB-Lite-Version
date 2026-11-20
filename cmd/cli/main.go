@@ -57,7 +57,7 @@ func main() {
 			cmd.Dir = root
 			cmd.Env = append(os.Environ(), "DARIUSDB_HOME="+root)
 			_ = cmd.Start()
-			fmt.Println("Opened Darius DB (Lite Version 0.1.3) desktop window.")
+			fmt.Println("Opened Darius DB (Lite Version 0.1.4) desktop window.")
 			return
 		}
 	}

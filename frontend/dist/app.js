@@ -528,6 +528,7 @@
       chip.textContent = hasTable ? state.sqlTable : "";
     }
     if ($("btnRowCreate")) $("btnRowCreate").hidden = !hasTable;
+    if ($("btnMetaExportTable")) $("btnMetaExportTable").hidden = !hasTable;
     if ($("btnMetaCreateRow")) $("btnMetaCreateRow").hidden = !hasTable;
     if ($("btnMetaShowAll")) $("btnMetaShowAll").hidden = !hasTable;
     if ($("sqlRowFilter")) $("sqlRowFilter").hidden = !(state.sqlLastResult && state.sqlLastResult.isQuery);
@@ -2052,6 +2053,127 @@ try {
       }
     };
 
+    let exportScope = "all";
+    const closeExport = () => ($("modalExport").hidden = true);
+    const updateExportCount = () => {
+      const n = $("exportTableChecklist").querySelectorAll("input[type=checkbox]:checked").length;
+      $("exportSelectedCount").textContent = `${n} table(s) selected`;
+      const csvOpt = $("exportFormat").querySelector('option[value="csv"]');
+      if (csvOpt) {
+        const allowCsv = exportScope === "single" || (exportScope === "selected" && n === 1);
+        csvOpt.disabled = !allowCsv;
+        if (!allowCsv && $("exportFormat").value === "csv") {
+          $("exportFormat").value = "sql";
+        }
+      }
+      $("exportSqlOptions").hidden = $("exportFormat").value === "csv";
+    };
+    const renderExportChecklist = (preselectNames = []) => {
+      const pre = new Set(preselectNames);
+      const filter = ($("exportTableFilter").value || "").trim().toLowerCase();
+      const tables = (state.sqlTables || []).filter((t) => !filter || t.name.toLowerCase().includes(filter));
+      if (!tables.length) {
+        $("exportTableChecklist").innerHTML = `<div class="empty-note">No matching tables</div>`;
+      } else {
+        $("exportTableChecklist").innerHTML = tables
+          .map(
+            (t) => `<label class="export-table-item" title="${esc(t.name)}">
+              <input type="checkbox" value="${esc(t.name)}" ${pre.has(t.name) ? "checked" : ""} />
+              <span>${esc(t.name)}</span>
+            </label>`
+          )
+          .join("");
+      }
+      updateExportCount();
+    };
+    const setExportScope = (scope) => {
+      exportScope = scope;
+      document.querySelectorAll("#exportScopeTabs .seg").forEach((b) =>
+        b.classList.toggle("active", b.dataset.expScope === scope)
+      );
+      $("exportTablePickerWrap").hidden = scope !== "selected";
+      updateExportCount();
+    };
+    const openExportModal = (defaultScope = null) => {
+      if (!state.sqlDb) {
+        toast("Select a database on the left first", "err");
+        return;
+      }
+      $("modalExportTitle").textContent = `📤 Export — ${state.sqlDb}`;
+      const singleBtn = $("btnExpScopeSingle");
+      if (state.sqlTable) {
+        singleBtn.disabled = false;
+        singleBtn.textContent = `Table: ${state.sqlTable}`;
+      } else {
+        singleBtn.disabled = true;
+        singleBtn.textContent = "Current Table (none)";
+      }
+      $("exportFormat").value = "sql";
+      $("exportIncSchema").checked = true;
+      $("exportIncData").checked = true;
+      $("exportTableFilter").value = "";
+      renderExportChecklist(state.sqlTable ? [state.sqlTable] : []);
+      const initialScope = defaultScope || (state.sqlTable ? "single" : "all");
+      setExportScope(initialScope === "single" && !state.sqlTable ? "all" : initialScope);
+      $("modalExport").hidden = false;
+    };
+
+    $("exportScopeTabs").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-exp-scope]");
+      if (!b || b.disabled) return;
+      setExportScope(b.dataset.expScope);
+    });
+    $("exportTableFilter").addEventListener("input", () => {
+      const checked = Array.from($("exportTableChecklist").querySelectorAll("input:checked")).map((i) => i.value);
+      renderExportChecklist(checked);
+    });
+    $("exportTableChecklist").addEventListener("change", updateExportCount);
+    $("exportFormat").addEventListener("change", updateExportCount);
+    $("btnExpSelectAll").onclick = () => {
+      $("exportTableChecklist").querySelectorAll("input[type=checkbox]").forEach((c) => (c.checked = true));
+      updateExportCount();
+    };
+    $("btnExpClearAll").onclick = () => {
+      $("exportTableChecklist").querySelectorAll("input[type=checkbox]").forEach((c) => (c.checked = false));
+      updateExportCount();
+    };
+    $("btnCloseExport").onclick = closeExport;
+    $("btnCancelExport").onclick = closeExport;
+    $("formExport").onsubmit = async (e) => {
+      e.preventDefault();
+      let tables = [];
+      if (exportScope === "single") {
+        if (!state.sqlTable) {
+          toast("Select a table first", "err");
+          return;
+        }
+        tables = [state.sqlTable];
+      } else if (exportScope === "selected") {
+        tables = Array.from($("exportTableChecklist").querySelectorAll("input[type=checkbox]:checked")).map((i) => i.value);
+        if (!tables.length) {
+          toast("Check at least one table to export", "err");
+          return;
+        }
+      }
+      const fmt = $("exportFormat").value || "sql";
+      const incSchema = $("exportIncSchema").checked;
+      const incData = $("exportIncData").checked;
+      const btn = $("btnSubmitExport");
+      btn.disabled = true;
+      try {
+        toast(`Exporting ${tables.length ? tables.join(", ") : state.sqlDb} (.${fmt})...`, "info");
+        const outPath = await api().ExportDatabaseDialog(state.dbEngine, state.sqlDb, tables, fmt, incSchema, incData);
+        if (outPath) {
+          closeExport();
+          toast(`Export saved: ${outPath}`, "ok");
+        }
+      } catch (err) {
+        toast(errMsg(err), "err");
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
     const runBackupDialog = async (fmt) => {
       if (!state.sqlDb) {
         toast("Select a database on the left first", "err");
@@ -2068,7 +2190,8 @@ try {
       }
     };
     $("btnBackupBak").onclick = () => runBackupDialog("bak");
-    $("btnBackupSql").onclick = () => runBackupDialog("sql");
+    $("btnBackupSql").onclick = () => openExportModal(state.sqlTable ? "single" : "all");
+    if ($("btnMetaExportTable")) $("btnMetaExportTable").onclick = () => openExportModal("single");
 
     $("btnCopyIDE").onclick = async () => {
       try {

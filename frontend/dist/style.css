@@ -868,6 +868,28 @@ code, pre, textarea.code-area { font-family: var(--font-mono); }
   color: var(--text-muted);
   white-space: nowrap;
 }
+.export-table-list {
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-input);
+  padding: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  gap: 4px 10px;
+}
+.export-table-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.export-table-item:hover { background: var(--bg-hover); }
+.export-table-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .table-wrap { flex: 1; overflow: auto; user-select: text; }
 .data-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 12px; }

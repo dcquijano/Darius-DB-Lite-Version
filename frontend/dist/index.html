@@ -208,8 +208,7 @@
               title="Restore a .bak backup or import a .sql script (MS SQL Server)" hidden>Restore .bak</button>
             <button class="btn sm accent" id="btnBackupBak" title="Back up selected database to .bak file" hidden>Backup
               .bak</button>
-            <button class="btn sm" id="btnBackupSql" title="Export selected database to .sql script">Export
-              .sql</button>
+            <button class="btn sm" id="btnBackupSql" title="Export entire database, single table, or selected tables (.sql / .csv)">📤 Export</button>
             <button class="btn sm" id="btnCopyIDE"
               title="Copy Visual Studio (appsettings.json) &amp; VS Code (.env) config">VS / .env</button>
             <button class="btn sm" id="btnCopyConn" title="Copy connection URI">Copy URI</button>
@@ -256,6 +255,7 @@
                 <div class="result-meta-text" id="sqlMeta">Ready</div>
                 <div class="spacer"></div>
                 <input type="search" id="sqlRowFilter" class="input xs" placeholder="Filter visible rows..." style="width:170px" hidden />
+                <button class="btn xs" id="btnMetaExportTable" title="Export this table (.sql or .csv)" hidden>📤 Export</button>
                 <button class="btn xs accent" id="btnMetaCreateRow" hidden>+ Create</button>
                 <button class="btn xs" id="btnMetaShowAll" hidden>Show All</button>
               </div>
@@ -681,6 +681,58 @@
         <div class="modal-actions">
           <button type="button" class="btn" id="btnCancelRowForm">Cancel</button>
           <button type="submit" class="btn primary" id="btnSubmitRowForm">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Export Database / Single / Selected Tables Modal -->
+  <div class="modal-backdrop" id="modalExport" hidden>
+    <div class="modal" style="width:520px;max-width:94vw">
+      <div class="modal-head">
+        <h3 id="modalExportTitle">📤 Export Database / Tables</h3>
+        <button class="icon-btn" id="btnCloseExport" aria-label="Close">✕</button>
+      </div>
+      <form id="formExport" class="modal-body">
+        <div class="field">
+          <span>What to Export</span>
+          <div class="seg-tabs" id="exportScopeTabs">
+            <button type="button" class="seg active" data-exp-scope="all">Entire Database</button>
+            <button type="button" class="seg" data-exp-scope="single" id="btnExpScopeSingle">Current Table</button>
+            <button type="button" class="seg" data-exp-scope="selected">Selected Tables</button>
+          </div>
+        </div>
+
+        <div id="exportTablePickerWrap" hidden>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+            <input type="search" id="exportTableFilter" class="input xs" placeholder="Filter tables..." style="flex:1" />
+            <button type="button" class="btn xs" id="btnExpSelectAll">Select All</button>
+            <button type="button" class="btn xs ghost" id="btnExpClearAll">Clear</button>
+          </div>
+          <div id="exportTableChecklist" class="export-table-list"></div>
+          <div class="muted" id="exportSelectedCount" style="font-size:11.5px;margin-top:4px">0 table(s) selected</div>
+        </div>
+
+        <div class="form-grid">
+          <label class="field">
+            <span>Format</span>
+            <select id="exportFormat" class="select">
+              <option value="sql">SQL Dump (.sql)</option>
+              <option value="csv">CSV Spreadsheet (.csv — single table)</option>
+            </select>
+          </label>
+          <div class="field" id="exportSqlOptions">
+            <span>SQL Options</span>
+            <div style="display:flex;gap:12px;align-items:center;padding-top:6px">
+              <label class="check-inline"><input type="checkbox" id="exportIncSchema" checked /> Structure</label>
+              <label class="check-inline"><input type="checkbox" id="exportIncData" checked /> Data</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnCancelExport">Cancel</button>
+          <button type="submit" class="btn primary" id="btnSubmitExport">📤 Export &amp; Save As...</button>
         </div>
       </form>
     </div>

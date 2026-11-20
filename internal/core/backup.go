@@ -689,3 +689,297 @@ func ImportCSV(engine string, s EngineSettings, csvPath, targetDB, targetTable s
 
 // unused io import guard
 var _ = io.EOF
+
+// ExportDatabaseSelection exports the entire database, a single table, or selected tables
+// in .sql (with optional schema/data toggles) or .csv (single table) format.
+func ExportDatabaseSelection(p *Paths, engine string, s EngineSettings, dbName string, tables []string, format string, includeSchema, includeData bool, outPath string) error {
+	dbName = strings.TrimSpace(dbName)
+	outPath = strings.TrimSpace(outPath)
+	if dbName == "" {
+		return errors.New("select a database to export first")
+	}
+	if outPath == "" {
+		return errors.New("no output file selected")
+	}
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return err
+	}
+
+	ext := strings.ToLower(strings.TrimPrefix(format, "."))
+	if ext == "" {
+		ext = strings.ToLower(strings.TrimPrefix(filepath.Ext(outPath), "."))
+	}
+	if ext == "csv" {
+		if len(tables) != 1 {
+			return errors.New("CSV export requires exactly 1 selected table")
+		}
+		return exportTableCSV(engine, s, dbName, tables[0], outPath)
+	}
+
+	if !includeSchema && !includeData {
+		return errors.New("select at least Structure (CREATE TABLE) or Data (INSERT) to export")
+	}
+
+	if len(tables) == 0 && includeSchema && includeData && ext != "csv" {
+		return BackupDatabase(p, engine, s, dbName, outPath)
+	}
+
+	switch engine {
+	case "mariadb", "mysql":
+		return mysqlExportTablesSQL(p, engine, s, dbName, tables, includeSchema, includeData, outPath)
+	case "postgresql":
+		return postgresExportTablesSQL(p, s, dbName, tables, includeSchema, includeData, outPath)
+	case "mssql":
+		return mssqlExportTablesSQL(s, dbName, tables, includeSchema, includeData, outPath)
+	default:
+		return fmt.Errorf("export is not supported for %s", engine)
+	}
+}
+
+func exportTableCSV(engine string, s EngineSettings, dbName, tableName, outPath string) error {
+	schema, table := splitSchemaTable(engine, dbName, tableName)
+	q := "SELECT * FROM " + qualifiedTable(engine, schema, table) + ";"
+	res, err := RunQueryAll(engine, s, dbName, q)
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	// Write UTF-8 BOM so Excel opens UTF-8 CSV cleanly
+	_, _ = f.Write([]byte{0xEF, 0xBB, 0xBF})
+	w := csv.NewWriter(f)
+	if err := w.Write(res.Columns); err != nil {
+		return err
+	}
+	for _, row := range res.Rows {
+		rec := make([]string, len(res.Columns))
+		for i := range res.Columns {
+			if i < len(row) && row[i] != nil {
+				rec[i] = *row[i]
+			}
+		}
+		if err := w.Write(rec); err != nil {
+			return err
+		}
+	}
+	w.Flush()
+	return w.Error()
+}
+
+func mysqlExportTablesSQL(p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	if inst, ok := FindInstallation(p, engine, s.Version); ok {
+		dump := filepath.Join(inst.Dir, "bin", "mariadb-dump.exe")
+		if !fileExists(dump) {
+			dump = filepath.Join(inst.Dir, "bin", "mysqldump.exe")
+		}
+		if fileExists(dump) {
+			args := []string{
+				"-h", "127.0.0.1",
+				"-P", fmt.Sprint(s.Port),
+				"-u", fallbackStr(s.User, "root"),
+				"--single-transaction",
+			}
+			if len(tables) == 0 {
+				args = append(args, "--routines", "--events")
+			}
+			if !includeSchema {
+				args = append(args, "--no-create-info")
+			}
+			if !includeData {
+				args = append(args, "--no-data")
+			}
+			args = append(args, "--result-file="+outPath, dbName)
+			args = append(args, tables...)
+			if s.Password != "" {
+				args = append([]string{"-p" + s.Password}, args...)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, dump, args...)
+			hideWindow(cmd)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+			}
+			return nil
+		}
+	}
+
+	// Fallback pure-Go selective SQL dump
+	db, err := openSQL(engine, s, dbName)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	allTables, err := ListTables(engine, s, dbName)
+	if err != nil {
+		return err
+	}
+	selected := map[string]bool{}
+	for _, t := range tables {
+		selected[strings.ToLower(strings.TrimSpace(t))] = true
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) SQL Export\n-- Engine: %s  Database: %s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", engine, dbName)
+	for _, t := range allTables {
+		if len(selected) > 0 && !selected[strings.ToLower(t.Name)] {
+			continue
+		}
+		if includeSchema {
+			var tbl, createSQL string
+			if err := db.QueryRow("SHOW CREATE TABLE "+quoteIdent(engine, t.Name)).Scan(&tbl, &createSQL); err == nil {
+				fmt.Fprintf(&b, "DROP TABLE IF EXISTS %s;\n%s;\n\n", quoteIdent(engine, t.Name), createSQL)
+			}
+		}
+		if !includeData || strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
+			continue
+		}
+		res, err := RunQueryAll(engine, s, dbName, "SELECT * FROM "+quoteIdent(engine, t.Name))
+		if err == nil && len(res.Rows) > 0 {
+			for _, row := range res.Rows {
+				var vals []string
+				for _, cell := range row {
+					if cell == nil {
+						vals = append(vals, "NULL")
+					} else {
+						vals = append(vals, quoteStr(engine, *cell))
+					}
+				}
+				fmt.Fprintf(&b, "INSERT INTO %s VALUES (%s);\n", quoteIdent(engine, t.Name), strings.Join(vals, ", "))
+			}
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("SET FOREIGN_KEY_CHECKS=1;\n")
+	return os.WriteFile(outPath, []byte(b.String()), 0o644)
+}
+
+func postgresExportTablesSQL(p *Paths, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	if inst, ok := FindInstallation(p, "postgresql", s.Version); ok {
+		pgDump := filepath.Join(inst.Dir, "bin", "pg_dump.exe")
+		if fileExists(pgDump) {
+			user := fallbackStr(s.User, "postgres")
+			args := []string{"-h", "127.0.0.1", "-p", fmt.Sprint(s.Port), "-U", user, "-f", outPath, "--no-owner"}
+			if includeSchema && !includeData {
+				args = append(args, "--schema-only")
+			} else if !includeSchema && includeData {
+				args = append(args, "--data-only")
+			}
+			if includeSchema {
+				args = append(args, "--clean", "--if-exists")
+			}
+			for _, tbl := range tables {
+				schema, table := splitSchemaTable("postgresql", dbName, tbl)
+				args = append(args, "-t", quoteIdent("postgresql", schema)+"."+quoteIdent("postgresql", table))
+			}
+			args = append(args, dbName)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, pgDump, args...)
+			hideWindow(cmd)
+			if s.Password != "" {
+				cmd.Env = append(os.Environ(), "PGPASSWORD="+s.Password)
+			}
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+			}
+			return nil
+		}
+	}
+	return errors.New("pg_dump.exe not found — install a PostgreSQL version in Versions")
+}
+
+func mssqlExportTablesSQL(s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	allTables, err := mssqlListTables(s, dbName)
+	if err != nil {
+		return err
+	}
+	selected := map[string]bool{}
+	for _, t := range tables {
+		selected[strings.ToLower(strings.TrimSpace(t))] = true
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) MS SQL Server SQL Export\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
+		dbName, time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&b, "USE %s;\r\nGO\r\n\r\n", mssqlBracket(dbName))
+
+	for _, t := range allTables {
+		if len(selected) > 0 && !selected[strings.ToLower(t.Name)] {
+			continue
+		}
+		if strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
+			continue
+		}
+		tableName := t.Name
+		if idx := strings.IndexByte(tableName, '.'); idx >= 0 {
+			tableName = tableName[idx+1:]
+		}
+		fullIdent := mssqlBracket(t.Schema) + "." + mssqlBracket(tableName)
+
+		if includeSchema {
+			colQ := fmt.Sprintf(
+				"SET NOCOUNT ON; SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE "+
+					"FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'%s' AND TABLE_NAME = N'%s' ORDER BY ORDINAL_POSITION;",
+				strings.ReplaceAll(t.Schema, "'", "''"), strings.ReplaceAll(tableName, "'", "''"),
+			)
+			colRes, err := mssqlRunQuery(s, dbName, colQ)
+			if err == nil && len(colRes.Rows) > 0 {
+				fmt.Fprintf(&b, "IF OBJECT_ID(N'%s', N'U') IS NULL\r\nCREATE TABLE %s (\r\n", fullIdent, fullIdent)
+				for i, cr := range colRes.Rows {
+					cName, dType, maxLen, isNull := valAt(cr, 0), valAt(cr, 1), valAt(cr, 2), valAt(cr, 3)
+					typeSpec := dType
+					switch strings.ToLower(dType) {
+					case "varchar", "nvarchar", "char", "nchar", "varbinary":
+						if maxLen == "-1" {
+							typeSpec += "(MAX)"
+						} else if maxLen != "" && maxLen != "NULL" {
+							typeSpec += "(" + maxLen + ")"
+						}
+					}
+					nullSpec := "NULL"
+					if strings.EqualFold(isNull, "NO") {
+						nullSpec = "NOT NULL"
+					}
+					comma := ","
+					if i == len(colRes.Rows)-1 {
+						comma = ""
+					}
+					fmt.Fprintf(&b, "  %s %s %s%s\r\n", mssqlBracket(cName), typeSpec, nullSpec, comma)
+				}
+				b.WriteString(");\r\nGO\r\n")
+			}
+		}
+
+		if includeData {
+			dataRes, err := mssqlRunQueryWithLimit(s, dbName, "SELECT * FROM "+fullIdent+";", maxShowRows)
+			if err == nil && len(dataRes.Rows) > 0 && len(dataRes.Columns) > 0 {
+				var colList []string
+				for _, c := range dataRes.Columns {
+					colList = append(colList, mssqlBracket(c))
+				}
+				colsJoined := strings.Join(colList, ", ")
+				for _, row := range dataRes.Rows {
+					var vals []string
+					for _, cell := range row {
+						if cell == nil {
+							vals = append(vals, "NULL")
+						} else {
+							vals = append(vals, "N'"+strings.ReplaceAll(*cell, "'", "''")+"'")
+						}
+					}
+					fmt.Fprintf(&b, "INSERT INTO %s (%s) VALUES (%s);\r\n", fullIdent, colsJoined, strings.Join(vals, ", "))
+				}
+				b.WriteString("GO\r\n\r\n")
+			}
+		}
+	}
+	return os.WriteFile(outPath, []byte(b.String()), 0o644)
+}

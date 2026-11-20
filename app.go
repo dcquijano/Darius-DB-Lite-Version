@@ -663,42 +663,65 @@ func (a *App) ImportDatabaseFile(engine, filePath, targetDB, targetTable string)
 }
 
 func (a *App) BackupDatabaseDialog(engine, dbName, format string) (string, error) {
+	return a.ExportDatabaseDialog(engine, dbName, nil, format, true, true)
+}
+
+func (a *App) ExportDatabaseDialog(engine, dbName string, tables []string, format string, includeSchema, includeData bool) (string, error) {
 	if a.ctx == nil {
 		return "", errors.New("window not ready")
 	}
 	if strings.TrimSpace(dbName) == "" {
-		return "", errors.New("select a database to back up first")
+		return "", errors.New("select a database to export first")
 	}
 	ext := strings.ToLower(strings.TrimPrefix(format, "."))
 	if ext == "" {
-		if engine == "mssql" {
+		if engine == "mssql" && len(tables) == 0 {
 			ext = "bak"
 		} else {
 			ext = "sql"
 		}
 	}
-	defaultName := fmt.Sprintf("%s_%s.%s", dbName, time.Now().Format("20060102"), ext)
+	suffix := ""
+	if len(tables) == 1 {
+		suffix = "_" + strings.ReplaceAll(tables[0], ".", "_")
+	} else if len(tables) > 1 {
+		suffix = fmt.Sprintf("_%dtables", len(tables))
+	}
+	defaultName := fmt.Sprintf("%s%s_%s.%s", dbName, suffix, time.Now().Format("20060102"), ext)
 	var filters []runtime.FileFilter
-	if ext == "bak" {
+	switch ext {
+	case "csv":
+		filters = []runtime.FileFilter{
+			{DisplayName: "CSV Spreadsheet (*.csv)", Pattern: "*.csv"},
+			{DisplayName: "SQL Script (*.sql)", Pattern: "*.sql"},
+		}
+	case "bak":
 		filters = []runtime.FileFilter{
 			{DisplayName: "MS SQL Server Backup (*.bak)", Pattern: "*.bak"},
 			{DisplayName: "SQL Script (*.sql)", Pattern: "*.sql"},
 		}
-	} else {
+	default:
 		filters = []runtime.FileFilter{
 			{DisplayName: "SQL Script (*.sql)", Pattern: "*.sql"},
+			{DisplayName: "CSV Spreadsheet (*.csv)", Pattern: "*.csv"},
 			{DisplayName: "MS SQL Server Backup (*.bak)", Pattern: "*.bak"},
 		}
 	}
 	outPath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           fmt.Sprintf("Backup %s database (%s)", dbName, engine),
+		Title:           fmt.Sprintf("Export %s (%s)", dbName, engine),
 		DefaultFilename: defaultName,
 		Filters:         filters,
 	})
 	if err != nil || outPath == "" {
 		return "", err
 	}
-	if err := core.BackupDatabase(a.paths, engine, a.settings.Engine(engine), dbName, outPath); err != nil {
+	if ext == "bak" && len(tables) == 0 {
+		if err := core.BackupDatabase(a.paths, engine, a.settings.Engine(engine), dbName, outPath); err != nil {
+			return "", err
+		}
+		return outPath, nil
+	}
+	if err := core.ExportDatabaseSelection(a.paths, engine, a.settings.Engine(engine), dbName, tables, ext, includeSchema, includeData, outPath); err != nil {
 		return "", err
 	}
 	return outPath, nil

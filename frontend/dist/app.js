@@ -2331,9 +2331,9 @@ try {
       btn.disabled = true;
       try {
         toast(`Exporting ${tables.length ? tables.join(", ") : state.sqlDb} (.${fmt})...`, "info");
+        closeExport();
         const outPath = await api().ExportDatabaseDialog(state.dbEngine, state.sqlDb, tables, fmt, incSchema, incData);
         if (outPath) {
-          closeExport();
           toast(`Export saved: ${outPath}`, "ok");
         }
       } catch (err) {
@@ -2342,6 +2342,40 @@ try {
         btn.disabled = false;
       }
     };
+
+    const setBackupProgressUI = (pct, mode, stage, detail) => {
+      const modal = $("modalBackupProgress");
+      const box = $("backupProgBox");
+      if (!modal || !box) return;
+      const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
+      modal.hidden = false;
+      box.className = "sysup-fetch-box" + (mode === "done" ? " success" : mode === "error" ? " error" : "");
+      const sp = $("backupProgSpinner");
+      if (sp) sp.hidden = mode !== "running";
+      if ($("backupProgStage")) $("backupProgStage").textContent = stage || "Backing up...";
+      if ($("backupProgPct")) $("backupProgPct").textContent = `${clamped}%`;
+      if ($("backupProgBar")) $("backupProgBar").style.width = `${clamped}%`;
+      if ($("backupProgDetail")) $("backupProgDetail").textContent = detail || "";
+      if (state.activeBackupBtn) {
+        if (mode === "running") state.activeBackupBtn.textContent = `⏳ ${clamped}%`;
+      }
+      if (mode === "done") {
+        setTimeout(() => {
+          if ($("backupProgBox")?.classList.contains("success")) {
+            modal.hidden = true;
+          }
+        }, 1200);
+      }
+    };
+    const closeBackupProgress = () => {
+      if ($("modalBackupProgress")) $("modalBackupProgress").hidden = true;
+    };
+    if ($("btnCloseBackupProg")) $("btnCloseBackupProg").onclick = closeBackupProgress;
+    if ($("btnDoneBackupProg")) $("btnDoneBackupProg").onclick = closeBackupProgress;
+    rt()?.EventsOn?.("backup-progress", (p) => {
+      if (!p) return;
+      setBackupProgressUI(p.percent, p.state || "running", p.stage || "Backing up...", p.detail || "");
+    });
 
     const runBackupDialog = async (fmt) => {
       if (!state.sqlDb) {
@@ -3510,7 +3544,8 @@ try {
         }
         const prev = btn.textContent;
         btn.disabled = true;
-        btn.textContent = "⏳ Backing up...";
+        btn.textContent = "⏳ 0%";
+        state.activeBackupBtn = btn;
         try {
           toast(`Creating full .zip backup of ${db}...`, "info");
           const outPath = await api().ExportDatabaseDialog("cloud:" + c.id, db, [], "zip", true, true);
@@ -3518,6 +3553,7 @@ try {
         } catch (err) {
           toast(errMsg(err), "err");
         } finally {
+          if (state.activeBackupBtn === btn) state.activeBackupBtn = null;
           btn.disabled = false;
           btn.textContent = prev;
         }

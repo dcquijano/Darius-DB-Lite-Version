@@ -442,16 +442,6 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 
 	report(15, "running", "Exporting source tables...", fmt.Sprintf("Found %d base table(s) in %q — exporting schema & data...", len(tblNames), srcDB))
 
-	formatDumpBytes := func(n int64) string {
-		if n < 1024 {
-			return fmt.Sprintf("%d B", n)
-		}
-		if n < 1024*1024 {
-			return fmt.Sprintf("%.1f KB", float64(n)/1024.0)
-		}
-		return fmt.Sprintf("%.1f MB", float64(n)/(1024.0*1024.0))
-	}
-
 	expDone := make(chan struct{})
 	expStart := time.Now()
 	go func() {
@@ -476,7 +466,7 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 					bump = 36
 				}
 				elapsed := int(time.Since(expStart).Seconds())
-				report(16+bump, "running", "Exporting source tables...", fmt.Sprintf("Exporting %d table(s) from %q (%s written · %ds)...", len(tblNames), srcDB, formatDumpBytes(sz), elapsed))
+				report(16+bump, "running", "Exporting source tables...", fmt.Sprintf("Exporting %d table(s) from %q (%s written · %ds)...", len(tblNames), srcDB, formatByteSize(sz), elapsed))
 			}
 		}
 	}()
@@ -501,7 +491,7 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 		dumpSize = st.Size()
 	}
 
-	report(55, "running", "Uploading & importing...", fmt.Sprintf("Exported %s (%d table(s)). Importing into %q (%s)...", formatDumpBytes(dumpSize), len(tblNames), dstDB, strings.ToUpper(dstEngine)))
+	report(55, "running", "Uploading & importing...", fmt.Sprintf("Exported %s (%d table(s)). Importing into %q (%s)...", formatByteSize(dumpSize), len(tblNames), dstDB, strings.ToUpper(dstEngine)))
 
 	impDone := make(chan struct{})
 	impStart := time.Now()
@@ -520,7 +510,7 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 					bump = 38
 				}
 				elapsed := int(time.Since(impStart).Seconds())
-				report(56+bump, "running", "Importing into target...", fmt.Sprintf("Applying %s across %d table(s) to %q (%ds)...", formatDumpBytes(dumpSize), len(tblNames), dstDB, elapsed))
+				report(56+bump, "running", "Importing into target...", fmt.Sprintf("Applying %s across %d table(s) to %q (%ds)...", formatByteSize(dumpSize), len(tblNames), dstDB, elapsed))
 			}
 		}
 	}()
@@ -535,4 +525,14 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 	msg := fmt.Sprintf("Synced %d table(s) from %q to %q", len(tblNames), srcDB, restored)
 	report(100, "done", "Sync Complete!", msg)
 	return msg, nil
+}
+
+func formatByteSize(n int64) string {
+	if n < 1024 {
+		return fmt.Sprintf("%d B", n)
+	}
+	if n < 1024*1024 {
+		return fmt.Sprintf("%.1f KB", float64(n)/1024.0)
+	}
+	return fmt.Sprintf("%.1f MB", float64(n)/(1024.0*1024.0))
 }

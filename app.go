@@ -846,15 +846,18 @@ func (a *App) ExportDatabaseDialog(engine, dbName string, tables []string, forma
 	if err != nil || outPath == "" {
 		return "", err
 	}
-	if ext == "bak" && len(tables) == 0 {
-		realEng, es, _ := a.resolveTarget(engine)
-		if err := core.BackupDatabase(a.paths, realEng, es, dbName, outPath); err != nil {
-			return "", err
-		}
-		return outPath, nil
+	actualExt := strings.ToLower(strings.TrimPrefix(filepath.Ext(outPath), "."))
+	exportFmt := ext
+	if actualExt == "zip" || actualExt == "csv" || actualExt == "bak" || actualExt == "sql" {
+		exportFmt = actualExt
 	}
 	realEng, es, _ := a.resolveTarget(engine)
-	if err := core.ExportDatabaseSelection(a.paths, realEng, es, dbName, tables, ext, includeSchema, includeData, outPath); err != nil {
+	emit := func(prog core.BackupProgress) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "backup-progress", prog)
+		}
+	}
+	if err := core.ExportDatabaseSelectionWithProgress(a.paths, realEng, es, dbName, tables, exportFmt, includeSchema, includeData, outPath, emit); err != nil {
 		return "", err
 	}
 	return outPath, nil

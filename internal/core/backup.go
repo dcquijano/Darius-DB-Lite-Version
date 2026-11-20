@@ -785,18 +785,48 @@ func ImportCSV(engine string, s EngineSettings, csvPath, targetDB, targetTable s
 // unused io import guard
 var _ = io.EOF
 
+// BackupProgress reports live stage & percentage progress during database backup/export.
+type BackupProgress struct {
+	Percent int    `json:"percent"`
+	State   string `json:"state"` // running | done | error
+	Stage   string `json:"stage"`
+	Detail  string `json:"detail"`
+}
+
 // ExportDatabaseSelection exports the entire database, a single table, or selected tables
 // in .sql (with optional schema/data toggles) or .csv (single table) format.
 func ExportDatabaseSelection(p *Paths, engine string, s EngineSettings, dbName string, tables []string, format string, includeSchema, includeData bool, outPath string) error {
+	return ExportDatabaseSelectionWithProgress(p, engine, s, dbName, tables, format, includeSchema, includeData, outPath, nil)
+}
+
+// ExportDatabaseSelectionWithProgress exports with live stage & percentage progress callbacks.
+func ExportDatabaseSelectionWithProgress(p *Paths, engine string, s EngineSettings, dbName string, tables []string, format string, includeSchema, includeData bool, outPath string, onProgress func(BackupProgress)) error {
+	lastPct := 0
+	report := func(pct int, state, stage, detail string) {
+		if pct > lastPct {
+			lastPct = pct
+		} else if state == "running" {
+			pct = lastPct
+		}
+		if onProgress != nil {
+			onProgress(BackupProgress{Percent: pct, State: state, Stage: stage, Detail: detail})
+		}
+	}
+
 	dbName = strings.TrimSpace(dbName)
 	outPath = strings.TrimSpace(outPath)
 	if dbName == "" {
-		return errors.New("select a database to export first")
+		err := errors.New("select a database to export first")
+		report(0, "error", "Backup Failed", err.Error())
+		return err
 	}
 	if outPath == "" {
-		return errors.New("no output file selected")
+		err := errors.New("no output file selected")
+		report(0, "error", "Backup Failed", err.Error())
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		report(0, "error", "Backup Failed", err.Error())
 		return err
 	}
 
@@ -804,35 +834,91 @@ func ExportDatabaseSelection(p *Paths, engine string, s EngineSettings, dbName s
 	if ext == "" {
 		ext = strings.ToLower(strings.TrimPrefix(filepath.Ext(outPath), "."))
 	}
-	if ext == "csv" {
-		if len(tables) != 1 {
-			return errors.New("CSV export requires exactly 1 selected table")
-		}
-		return exportTableCSV(engine, s, dbName, tables[0], outPath)
+	if ext == "zip" || strings.EqualFold(filepath.Ext(outPath), ".zip") {
+		return ExportDatabaseFullZipWithProgress(p, engine, s, dbName, tables, includeSchema, includeData, outPath, onProgress)
 	}
 
-	if ext == "zip" {
-		return ExportDatabaseFullZip(p, engine, s, dbName, tables, includeSchema, includeData, outPath)
+	if ext == "csv" {
+		if len(tables) != 1 {
+			err := errors.New("CSV export requires exactly 1 selected table")
+			report(0, "error", "Backup Failed", err.Error())
+			return err
+		}
+		report(15, "running", "Exporting CSV...", fmt.Sprintf("Exporting table %q from %q...", tables[0], dbName))
+		if err := exportTableCSV(engine, s, dbName, tables[0], outPath); err != nil {
+			report(lastPct, "error", "Export Failed", err.Error())
+			return err
+		}
+		var sz int64
+		if st, serr := os.Stat(outPath); serr == nil {
+			sz = st.Size()
+		}
+		report(100, "done", "Backup Complete!", fmt.Sprintf("Saved %s (%s)", filepath.Base(outPath), formatByteSize(sz)))
+		return nil
 	}
 
 	if !includeSchema && !includeData {
-		return errors.New("select at least Structure (CREATE TABLE) or Data (INSERT) to export")
+		err := errors.New("select at least Structure (CREATE TABLE) or Data (INSERT) to export")
+		report(0, "error", "Backup Failed", err.Error())
+		return err
 	}
 
+	report(8, "running", "Creating backup...", fmt.Sprintf("Exporting %q (%s) to %s...", dbName, strings.ToUpper(engine), filepath.Base(outPath)))
+	done := make(chan struct{})
+	started := time.Now()
+	go func() {
+		tick := time.NewTicker(350 * time.Millisecond)
+		defer tick.Stop()
+		steps := 0
+		for {
+			select {
+			case <-done:
+				return
+			case <-tick.C:
+				steps++
+				var sz int64
+				if st, serr := os.Stat(outPath); serr == nil {
+					sz = st.Size()
+				}
+				bump := steps * 3
+				if sz > 0 {
+					bump += int(sz / (64 * 1024))
+				}
+				if bump > 80 {
+					bump = 80
+				}
+				elapsed := int(time.Since(started).Seconds())
+				report(10+bump, "running", "Creating backup...", fmt.Sprintf("Writing %s (%s · %ds)...", filepath.Base(outPath), formatByteSize(sz), elapsed))
+			}
+		}
+	}()
+
+	var err error
 	if len(tables) == 0 && includeSchema && includeData && ext != "csv" {
-		return BackupDatabase(p, engine, s, dbName, outPath)
+		err = BackupDatabase(p, engine, s, dbName, outPath)
+	} else {
+		switch engine {
+		case "mariadb", "mysql":
+			err = mysqlExportTablesSQL(p, engine, s, dbName, tables, includeSchema, includeData, outPath)
+		case "postgresql":
+			err = postgresExportTablesSQL(p, s, dbName, tables, includeSchema, includeData, outPath)
+		case "mssql":
+			err = mssqlExportTablesSQL(s, dbName, tables, includeSchema, includeData, outPath)
+		default:
+			err = fmt.Errorf("export is not supported for %s", engine)
+		}
 	}
-
-	switch engine {
-	case "mariadb", "mysql":
-		return mysqlExportTablesSQL(p, engine, s, dbName, tables, includeSchema, includeData, outPath)
-	case "postgresql":
-		return postgresExportTablesSQL(p, s, dbName, tables, includeSchema, includeData, outPath)
-	case "mssql":
-		return mssqlExportTablesSQL(s, dbName, tables, includeSchema, includeData, outPath)
-	default:
-		return fmt.Errorf("export is not supported for %s", engine)
+	close(done)
+	if err != nil {
+		report(lastPct, "error", "Backup Failed", err.Error())
+		return err
 	}
+	var finalSz int64
+	if st, serr := os.Stat(outPath); serr == nil {
+		finalSz = st.Size()
+	}
+	report(100, "done", "Backup Complete!", fmt.Sprintf("Saved %s (%s)", filepath.Base(outPath), formatByteSize(finalSz)))
+	return nil
 }
 
 func exportTableCSV(engine string, s EngineSettings, dbName, tableName, outPath string) error {
@@ -873,18 +959,38 @@ func exportTableCSV(engine string, s EngineSettings, dbName, tableName, outPath 
 // 2) tables/<table>.csv (UTF-8 CSV export per base table when Data is enabled), and
 // 3) manifest.json metadata.
 func ExportDatabaseFullZip(p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	return ExportDatabaseFullZipWithProgress(p, engine, s, dbName, tables, includeSchema, includeData, outPath, nil)
+}
+
+// ExportDatabaseFullZipWithProgress creates a full .zip backup while reporting stage & per-table percentage progress.
+func ExportDatabaseFullZipWithProgress(p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, onProgress func(BackupProgress)) error {
+	lastPct := 0
+	report := func(pct int, state, stage, detail string) {
+		if pct > lastPct {
+			lastPct = pct
+		} else if state == "running" {
+			pct = lastPct
+		}
+		if onProgress != nil {
+			onProgress(BackupProgress{Percent: pct, State: state, Stage: stage, Detail: detail})
+		}
+	}
+
 	if !includeSchema && !includeData {
 		includeSchema = true
 		includeData = true
 	}
 	tmpDir, err := os.MkdirTemp("", "dariusdb-fullzip-*")
 	if err != nil {
+		report(0, "error", "Backup Failed", err.Error())
 		return err
 	}
 	defer os.RemoveAll(tmpDir)
 
+	report(5, "running", "Inspecting tables...", fmt.Sprintf("Listing base tables in %q (%s)...", dbName, strings.ToUpper(engine)))
 	allTables, err := ListTables(engine, s, dbName)
 	if err != nil {
+		report(lastPct, "error", "Backup Failed", err.Error())
 		return err
 	}
 	selected := map[string]bool{}
@@ -907,19 +1013,60 @@ func ExportDatabaseFullZip(p *Paths, engine string, s EngineSettings, dbName str
 		safeDB = "database"
 	}
 	sqlPath := filepath.Join(tmpDir, safeDB+".sql")
-	if err := ExportDatabaseSelection(p, engine, s, dbName, tables, "sql", includeSchema, includeData, sqlPath); err != nil {
-		return fmt.Errorf("SQL dump failed: %w", err)
+
+	report(12, "running", "Exporting SQL dump...", fmt.Sprintf("Found %d table(s) in %q — generating %s.sql...", len(exportTables), dbName, safeDB))
+	sqlDone := make(chan struct{})
+	sqlStart := time.Now()
+	go func() {
+		tick := time.NewTicker(350 * time.Millisecond)
+		defer tick.Stop()
+		steps := 0
+		for {
+			select {
+			case <-sqlDone:
+				return
+			case <-tick.C:
+				steps++
+				var sz int64
+				if st, serr := os.Stat(sqlPath); serr == nil {
+					sz = st.Size()
+				}
+				bump := steps * 2
+				if sz > 0 {
+					bump += int(sz / (64 * 1024))
+				}
+				if bump > 31 {
+					bump = 31
+				}
+				elapsed := int(time.Since(sqlStart).Seconds())
+				report(13+bump, "running", "Exporting SQL dump...", fmt.Sprintf("Generating %s.sql (%s · %ds)...", safeDB, formatByteSize(sz), elapsed))
+			}
+		}
+	}()
+
+	err = ExportDatabaseSelection(p, engine, s, dbName, tables, "sql", includeSchema, includeData, sqlPath)
+	close(sqlDone)
+	if err != nil {
+		outErr := fmt.Errorf("SQL dump failed: %w", err)
+		report(lastPct, "error", "SQL Dump Failed", outErr.Error())
+		return outErr
 	}
+	report(45, "running", "SQL dump ready", fmt.Sprintf("Exported %s.sql — preparing table CSV spreadsheets...", safeDB))
 
 	csvFiles := map[string]string{}
-	if includeData {
+	if includeData && len(exportTables) > 0 {
 		tablesDir := filepath.Join(tmpDir, "tables")
 		_ = os.MkdirAll(tablesDir, 0o755)
-		for _, t := range exportTables {
+		for i, t := range exportTables {
+			pct := 46 + ((i + 1) * 39 / len(exportTables))
+			if pct > 85 {
+				pct = 85
+			}
 			safeTbl := cleanDBNameRe.ReplaceAllString(t, "_")
 			if safeTbl == "" {
 				safeTbl = "table"
 			}
+			report(pct, "running", fmt.Sprintf("Exporting table CSV (%d/%d)...", i+1, len(exportTables)), fmt.Sprintf("Exporting tables/%s.csv...", safeTbl))
 			csvPath := filepath.Join(tablesDir, safeTbl+".csv")
 			if err := exportTableCSV(engine, s, dbName, t, csvPath); err == nil {
 				csvFiles["tables/"+safeTbl+".csv"] = csvPath
@@ -927,6 +1074,7 @@ func ExportDatabaseFullZip(p *Paths, engine string, s EngineSettings, dbName str
 		}
 	}
 
+	report(86, "running", "Packaging .zip archive...", fmt.Sprintf("Writing manifest.json and compressing %s...", filepath.Base(outPath)))
 	manifest := struct {
 		App           string   `json:"app"`
 		Engine        string   `json:"engine"`
@@ -955,6 +1103,7 @@ func ExportDatabaseFullZip(p *Paths, engine string, s EngineSettings, dbName str
 
 	zf, err := os.Create(outPath)
 	if err != nil {
+		report(lastPct, "error", "Archive Failed", err.Error())
 		return err
 	}
 	zw := zip.NewWriter(zf)
@@ -978,17 +1127,38 @@ func ExportDatabaseFullZip(p *Paths, engine string, s EngineSettings, dbName str
 	if err := addZipFile(safeDB+".sql", sqlPath); err != nil {
 		zw.Close()
 		zf.Close()
+		report(lastPct, "error", "Archive Failed", err.Error())
 		return err
 	}
 	_ = addZipFile("manifest.json", manifestPath)
+	zipDone := 0
+	zipTotal := len(csvFiles)
 	for arcName, srcPath := range csvFiles {
 		_ = addZipFile(arcName, srcPath)
+		zipDone++
+		if zipTotal > 0 {
+			pct := 88 + (zipDone * 10 / zipTotal)
+			if pct > 98 {
+				pct = 98
+			}
+			report(pct, "running", "Compressing .zip...", fmt.Sprintf("Adding %s (%d/%d)...", arcName, zipDone, zipTotal))
+		}
 	}
 	if err := zw.Close(); err != nil {
 		zf.Close()
+		report(lastPct, "error", "Archive Failed", err.Error())
 		return err
 	}
-	return zf.Close()
+	if err := zf.Close(); err != nil {
+		report(lastPct, "error", "Archive Failed", err.Error())
+		return err
+	}
+	var zipSz int64
+	if st, serr := os.Stat(outPath); serr == nil {
+		zipSz = st.Size()
+	}
+	report(100, "done", "Backup Complete!", fmt.Sprintf("Saved %s (%s · %d table CSVs + SQL)", filepath.Base(outPath), formatByteSize(zipSz), len(csvFiles)))
+	return nil
 }
 
 func restoreDatabaseFromZip(p *Paths, engine string, s EngineSettings, zipPath, targetDB string) error {

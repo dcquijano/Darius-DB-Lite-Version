@@ -436,7 +436,13 @@ func TestManagerSkipAdoptAndStopAllClearsErrors(t *testing.T) {
 		t.Fatalf("Paths.Ensure: %v", err)
 	}
 	st := LoadSettings(dir)
-	mgr := NewManagerWithOptions(p, st, nil, true)
+	var mgr *Manager
+	// Ensure constructor-time ForceOffAll never fires onChange while caller's mgr pointer is still nil
+	mgr = NewManagerWithOptions(p, st, func() {
+		if mgr == nil {
+			t.Fatal("onChange invoked before NewManagerWithOptions returned")
+		}
+	}, true)
 	mgr.set("mssql", func(s *service) { s.state, s.message = StateStopped, "process exited" })
 	if err := mgr.StopAll(); err != nil {
 		t.Fatalf("StopAll: %v", err)

@@ -138,6 +138,9 @@ func (a *App) shutdown(ctx context.Context) {
 }
 
 func (a *App) emitStatus() {
+	if a.mgr == nil {
+		return
+	}
 	st := a.mgr.Status()
 	if a.tr != nil {
 		a.tr.SetTooltip(a.trayTooltipFrom(st))

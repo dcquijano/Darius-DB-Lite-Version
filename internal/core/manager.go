@@ -75,7 +75,7 @@ func NewManagerWithOptions(p *Paths, st *SettingsStore, onChange func(), skipAdo
 	m.ensureActiveVersions()
 	ensureWwwIndex(p.Www)
 	if skipAdopt {
-		m.ForceOffAll()
+		m.forceOffAll(false)
 	} else {
 		m.adopt()
 	}
@@ -573,6 +573,10 @@ func (m *Manager) StopAll() error {
 // ForceOffAll terminates any lingering engine processes/PID files left by a previous
 // session or system update and resets all services to StateStopped.
 func (m *Manager) ForceOffAll() {
+	m.forceOffAll(true)
+}
+
+func (m *Manager) forceOffAll(notify bool) {
 	CloseSQLPools("", "")
 	for _, id := range EngineIDs {
 		if b, err := os.ReadFile(m.p.PidFile(id)); err == nil {
@@ -595,7 +599,9 @@ func (m *Manager) ForceOffAll() {
 		}
 	}
 	m.mu.Unlock()
-	m.changed()
+	if notify {
+		m.changed()
+	}
 }
 
 func (m *Manager) forAll(fn func(string) error) error {

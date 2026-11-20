@@ -1017,7 +1017,16 @@ func ExportDatabaseSelectionWithProgress(p *Paths, engine string, s EngineSettin
 	}()
 
 	var err error
-	if len(tables) == 0 && includeSchema && includeData && ext != "csv" {
+	onTbl := func(idx, total int, tblName string) {
+		if total > 0 {
+			pct := 10 + (idx * 80 / total)
+			if pct > 90 {
+				pct = 90
+			}
+			report(pct, "running", fmt.Sprintf("Exporting table (%d/%d)...", idx, total), fmt.Sprintf("Exporting %s from %q...", tblName, dbName))
+		}
+	}
+	if len(tables) == 0 && includeSchema && includeData && ext != "csv" && engine != "mssql" {
 		err = BackupDatabase(p, engine, s, dbName, outPath)
 	} else {
 		switch engine {
@@ -1026,7 +1035,7 @@ func ExportDatabaseSelectionWithProgress(p *Paths, engine string, s EngineSettin
 		case "postgresql":
 			err = postgresExportTablesSQL(p, s, dbName, tables, includeSchema, includeData, outPath)
 		case "mssql":
-			err = mssqlExportTablesSQL(s, dbName, tables, includeSchema, includeData, outPath)
+			err = mssqlExportTablesSQLWithProgress(s, dbName, tables, includeSchema, includeData, outPath, onTbl)
 		default:
 			err = fmt.Errorf("export is not supported for %s", engine)
 		}
@@ -1167,7 +1176,16 @@ func ExportDatabaseFullZipWithProgress(p *Paths, engine string, s EngineSettings
 		}
 	}()
 
-	err = ExportDatabaseSelection(p, engine, s, dbName, tables, "sql", includeSchema, includeData, sqlPath)
+	err = ExportDatabaseSelectionWithProgress(p, engine, s, dbName, tables, "sql", includeSchema, includeData, sqlPath, func(bp BackupProgress) {
+		if bp.State == "running" {
+			// Map inner SQL dump 0..100 into outer 13..45%
+			pct := 13 + (bp.Percent * 32 / 100)
+			if pct > 45 {
+				pct = 45
+			}
+			report(pct, "running", bp.Stage, bp.Detail)
+		}
+	})
 	close(sqlDone)
 	if err != nil {
 		outErr := fmt.Errorf("SQL dump failed: %w", err)
@@ -1537,6 +1555,10 @@ func postgresExportTablesPureGo(s EngineSettings, dbName string, tables []string
 }
 
 func mssqlExportTablesSQL(s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	return mssqlExportTablesSQLWithProgress(s, dbName, tables, includeSchema, includeData, outPath, nil)
+}
+
+func mssqlExportTablesSQLWithProgress(s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, onTable func(idx, total int, tblName string)) error {
 	allTables, err := mssqlListTables(s, dbName)
 	if err != nil {
 		return err
@@ -1546,17 +1568,25 @@ func mssqlExportTablesSQL(s EngineSettings, dbName string, tables []string, incl
 		selected[strings.ToLower(strings.TrimSpace(t))] = true
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) MS SQL Server SQL Export\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
-		dbName, time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(&b, "SET NOCOUNT ON;\r\nUSE %s;\r\nGO\r\n\r\n", mssqlBracket(dbName))
-
+	var todo []TableInfo
 	for _, t := range allTables {
 		if len(selected) > 0 && !selected[strings.ToLower(t.Name)] {
 			continue
 		}
 		if strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
 			continue
+		}
+		todo = append(todo, t)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) MS SQL Server SQL Export\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
+		dbName, time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&b, "SET NOCOUNT ON;\r\nUSE %s;\r\nGO\r\n\r\n", mssqlBracket(dbName))
+
+	for i, t := range todo {
+		if onTable != nil {
+			onTable(i+1, len(todo), t.Name)
 		}
 		mssqlWriteTableSQL(&b, s, dbName, t, includeSchema, includeData)
 	}

@@ -471,7 +471,15 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 		}
 	}()
 
-	err = ExportDatabaseSelection(p, srcEngine, srcCfg, srcDB, tblNames, "sql", true, true, dumpPath)
+	err = ExportDatabaseSelectionWithProgress(p, srcEngine, srcCfg, srcDB, tblNames, "sql", true, true, dumpPath, func(bp BackupProgress) {
+		if bp.State == "running" {
+			pct := 16 + (bp.Percent * 38 / 100)
+			if pct > 54 {
+				pct = 54
+			}
+			report(pct, "running", bp.Stage, bp.Detail)
+		}
+	})
 	close(expDone)
 	if err != nil {
 		outErr := fmt.Errorf("export failed: %w", err)

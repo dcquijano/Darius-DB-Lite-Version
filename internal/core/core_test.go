@@ -505,3 +505,53 @@ func TestMSSQLSyncAndErrorHelpers(t *testing.T) {
 	}
 }
 
+func TestSchedulerRetentionPurgeAndDueWindow(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 11, 20, 2, 5, 0, 0, time.Local)
+
+	// Snapshot 8 days old -> meets 1-week (7d) retention limit -> must be purged
+	oldFile := filepath.Join(dir, "db70628_20261112_020000.zip")
+	// Snapshot exactly 7 days old -> must be purged
+	weekFile := filepath.Join(dir, "db70628_20261113_020500.zip")
+	// Snapshot 3 days old -> must stay
+	keepFile := filepath.Join(dir, "db70628_20261117_020000.zip")
+
+	for _, f := range []string{oldFile, weekFile, keepFile} {
+		if err := os.WriteFile(f, []byte("zipdata"), 0o644); err != nil {
+			t.Fatalf("WriteFile %s: %v", f, err)
+		}
+	}
+
+	n, purged, err := PurgeOldSnapshots(dir, 7, now)
+	if err != nil {
+		t.Fatalf("PurgeOldSnapshots: %v", err)
+	}
+	if n != 2 || len(purged) != 2 {
+		t.Fatalf("expected 2 purged snapshots (>=7 days), got n=%d purged=%v", n, purged)
+	}
+	if _, err := os.Stat(keepFile); err != nil {
+		t.Fatalf("expected 3-day snapshot %s to remain: %v", keepFile, err)
+	}
+	if _, err := os.Stat(oldFile); !os.IsNotExist(err) {
+		t.Fatalf("expected 8-day snapshot %s to be deleted", oldFile)
+	}
+	if _, err := os.Stat(weekFile); !os.IsNotExist(err) {
+		t.Fatalf("expected 7-day snapshot %s to be deleted", weekFile)
+	}
+
+	// Due-time checks: 02:00 due at 02:05, not due before 02:00, not due twice on same day,
+	// and not due retroactively if created today at 18:05 for 02:00.
+	if !isScheduleDue(now, "02:00", "", "2026-11-19 18:00") {
+		t.Fatal("expected 02:00 schedule to be due at 02:05")
+	}
+	if isScheduleDue(now, "02:00", "2026-11-20", "2026-11-19 18:00") {
+		t.Fatal("expected schedule already run today not to re-run")
+	}
+	if isScheduleDue(time.Date(2026, 11, 20, 1, 59, 0, 0, time.Local), "02:00", "", "2026-11-19 18:00") {
+		t.Fatal("expected 02:00 schedule not to be due at 01:59")
+	}
+	if isScheduleDue(time.Date(2026, 11, 20, 18, 10, 0, 0, time.Local), "02:00", "", "2026-11-20 18:05") {
+		t.Fatal("expected newly created 02:00 schedule at 18:05 not to run retroactively today")
+	}
+}
+

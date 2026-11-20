@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -23,7 +24,7 @@ const (
 )
 
 // CLIAppBuild identifies the build timestamp (overridden via -ldflags at build time).
-var CLIAppBuild = "202611201800"
+var CLIAppBuild = "202611201815"
 
 // RunCLI executes a CLI subcommand and returns an process exit code.
 func RunCLI(root string, args []string) int {
@@ -507,6 +508,58 @@ func RunCLI(root string, args []string) int {
 			fmt.Printf("  • %s\n", item)
 		}
 		return 0
+
+	case "schedule", "schedules", "auto-backup", "auto-sync":
+		sub := "list"
+		if len(rest) > 0 {
+			sub = strings.ToLower(strings.TrimLeft(rest[0], "-"))
+		}
+		sc := NewScheduler(paths, st, nil, nil)
+		switch sub {
+		case "run":
+			if len(rest) > 1 && strings.ToLower(rest[1]) != "due" {
+				targetID := rest[1]
+				for _, item := range st.Get().Schedules {
+					s := item.Normalized()
+					if !s.Enabled {
+						continue
+					}
+					if strings.EqualFold(targetID, "all") || strings.EqualFold(targetID, s.ID) || strings.EqualFold(targetID, s.Name) {
+						msg, err := sc.RunScheduleNow(s.ID, "both")
+						if err != nil {
+							fmt.Fprintf(os.Stderr, "[%s] Error: %v\n", s.Name, err)
+							return 1
+						}
+						fmt.Printf("[%s] %s\n", s.Name, msg)
+					}
+				}
+				return 0
+			}
+			sc.RunDueSchedules(time.Now())
+			fmt.Println("Checked and executed all due Auto-Sync / Auto-Backup schedules.")
+			return 0
+		case "purge":
+			total := 0
+			for _, item := range st.Get().Schedules {
+				s := item.Normalized()
+				n, _, _ := PurgeOldSnapshots(ScheduleBackupDir(paths, s), s.RetentionDays, time.Now())
+				total += n
+			}
+			fmt.Printf("Purged %d expired backup snapshot(s).\n", total)
+			return 0
+		default:
+			scheds := st.Get().Schedules
+			if len(scheds) == 0 {
+				fmt.Println("No Auto-Sync / Auto-Backup schedules configured.")
+				return 0
+			}
+			for _, raw := range scheds {
+				s := raw.Normalized()
+				fmt.Printf("- [%s] %s | sync=%v (%s @ %s) | backup=%v (@ %s, keep %dd) | lastSync=%s | lastBackup=%s\n",
+					s.ID, s.Name, s.AutoSync, s.SyncDirection, s.SyncTime, s.AutoBackup, s.BackupTime, s.RetentionDays, s.LastSyncAt, s.LastBackupAt)
+			}
+			return 0
+		}
 
 	case "path":
 		action := "show"

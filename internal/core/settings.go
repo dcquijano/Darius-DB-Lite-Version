@@ -30,6 +30,7 @@ type Settings struct {
 	GitHubToken       string                     `json:"githubToken,omitempty"`
 	Theme             string                     `json:"theme"` // system | dark | light
 	CloudConnections  []CloudConnection          `json:"cloudConnections,omitempty"`
+	Schedules         []BackupSyncSchedule       `json:"schedules,omitempty"`
 }
 
 func DefaultSettings() *Settings {
@@ -172,6 +173,12 @@ func (s *Settings) clone() Settings {
 			e.HiddenVersions = append([]string(nil), v.HiddenVersions...)
 		}
 		c.Engines[k] = &e
+	}
+	if len(s.CloudConnections) > 0 {
+		c.CloudConnections = append([]CloudConnection(nil), s.CloudConnections...)
+	}
+	if len(s.Schedules) > 0 {
+		c.Schedules = append([]BackupSyncSchedule(nil), s.Schedules...)
 	}
 	return c
 }

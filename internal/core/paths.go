@@ -12,17 +12,19 @@ import (
 //	data/<engine>-<major>/             database data folders
 //	etc/<engine>/                      config files (my.ini, redis.conf)
 //	logs/                              service logs
+//	backups/                           daily scheduled backup snapshots
 //	tmp/                               downloads in progress
 //	settings.json
 type Paths struct {
-	Root string `json:"root"`
-	Bin  string `json:"bin"`
-	Data string `json:"data"`
-	Www  string `json:"www"`
-	Etc  string `json:"etc"`
-	Logs string `json:"logs"`
-	Tmp  string `json:"tmp"`
-	Run  string `json:"run"`
+	Root    string `json:"root"`
+	Bin     string `json:"bin"`
+	Data    string `json:"data"`
+	Www     string `json:"www"`
+	Etc     string `json:"etc"`
+	Logs    string `json:"logs"`
+	Backups string `json:"backups"`
+	Tmp     string `json:"tmp"`
+	Run     string `json:"run"`
 }
 
 // ResolveRoot returns the portable root folder.
@@ -47,20 +49,21 @@ func ResolveRoot() string {
 
 func NewPaths(root string) *Paths {
 	p := &Paths{
-		Root: root,
-		Bin:  filepath.Join(root, "bin"),
-		Data: filepath.Join(root, "data"),
-		Www:  filepath.Join(root, "www"),
-		Etc:  filepath.Join(root, "etc"),
-		Logs: filepath.Join(root, "logs"),
-		Tmp:  filepath.Join(root, "tmp"),
+		Root:    root,
+		Bin:     filepath.Join(root, "bin"),
+		Data:    filepath.Join(root, "data"),
+		Www:     filepath.Join(root, "www"),
+		Etc:     filepath.Join(root, "etc"),
+		Logs:    filepath.Join(root, "logs"),
+		Backups: filepath.Join(root, "backups"),
+		Tmp:     filepath.Join(root, "tmp"),
 	}
 	p.Run = filepath.Join(p.Tmp, "run")
 	return p
 }
 
 func (p *Paths) Ensure() error {
-	for _, d := range []string{p.Bin, p.Data, p.Www, p.Etc, p.Logs, p.Tmp, p.Run} {
+	for _, d := range []string{p.Bin, p.Data, p.Www, p.Etc, p.Logs, p.Backups, p.Tmp, p.Run} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}

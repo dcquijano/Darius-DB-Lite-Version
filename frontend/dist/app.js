@@ -15,6 +15,8 @@
     statuses: [],
     catalog: {},
     cloudProfiles: [],
+    schedules: [],
+    winTask: { registered: false, detail: "" },
     downloads: {}, // key "engine@version" -> Progress
     dbEngine: "mariadb",
     sqlDb: "",
@@ -3049,12 +3051,14 @@ try {
     wireEvents();
     wireCloudEvents();
 
-    const [info, settings, statuses, catalog, cloudProfiles] = await Promise.all([
+    const [info, settings, statuses, catalog, cloudProfiles, schedules, winTask] = await Promise.all([
       api().Info(),
       api().GetSettings(),
       api().Status(),
       api().Catalog(),
       api().CloudProfiles().catch(() => []),
+      api().Schedules().catch(() => []),
+      api().WindowsTaskStatus().catch(() => ({ registered: false, detail: "" })),
     ]);
 
     state.info = info;
@@ -3062,6 +3066,8 @@ try {
     state.statuses = statuses || [];
     state.catalog = catalog || {};
     state.cloudProfiles = cloudProfiles || [];
+    state.schedules = schedules || [];
+    state.winTask = winTask || { registered: false, detail: "" };
     updateCloudBadge();
 
     $("appVersion").textContent = "Lite Version " + info.version;
@@ -3202,6 +3208,7 @@ try {
 
   function renderCloudView() {
     updateCloudBadge();
+    renderSchedules();
     const grid = $("cloudProfileGrid");
     if (!grid) return;
     const list = state.cloudProfiles || [];
@@ -3218,6 +3225,10 @@ try {
         const latPill = c.lastLatencyMs
           ? `<span class="pill running" title="Last connected ${esc(c.lastConnected || "")}">${c.lastLatencyMs} ms</span>`
           : `<span class="pill">Ready</span>`;
+        const sched = (state.schedules || []).find((s) => s.cloudId === c.id && s.enabled);
+        const autoPill = sched
+          ? `<span class="pill running" title="Scheduled daily @ ${esc(sched.backupTime || sched.syncTime)}">⏰ Auto ${esc(sched.syncDirection === "pull" ? "Pull" : "Push")} / ${sched.retentionDays || 7}d</span>`
+          : "";
         return `<div class="cloud-card" data-cid="${esc(c.id)}">
           <div class="cloud-card-head">
             <div>
@@ -3226,6 +3237,7 @@ try {
                 <span class="pill accent">${esc(providerLabel)}</span>
                 <span class="pill">${esc(engineLabel)}</span>
                 ${c.sslMode && c.sslMode !== "disable" ? `<span class="pill">TLS: ${esc(c.sslMode)}</span>` : ""}
+                ${autoPill}
               </div>
             </div>
             ${latPill}
@@ -3242,6 +3254,72 @@ try {
             <button type="button" class="btn xs ghost" data-cact="uri">Copy URI</button>
             <button type="button" class="btn xs ghost" data-cact="edit">Edit</button>
             <button type="button" class="btn xs danger-ghost" data-cact="del">✕</button>
+          </div>
+        </div>`;
+      })
+      .join("");
+  }
+
+  function renderSchedules() {
+    const winBtn = $("btnToggleWinTask");
+    if (winBtn) {
+      const reg = !!state.winTask?.registered;
+      winBtn.textContent = reg ? "🪟 Win 2 AM Task: ON" : "🪟 Win 2 AM Task: OFF";
+      winBtn.className = reg ? "btn xs accent" : "btn xs";
+      winBtn.title = reg
+        ? `Registered in Windows Task Scheduler (${state.winTask.detail || "02:00 AM daily"}). Click to remove.`
+        : "Click to register daily 2:00 AM Windows Task Scheduler trigger even when app is closed";
+    }
+    const grid = $("cloudScheduleGrid");
+    if (!grid) return;
+    const list = state.schedules || [];
+    if (!list.length) {
+      grid.innerHTML = `<div class="empty-note" style="grid-column:1 / -1;padding:18px">
+        No daily schedules configured yet. Click <strong>+ New Schedule</strong> or open <strong>🔄 Sync</strong> and check <strong>Enable Daily Auto-Sync &amp; 2:00 AM Auto-Backup</strong> to automatically pull <strong>Cloud → Local</strong> every day and purge backup snapshots older than <strong>7 days (1 week)</strong>.
+      </div>`;
+      return;
+    }
+    grid.innerHTML = list
+      .map((s) => {
+        const cloud = (state.cloudProfiles || []).find((p) => p.id === s.cloudId);
+        const dirLabel = s.syncDirection === "push" ? "Push Local → Cloud" : "Pull Cloud → Local";
+        const syncBadge = s.autoSync
+          ? `<span class="pill accent">🔄 ${dirLabel} @ ${esc(s.syncTime || "02:00")}</span>`
+          : "";
+        const backupBadge = s.autoBackup
+          ? `<span class="pill">📦 .zip @ ${esc(s.backupTime || "02:00")} · Purge ≥ ${s.retentionDays || 7}d</span>`
+          : "";
+        const statusPill = s.enabled
+          ? `<span class="pill running">Active</span>`
+          : `<span class="pill">Paused</span>`;
+        const syncStat = s.lastSyncAt ? `Last sync (${s.lastSyncAt}): ${s.lastSyncStatus || "ok"}` : "Sync: pending next scheduled time";
+        const bkpStat = s.lastBackupAt ? `Last backup (${s.lastBackupAt}): ${s.lastBackupStatus || "ok"}` : "Backup: pending next 2:00 AM run";
+        return `<div class="cloud-card" data-sid="${esc(s.id)}">
+          <div class="cloud-card-head">
+            <div>
+              <strong style="font-size:14px">${esc(s.name)}</strong>
+              <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap">
+                ${syncBadge}
+                ${backupBadge}
+              </div>
+            </div>
+            ${statusPill}
+          </div>
+          <div class="cloud-card-meta">
+            ${cloud ? esc(cloud.name) + " (" + esc(s.cloudDb || cloud.database || "") + ")" : esc(s.cloudDb || "Local only")} ↔ ${esc((s.localEngine || "mssql").toUpperCase())}/${esc(s.localDb || "-")}
+          </div>
+          <div class="muted" style="font-size:11.5px;line-height:1.45">
+            <div>${esc(syncStat)}</div>
+            <div>${esc(bkpStat)}</div>
+          </div>
+          <div class="cloud-card-actions">
+            <button type="button" class="btn xs primary" data-sact="run">▶ Run Now</button>
+            <button type="button" class="btn xs accent" data-sact="snaps">📦 Snapshots</button>
+            <button type="button" class="btn xs" data-sact="purge" title="Purge snapshots >= ${s.retentionDays || 7} days old">🗑 Purge</button>
+            <button type="button" class="btn xs" data-sact="folder">📁 Folder</button>
+            <button type="button" class="btn xs ghost" data-sact="toggle">${s.enabled ? "Pause" : "Enable"}</button>
+            <button type="button" class="btn xs ghost" data-sact="edit">Edit</button>
+            <button type="button" class="btn xs danger-ghost" data-sact="del">✕</button>
           </div>
         </div>`;
       })
@@ -3416,9 +3494,67 @@ try {
         }
       }
       await loadSyncLocalDbs();
+      if ($("syncAlsoSaveSchedule")) $("syncAlsoSaveSchedule").checked = false;
+      if ($("syncSchedMiniOpts")) $("syncSchedMiniOpts").hidden = true;
+      if ($("btnSaveSyncScheduleOnly")) $("btnSaveSyncScheduleOnly").hidden = true;
       if ($("cloudSyncBox")) $("cloudSyncBox").hidden = true;
       $("modalCloudSync").hidden = false;
     };
+
+    const saveScheduleFromSyncModal = async () => {
+      const dir = $("syncDirTabs").querySelector(".seg.active")?.dataset.dir || "pull";
+      const localEng = $("syncLocalEngine").value;
+      const localDb = $("syncLocalDb").value.trim();
+      const cloudId = $("syncCloudProfile").value;
+      const cloudDb = $("syncCloudDb").value.trim();
+      const c = (state.cloudProfiles || []).find((p) => p.id === cloudId);
+      const syncTime = $("syncAutoTime")?.value || "02:00";
+      const doBackup = $("syncAutoBackupChk") ? $("syncAutoBackupChk").checked : true;
+      const bkpTime = $("syncAutoBackupTime")?.value || "02:00";
+      const retDays = Math.max(1, Number($("syncAutoKeepDays")?.value) || 7);
+      const existing = (state.schedules || []).find((s) => s.cloudId === cloudId && s.localDb === localDb);
+      const payload = {
+        id: existing?.id || "",
+        name: existing?.name || `${c?.name || cloudDb} Daily`,
+        enabled: true,
+        cloudId,
+        cloudDb,
+        localEngine: localEng,
+        localDb,
+        autoSync: true,
+        syncDirection: dir,
+        syncTime,
+        autoBackup: doBackup,
+        backupTime: bkpTime,
+        backupSource: "cloud",
+        retentionDays: retDays,
+      };
+      state.schedules = (await api().SaveSchedule(payload)) || [];
+      renderCloudView();
+    };
+
+    if ($("syncAlsoSaveSchedule")) {
+      $("syncAlsoSaveSchedule").addEventListener("change", () => {
+        const on = $("syncAlsoSaveSchedule").checked;
+        if ($("syncSchedMiniOpts")) $("syncSchedMiniOpts").hidden = !on;
+        if ($("btnSaveSyncScheduleOnly")) $("btnSaveSyncScheduleOnly").hidden = !on;
+      });
+    }
+    if ($("btnSaveSyncScheduleOnly")) {
+      $("btnSaveSyncScheduleOnly").onclick = async () => {
+        if (!$("syncLocalDb").value.trim() || !$("syncCloudDb").value.trim()) {
+          toast("Enter both Local Database and Cloud Database first", "err");
+          return;
+        }
+        try {
+          await saveScheduleFromSyncModal();
+          closeCloudSync();
+          toast("Saved daily Auto-Sync & 2:00 AM Auto-Backup (7-day purge) schedule!", "ok");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      };
+    }
 
     const setSyncProgress = (pct, mode, title, detail) => {
       const box = $("cloudSyncBox");
@@ -3441,6 +3577,10 @@ try {
     rt()?.EventsOn?.("cloud-sync-progress", (p) => {
       if (!p || $("modalCloudSync")?.hidden) return;
       setSyncProgress(p.percent, p.state || "running", p.stage || "Syncing...", p.detail || "");
+    });
+    rt()?.EventsOn?.("schedules-updated", (list) => {
+      state.schedules = list || [];
+      if (state.tab === "cloud") renderCloudView();
     });
 
     $("syncCloudProfile").addEventListener("change", () => {
@@ -3476,6 +3616,9 @@ try {
           : `Preparing Pull: Cloud (${cloudDb}) → Local (${localEng}/${localDb})`
       );
       try {
+        if ($("syncAlsoSaveSchedule")?.checked) {
+          await saveScheduleFromSyncModal();
+        }
         const msg = dir === "push"
           ? await api().CloudSyncDatabase(localEng, localDb, "cloud:" + cloudId, cloudDb)
           : await api().CloudSyncDatabase("cloud:" + cloudId, cloudDb, localEng, localDb);
@@ -3494,6 +3637,237 @@ try {
         btn.textContent = "🔄 Sync Now";
       }
     };
+
+    // ---- Daily Auto-Sync & 2:00 AM Auto-Backup Schedule Modal & Snapshot Viewer ----
+    const closeScheduleModal = () => ($("modalScheduleForm").hidden = true);
+    const openScheduleModal = (existing = null) => {
+      $("formSchedule").reset();
+      $("schedEditId").value = existing?.id || "";
+      const sel = $("schedCloudId");
+      const sqlProfiles = (state.cloudProfiles || []).filter((p) => p.engine !== "redis");
+      sel.innerHTML = `<option value="">-- Local Only (No Cloud Sync) --</option>` + sqlProfiles
+        .map((p) => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.engine)} · ${esc(p.host)})</option>`)
+        .join("");
+
+      if (existing) {
+        $("modalScheduleTitle").textContent = `Edit Schedule — ${existing.name}`;
+        $("schedName").value = existing.name || "";
+        $("schedEnabled").checked = existing.enabled !== false;
+        sel.value = existing.cloudId || "";
+        $("schedCloudDb").value = existing.cloudDb || "";
+        $("schedLocalEngine").value = existing.localEngine || "mssql";
+        $("schedLocalDb").value = existing.localDb || "";
+        $("schedAutoSync").checked = !!existing.autoSync;
+        $("schedSyncDir").value = existing.syncDirection || "pull";
+        $("schedSyncTime").value = existing.syncTime || "02:00";
+        $("schedAutoBackup").checked = existing.autoBackup !== false;
+        $("schedBackupSource").value = existing.backupSource || "cloud";
+        $("schedBackupTime").value = existing.backupTime || "02:00";
+        $("schedRetentionDays").value = existing.retentionDays || 7;
+      } else {
+        $("modalScheduleTitle").textContent = "⏰ New Daily Auto-Sync & 2:00 AM Auto-Backup";
+        const first = sqlProfiles[0];
+        if (first) {
+          sel.value = first.id;
+          $("schedCloudDb").value = first.database || "";
+          $("schedLocalEngine").value = first.engine || "mssql";
+          $("schedName").value = `${first.name} Daily (2 AM)`;
+        }
+        $("schedEnabled").checked = true;
+        $("schedAutoSync").checked = true;
+        $("schedSyncDir").value = "pull";
+        $("schedSyncTime").value = "02:00";
+        $("schedAutoBackup").checked = true;
+        $("schedBackupSource").value = first ? "cloud" : "local";
+        $("schedBackupTime").value = "02:00";
+        $("schedRetentionDays").value = 7;
+      }
+      $("modalScheduleForm").hidden = false;
+    };
+
+    $("schedCloudId")?.addEventListener("change", () => {
+      const c = (state.cloudProfiles || []).find((p) => p.id === $("schedCloudId").value);
+      if (c) {
+        if (c.database) $("schedCloudDb").value = c.database;
+        if ($("schedLocalEngine").querySelector(`option[value="${c.engine}"]`)) {
+          $("schedLocalEngine").value = c.engine;
+        }
+      }
+    });
+    if ($("btnNewSchedule")) $("btnNewSchedule").onclick = () => openScheduleModal(null);
+    if ($("btnAddSchedule")) $("btnAddSchedule").onclick = () => openScheduleModal(null);
+    if ($("btnCloseScheduleForm")) $("btnCloseScheduleForm").onclick = closeScheduleModal;
+    if ($("btnCancelScheduleForm")) $("btnCancelScheduleForm").onclick = closeScheduleModal;
+
+    if ($("formSchedule")) {
+      $("formSchedule").onsubmit = async (e) => {
+        e.preventDefault();
+        const existing = (state.schedules || []).find((x) => x.id === $("schedEditId").value);
+        const payload = {
+          id: $("schedEditId").value.trim(),
+          name: $("schedName").value.trim(),
+          enabled: $("schedEnabled").checked,
+          cloudId: $("schedCloudId").value,
+          cloudDb: $("schedCloudDb").value.trim(),
+          localEngine: $("schedLocalEngine").value,
+          localDb: $("schedLocalDb").value.trim(),
+          autoSync: $("schedAutoSync").checked,
+          syncDirection: $("schedSyncDir").value || "pull",
+          syncTime: $("schedSyncTime").value || "02:00",
+          autoBackup: $("schedAutoBackup").checked,
+          backupSource: $("schedBackupSource").value || "cloud",
+          backupTime: $("schedBackupTime").value || "02:00",
+          retentionDays: Math.max(1, Number($("schedRetentionDays").value) || 7),
+          createdAt: existing?.createdAt || "",
+        };
+        try {
+          state.schedules = (await api().SaveSchedule(payload)) || [];
+          closeScheduleModal();
+          renderCloudView();
+          toast("Saved daily Auto-Sync / Auto-Backup schedule!", "ok");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      };
+    }
+
+    let activeSnapSchedId = "";
+    const closeSnapModal = () => ($("modalScheduleSnapshots").hidden = true);
+    const loadSnapshotsModal = async (schedId) => {
+      activeSnapSchedId = schedId;
+      const sched = (state.schedules || []).find((s) => s.id === schedId);
+      $("modalSnapTitle").textContent = `📦 Snapshots — ${sched ? sched.name : ""}`;
+      $("modalSnapMeta").textContent = `Retention policy: Purge snapshots ≥ ${sched?.retentionDays || 7} day(s) (1 week)`;
+      const list = (await api().ScheduleSnapshots(schedId).catch(() => [])) || [];
+      const box = $("snapListContainer");
+      if (!list.length) {
+        box.innerHTML = `<div class="empty-note" style="padding:18px">No snapshots saved yet. Click <strong>▶ Backup Now</strong> or wait for the 2:00 AM daily run.</div>`;
+      } else {
+        box.innerHTML = list
+          .map(
+            (sn) => `<div class="folder-row" style="padding:8px 10px">
+              <div style="min-width:0;flex:1">
+                <strong style="font-size:12.5px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(sn.path)}">${esc(sn.name)}</strong>
+                <span class="muted" style="font-size:11px">${esc(sn.createdAt)} · ${esc(sn.sizeText)}</span>
+              </div>
+              <span class="pill ${sn.expired ? "stopped" : "running"}" style="flex-shrink:0">${esc(sn.expiresIn)}</span>
+            </div>`
+          )
+          .join("");
+      }
+      $("modalScheduleSnapshots").hidden = false;
+    };
+    if ($("btnCloseSnapModal")) $("btnCloseSnapModal").onclick = closeSnapModal;
+    if ($("btnDoneSnapModal")) $("btnDoneSnapModal").onclick = closeSnapModal;
+    if ($("btnSnapOpenFolder")) $("btnSnapOpenFolder").onclick = () => api().OpenScheduleFolder(activeSnapSchedId).catch((e) => toast(errMsg(e), "err"));
+    if ($("btnSnapPurgeNow")) {
+      $("btnSnapPurgeNow").onclick = async () => {
+        try {
+          const n = await api().PurgeScheduleSnapshots(activeSnapSchedId);
+          toast(`Purged ${n} expired snapshot(s).`, n > 0 ? "ok" : "info");
+          await loadSnapshotsModal(activeSnapSchedId);
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      };
+    }
+    if ($("btnSnapRunBackupNow")) {
+      $("btnSnapRunBackupNow").onclick = async () => {
+        const btn = $("btnSnapRunBackupNow");
+        btn.disabled = true;
+        btn.textContent = "⏳ Backing up...";
+        try {
+          const msg = await api().RunScheduleNow(activeSnapSchedId, "backup");
+          toast(msg || "Snapshot created!", "ok");
+          state.schedules = (await api().Schedules()) || state.schedules;
+          renderSchedules();
+          await loadSnapshotsModal(activeSnapSchedId);
+        } catch (err) {
+          toast(errMsg(err), "err");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "▶ Backup Now";
+        }
+      };
+    }
+
+    if ($("btnOpenBackupsFolder")) $("btnOpenBackupsFolder").onclick = () => api().OpenFolder("backups").catch((e) => toast(errMsg(e), "err"));
+    if ($("btnPurgeAllSnapshots")) {
+      $("btnPurgeAllSnapshots").onclick = async () => {
+        try {
+          const n = await api().PurgeScheduleSnapshots("");
+          toast(n > 0 ? `Purged ${n} snapshot(s) aged >= retention limit.` : "No snapshots met the 7-day purge age yet.", n > 0 ? "ok" : "info");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      };
+    }
+    if ($("btnToggleWinTask")) {
+      $("btnToggleWinTask").onclick = async () => {
+        const wantEnable = !state.winTask?.registered;
+        try {
+          await api().SetWindowsTask("02:00", wantEnable);
+          state.winTask = (await api().WindowsTaskStatus()) || { registered: wantEnable, detail: "" };
+          renderSchedules();
+          toast(wantEnable ? "Registered daily 2:00 AM Windows Task Scheduler job!" : "Removed Windows 2:00 AM scheduled task.", "ok");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      };
+    }
+
+    if ($("cloudScheduleGrid")) {
+      $("cloudScheduleGrid").addEventListener("click", async (e) => {
+        const btn = e.target.closest("[data-sact]");
+        if (!btn) return;
+        const card = btn.closest("[data-sid]");
+        const id = card?.dataset.sid;
+        const s = (state.schedules || []).find((x) => x.id === id);
+        if (!s) return;
+        const act = btn.dataset.sact;
+        if (act === "run") {
+          const prev = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = "⏳ Running...";
+          try {
+            const msg = await api().RunScheduleNow(s.id, "both");
+            toast(msg || "Schedule run complete!", "ok");
+            state.schedules = (await api().Schedules()) || state.schedules;
+            renderCloudView();
+          } catch (err) {
+            toast(errMsg(err), "err");
+          } finally {
+            btn.disabled = false;
+            btn.textContent = prev;
+          }
+        } else if (act === "snaps") {
+          await loadSnapshotsModal(s.id);
+        } else if (act === "purge") {
+          try {
+            const n = await api().PurgeScheduleSnapshots(s.id);
+            toast(n > 0 ? `Purged ${n} snapshot(s) >= ${s.retentionDays || 7} days.` : `No snapshots >= ${s.retentionDays || 7} days old.`, n > 0 ? "ok" : "info");
+          } catch (err) {
+            toast(errMsg(err), "err");
+          }
+        } else if (act === "folder") {
+          await api().OpenScheduleFolder(s.id);
+        } else if (act === "toggle") {
+          try {
+            state.schedules = (await api().SaveSchedule({ ...s, enabled: !s.enabled })) || [];
+            renderCloudView();
+          } catch (err) {
+            toast(errMsg(err), "err");
+          }
+        } else if (act === "edit") {
+          openScheduleModal(s);
+        } else if (act === "del") {
+          if (!(await askConfirm("Delete Schedule?", `Remove daily schedule "${s.name}"? (Existing backup snapshots on disk will be kept.)`, "Delete"))) return;
+          state.schedules = (await api().DeleteSchedule(s.id)) || [];
+          renderCloudView();
+          toast(`Deleted schedule "${s.name}"`, "ok");
+        }
+      });
+    }
 
     $("cloudProfileGrid").addEventListener("click", async (e) => {
       const btn = e.target.closest("[data-cact]");

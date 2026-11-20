@@ -364,6 +364,7 @@
             <p class="subtitle">Connect &amp; manage cPanel, MonsterASP.NET, SmarterASP, Supabase, Neon, Aiven, TiDB, AWS RDS, Azure &amp; Redis Cloud</p>
           </div>
           <div class="head-actions">
+            <button class="btn" id="btnNewSchedule" title="Configure Daily Pull Auto-Sync &amp; 2:00 AM Auto-Backup (1-Week Purge)">⏰ Auto Sync &amp; Backup (2 AM)</button>
             <button class="btn accent" id="btnOpenCloudSync" title="Push a local DB to Cloud or pull Cloud DB to Local">🔄 Local ↔ Cloud Sync</button>
             <button class="btn primary" id="btnAddCloud">+ Add Cloud DB</button>
           </div>
@@ -391,6 +392,22 @@
               <span class="muted">Stored locally in <code>settings.json</code> · Connects live with full SQL/CRUD, Import, Export &amp; Sync.</span>
             </div>
             <div class="cloud-grid" id="cloudProfileGrid"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head" style="flex-wrap:wrap;gap:8px">
+              <div>
+                <h2>⏰ Daily Auto-Sync &amp; 2:00 AM Auto-Backup (1-Week Purge)</h2>
+                <span class="muted">Automatically pulls <strong>Cloud → Local</strong> every day and saves <strong>.zip</strong> snapshots at 2:00 AM, purging backups older than 7 days (1 week).</span>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                <button type="button" class="btn xs" id="btnToggleWinTask" title="Register or remove daily Windows Task Scheduler wake-up at 02:00 AM">🪟 Win 2 AM Task: OFF</button>
+                <button type="button" class="btn xs" id="btnPurgeAllSnapshots" title="Delete backup snapshots older than retention days (default 7 days)">🗑 Purge &gt;7d Now</button>
+                <button type="button" class="btn xs accent" id="btnOpenBackupsFolder" title="Open backups/ snapshot folder">📁 backups/</button>
+                <button type="button" class="btn xs primary" id="btnAddSchedule">+ New Schedule</button>
+              </div>
+            </div>
+            <div class="cloud-grid" id="cloudScheduleGrid"></div>
           </div>
         </div>
       </section>
@@ -1159,6 +1176,29 @@
           Exports all base tables (structure &amp; rows) cleanly without dropping or recreating shared hosting databases — ideal for deploying local databases to <strong>cPanel</strong>, <strong>MonsterASP.NET</strong>, <strong>Supabase</strong>, or pulling production data back locally.
         </p>
 
+        <div style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-subtle);display:flex;flex-direction:column;gap:8px">
+          <label class="check-row" style="font-size:12px;font-weight:600">
+            <input type="checkbox" id="syncAlsoSaveSchedule" />
+            <span>⏰ Enable Daily Auto-Sync &amp; 2:00 AM Auto-Backup (Purge after 7 days / 1 week)</span>
+          </label>
+          <div id="syncSchedMiniOpts" hidden style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:11.5px;padding-left:20px">
+            <label style="display:inline-flex;align-items:center;gap:5px">
+              <span>Sync Time:</span>
+              <input type="time" id="syncAutoTime" class="input xs" value="02:00" />
+            </label>
+            <label class="check-row" style="font-size:11.5px">
+              <input type="checkbox" id="syncAutoBackupChk" checked />
+              <span>Backup (.zip) @</span>
+              <input type="time" id="syncAutoBackupTime" class="input xs" value="02:00" />
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:5px">
+              <span>Purge after</span>
+              <input type="number" id="syncAutoKeepDays" class="input xs" value="7" min="1" max="365" style="width:52px" />
+              <span>days</span>
+            </label>
+          </div>
+        </div>
+
         <div id="cloudSyncBox" class="sysup-fetch-box" role="status" aria-live="polite" hidden>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
             <div style="display:flex;align-items:center;gap:8px;min-width:0">
@@ -1177,6 +1217,7 @@
 
         <div class="modal-actions">
           <button type="button" class="btn" id="btnCancelCloudSync">Cancel</button>
+          <button type="button" class="btn accent" id="btnSaveSyncScheduleOnly" hidden>💾 Save Schedule Only</button>
           <button type="submit" class="btn primary" id="btnRunCloudSync">🔄 Sync Now</button>
         </div>
       </form>
@@ -1208,6 +1249,133 @@
         </div>
         <div class="modal-actions">
           <button type="button" class="btn" id="btnDoneBackupProg">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Daily Auto-Sync & 2 AM Auto-Backup Schedule Modal -->
+  <div class="modal-backdrop" id="modalScheduleForm" hidden>
+    <div class="modal" style="width:560px;max-width:94vw">
+      <div class="modal-head">
+        <h3 id="modalScheduleTitle">⏰ Daily Auto-Sync &amp; Auto-Backup Schedule</h3>
+        <button class="icon-btn" id="btnCloseScheduleForm" aria-label="Close">✕</button>
+      </div>
+      <form id="formSchedule" class="modal-body">
+        <input type="hidden" id="schedEditId" />
+        <div class="modal-grid-2">
+          <label class="field">
+            <span>Schedule Name *</span>
+            <input type="text" id="schedName" class="input" required placeholder="e.g. HRIS Daily Pull &amp; 2AM Backup" />
+          </label>
+          <label class="field" style="justify-content:flex-end">
+            <span class="check-row" style="font-size:12.5px;padding-bottom:6px">
+              <input type="checkbox" id="schedEnabled" checked />
+              <span>Schedule Enabled</span>
+            </span>
+          </label>
+        </div>
+
+        <div class="modal-grid-2">
+          <label class="field">
+            <span>Cloud Profile</span>
+            <select id="schedCloudId" class="select"></select>
+          </label>
+          <label class="field">
+            <span>Cloud Database</span>
+            <input type="text" id="schedCloudDb" class="input" placeholder="e.g. db70628" />
+          </label>
+        </div>
+
+        <div class="modal-grid-2">
+          <label class="field">
+            <span>Local Engine</span>
+            <select id="schedLocalEngine" class="select">
+              <option value="mssql">MS SQL Server</option>
+              <option value="mariadb">MariaDB</option>
+              <option value="mysql">MySQL</option>
+              <option value="postgresql">PostgreSQL</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Local Database</span>
+            <input type="text" id="schedLocalDb" class="input" placeholder="e.g. hris" />
+          </label>
+        </div>
+
+        <div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);display:flex;flex-direction:column;gap:8px">
+          <label class="check-row" style="font-size:12.5px;font-weight:600">
+            <input type="checkbox" id="schedAutoSync" checked />
+            <span>🔄 Every Day Auto-Sync</span>
+          </label>
+          <div class="modal-grid-2">
+            <label class="field">
+              <span>Direction</span>
+              <select id="schedSyncDir" class="select">
+                <option value="pull" selected>📥 Pull Cloud → Local (Recommended)</option>
+                <option value="push">📤 Push Local → Cloud</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Daily Sync Time</span>
+              <input type="time" id="schedSyncTime" class="input" value="02:00" />
+            </label>
+          </div>
+        </div>
+
+        <div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);display:flex;flex-direction:column;gap:8px">
+          <label class="check-row" style="font-size:12.5px;font-weight:600">
+            <input type="checkbox" id="schedAutoBackup" checked />
+            <span>📦 Every Day Auto-Backup (.zip Snapshot)</span>
+          </label>
+          <div class="modal-grid-3" style="grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr) minmax(0, 0.9fr)">
+            <label class="field">
+              <span>Backup Source</span>
+              <select id="schedBackupSource" class="select">
+                <option value="cloud" selected>☁️ Cloud Database (.zip)</option>
+                <option value="local">💻 Local Database (.zip)</option>
+                <option value="both">☁️ + 💻 Both Cloud &amp; Local</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Daily Backup Time</span>
+              <input type="time" id="schedBackupTime" class="input" value="02:00" />
+            </label>
+            <label class="field">
+              <span>Purge Old After (Days)</span>
+              <input type="number" id="schedRetentionDays" class="input" min="1" max="365" value="7" title="Snapshots aged >= N days are automatically purged (7 days = 1 week)" />
+            </label>
+          </div>
+          <span class="muted" style="font-size:11px">Default: Daily <strong>02:00 AM</strong> backup saved into <code>backups/</code>; snapshots meeting <strong>7 days (1 week)</strong> are automatically purged.</span>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnCancelScheduleForm">Cancel</button>
+          <button type="submit" class="btn primary" id="btnSaveScheduleForm">💾 Save Schedule</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Schedule Backup Snapshots & Retention Modal -->
+  <div class="modal-backdrop" id="modalScheduleSnapshots" hidden>
+    <div class="modal" style="width:600px;max-width:94vw">
+      <div class="modal-head">
+        <h3 id="modalSnapTitle">📦 Backup Snapshots</h3>
+        <button class="icon-btn" id="btnCloseSnapModal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+          <span class="muted" id="modalSnapMeta" style="font-size:12px">Retention: 7 days (1 week)</span>
+          <div style="display:flex;gap:6px">
+            <button type="button" class="btn xs accent" id="btnSnapOpenFolder">📁 Open Folder</button>
+            <button type="button" class="btn xs" id="btnSnapPurgeNow">🗑 Purge Expired (&gt;7d)</button>
+            <button type="button" class="btn xs primary" id="btnSnapRunBackupNow">▶ Backup Now</button>
+          </div>
+        </div>
+        <div id="snapListContainer" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnDoneSnapModal">Close</button>
         </div>
       </div>
     </div>

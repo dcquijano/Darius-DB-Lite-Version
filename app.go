@@ -58,6 +58,7 @@ type App struct {
 	mgr      *core.Manager
 	dl       *core.Downloader
 	term     *core.Terminal
+	sched    *core.Scheduler
 	tr       *tray.Tray
 
 	mu          sync.Mutex
@@ -82,6 +83,15 @@ func NewAppWithOptions(paths *core.Paths, st *core.SettingsStore, skipAdopt bool
 		a.mgr.OnInstalled(engine, name)
 	})
 	a.term = core.NewTerminal(paths, st, a.mgr, nil)
+	a.sched = core.NewScheduler(paths, st, func() {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "schedules-updated", a.Schedules())
+		}
+	}, func(prog core.CloudSyncProgress) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "cloud-sync-progress", prog)
+		}
+	})
 	return a
 }
 
@@ -99,6 +109,10 @@ func (a *App) startup(ctx context.Context) {
 	})
 	if err == nil {
 		a.tr = tr
+	}
+
+	if a.sched != nil {
+		a.sched.Start()
 	}
 
 	if a.settings.Get().AutoStartServices && !a.skipAdopt && !a.justUpdated {
@@ -129,6 +143,9 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	if a.sched != nil {
+		a.sched.Stop()
+	}
 	if a.settings.Get().StopOnExit {
 		_ = a.mgr.StopAll()
 	}
@@ -413,6 +430,9 @@ func (a *App) OpenFolder(kind string) error {
 		return core.OpenFolder(a.paths.Etc)
 	case "logs":
 		return core.OpenFolder(a.paths.Logs)
+	case "backups":
+		_ = os.MkdirAll(a.paths.Backups, 0o755)
+		return core.OpenFolder(a.paths.Backups)
 	default:
 		if strings.HasPrefix(kind, "data:") {
 			id := strings.TrimPrefix(kind, "data:")
@@ -941,6 +961,127 @@ func (a *App) CloudSyncDatabase(srcTarget, srcDB, dstTarget, dstDB string) (stri
 			runtime.EventsEmit(a.ctx, "cloud-sync-progress", prog)
 		}
 	})
+}
+
+// ---------------------------------------------------------------- Daily Auto-Sync & 2:00 AM Auto-Backup (1-Week Purge)
+
+func (a *App) Schedules() []core.BackupSyncSchedule {
+	list := a.settings.Get().Schedules
+	if list == nil {
+		return []core.BackupSyncSchedule{}
+	}
+	out := make([]core.BackupSyncSchedule, len(list))
+	for i, s := range list {
+		out[i] = s.Normalized()
+	}
+	return out
+}
+
+func (a *App) SaveSchedule(sched core.BackupSyncSchedule) ([]core.BackupSyncSchedule, error) {
+	ns := sched.Normalized()
+	if !ns.AutoSync && !ns.AutoBackup {
+		return nil, errors.New("enable at least Auto-Sync or Auto-Backup")
+	}
+	if ns.AutoSync && ns.CloudID == "" {
+		return nil, errors.New("select a Cloud Profile for Daily Auto-Sync")
+	}
+	err := a.settings.Update(func(s *core.Settings) {
+		for i, cur := range s.Schedules {
+			if cur.ID == ns.ID {
+				if ns.CreatedAt == "" {
+					ns.CreatedAt = cur.CreatedAt
+				}
+				if ns.LastSyncAt == "" {
+					ns.LastSyncAt = cur.LastSyncAt
+					ns.LastSyncDate = cur.LastSyncDate
+					ns.LastSyncStatus = cur.LastSyncStatus
+				}
+				if ns.LastBackupAt == "" {
+					ns.LastBackupAt = cur.LastBackupAt
+					ns.LastBackupDate = cur.LastBackupDate
+					ns.LastBackupStatus = cur.LastBackupStatus
+					ns.LastPurgedCount = cur.LastPurgedCount
+				}
+				s.Schedules[i] = ns
+				return
+			}
+		}
+		s.Schedules = append(s.Schedules, ns)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return a.Schedules(), nil
+}
+
+func (a *App) DeleteSchedule(id string) ([]core.BackupSyncSchedule, error) {
+	err := a.settings.Update(func(s *core.Settings) {
+		out := s.Schedules[:0]
+		for _, cur := range s.Schedules {
+			if cur.ID != id {
+				out = append(out, cur)
+			}
+		}
+		s.Schedules = out
+	})
+	if err != nil {
+		return nil, err
+	}
+	return a.Schedules(), nil
+}
+
+func (a *App) RunScheduleNow(id, mode string) (string, error) {
+	if a.sched == nil {
+		return "", errors.New("scheduler not initialized")
+	}
+	return a.sched.RunScheduleNow(id, mode)
+}
+
+func (a *App) ScheduleSnapshots(id string) ([]core.BackupSnapshotInfo, error) {
+	for _, s := range a.Schedules() {
+		if s.ID == id {
+			return core.ListSnapshots(a.paths, s, time.Now())
+		}
+	}
+	return []core.BackupSnapshotInfo{}, nil
+}
+
+func (a *App) PurgeScheduleSnapshots(id string) (int, error) {
+	total := 0
+	for _, s := range a.Schedules() {
+		if id == "" || s.ID == id {
+			n, _, err := core.PurgeOldSnapshots(core.ScheduleBackupDir(a.paths, s), s.RetentionDays, time.Now())
+			if err != nil && id != "" {
+				return total, err
+			}
+			total += n
+		}
+	}
+	return total, nil
+}
+
+func (a *App) OpenScheduleFolder(id string) error {
+	for _, s := range a.Schedules() {
+		if s.ID == id {
+			dir := core.ScheduleBackupDir(a.paths, s)
+			_ = os.MkdirAll(dir, 0o755)
+			return core.OpenFolder(dir)
+		}
+	}
+	_ = os.MkdirAll(a.paths.Backups, 0o755)
+	return core.OpenFolder(a.paths.Backups)
+}
+
+func (a *App) WindowsTaskStatus() map[string]interface{} {
+	reg, detail := core.IsWindowsScheduleTaskRegistered()
+	return map[string]interface{}{
+		"registered": reg,
+		"detail":     detail,
+	}
+}
+
+func (a *App) SetWindowsTask(timeHHMM string, enable bool) error {
+	return core.RegisterWindowsScheduleTask(a.paths, timeHHMM, enable)
 }
 
 func (a *App) CloudRedisDatabases(target string) ([]core.RedisDB, error) {

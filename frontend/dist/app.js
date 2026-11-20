@@ -427,20 +427,20 @@
           </button>`
       )
       .join("");
-      el.querySelectorAll(".seg").forEach((btn) =>
-        btn.addEventListener("click", () => {
-          state.dbEngine = btn.dataset.engine;
-          state.sqlDb = "";
-          state.sqlDbs = [];
-          state.sqlTables = [];
-          state.sqlTable = "";
-          state.sqlColumns = [];
-          state.sqlLastResult = null;
-          state.sqlShowingAll = false;
-          renderDbEngineTabs();
-          loadDbView();
-        })
-      );
+    el.querySelectorAll(".seg").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        state.dbEngine = btn.dataset.engine;
+        state.sqlDb = "";
+        state.sqlDbs = [];
+        state.sqlTables = [];
+        state.sqlTable = "";
+        state.sqlColumns = [];
+        state.sqlLastResult = null;
+        state.sqlShowingAll = false;
+        renderDbEngineTabs();
+        loadDbView();
+      })
+    );
   }
 
   async function loadDbView() {
@@ -780,8 +780,8 @@
             ${col.isAutoIncrement ? `<span class="pill running">AUTO</span>` : ""}
             <div class="spacer"></div>
             ${col.nullable
-              ? `<label class="check-inline" style="font-size:11.5px"><input type="checkbox" class="row-field-null" data-col="${esc(col.name)}" ${isNull ? "checked" : ""} /> NULL</label>`
-              : ""}
+            ? `<label class="check-inline" style="font-size:11.5px"><input type="checkbox" class="row-field-null" data-col="${esc(col.name)}" ${isNull ? "checked" : ""} /> NULL</label>`
+            : ""}
           </div>
           ${control}
         </div>`;
@@ -1515,10 +1515,6 @@
       $("sysUpChangelogList").innerHTML = (up.changelog || [])
         .map((item) => `<li>${esc(item)}</li>`)
         .join("");
-      const bestUrl = up.directSetupUrl || up.fallbackSetupUrl || up.directZipUrl || "";
-      if (bestUrl) {
-        $("sysUpDirectUrl").value = bestUrl;
-      }
       if ($("announceUpdateInfo") && up.latestCommitSha) {
         $("announceUpdateInfo").textContent = `Latest GitHub Update [${up.latestCommitSha}]: ${up.latestCommitMsg} (${up.latestCommitDate})`;
       }
@@ -1569,9 +1565,9 @@
               ? `🎉 Update Available: Lite Version ${up.latestVersion}!`
               : "✅ Successfully Checked Online GitHub Release!",
             `Latest Release: <strong>Lite Version ${esc(up.latestVersion)}</strong>` +
-              (up.latestCommitSha
-                ? ` · Commit <code>${esc(up.latestCommitSha)}</code>: "${esc(up.latestCommitMsg)}"`
-                : "")
+            (up.latestCommitSha
+              ? ` · Commit <code>${esc(up.latestCommitSha)}</code>: "${esc(up.latestCommitMsg)}"`
+              : "")
           );
           toast(
             up.hasUpdate
@@ -1634,19 +1630,19 @@
               ? `🎉 Update Found: Lite Version ${up.latestVersion} Ready to Install!`
               : "✅ Successfully Fetched Latest Updates from GitHub!",
             `Synced <strong>Darius DB (Lite Version ${esc(up.latestVersion)})</strong>` +
-              (up.latestCommitSha
-                ? ` · Latest Commit <code>${esc(up.latestCommitSha)}</code>: <strong>${esc(
-                    up.latestCommitMsg
-                  )}</strong> (${esc(up.latestCommitDate)})`
-                : " · Engine catalog &amp; version.json synced!")
+            (up.latestCommitSha
+              ? ` · Latest Commit <code>${esc(up.latestCommitSha)}</code>: <strong>${esc(
+                up.latestCommitMsg
+              )}</strong> (${esc(up.latestCommitDate)})`
+              : " · Engine catalog &amp; version.json synced!")
           );
           btn.textContent = "✅ Successfully Fetched!";
           toast(
             up.hasUpdate
               ? `🎉 New update v${up.latestVersion} found! Click 'Download & Install Update Now' to upgrade.`
               : up.latestCommitSha
-              ? `✅ Successfully fetched latest GitHub update [${up.latestCommitSha}]: ${up.latestCommitMsg}`
-              : "✅ Successfully fetched latest version.json and catalog from GitHub!",
+                ? `✅ Successfully fetched latest GitHub update [${up.latestCommitSha}]: ${up.latestCommitMsg}`
+                : "✅ Successfully fetched latest version.json and catalog from GitHub!",
             "ok"
           );
           setTimeout(() => {
@@ -1665,7 +1661,7 @@
     if ($("btnSysUpInstallNow")) {
       $("btnSysUpInstallNow").onclick = async () => {
         const up = latestUpdateInfo;
-        const primary = up?.directSetupUrl || $("sysUpDirectUrl").value.trim() || "";
+        const primary = up?.directSetupUrl || "";
         const fallback = up?.fallbackSetupUrl || up?.directZipUrl || "";
         const btn = $("btnSysUpInstallNow");
         btn.disabled = true;
@@ -1680,7 +1676,6 @@
           const msg = await api().ApplySystemUpdateAuto(primary, fallback);
           if (msg) {
             setFetchProgress("success", 100, "✅ Update Downloaded — Restarting Darius DB...", esc(msg));
-            $("sysUpStatusMsg").textContent = msg;
             toast(msg, "ok");
           }
         } catch (e) {
@@ -1689,11 +1684,6 @@
           btn.disabled = false;
           btn.textContent = "⬆️ Download & Install Update Now";
         }
-      };
-    }
-    if ($("btnSysUpToggleToken")) {
-      $("btnSysUpToggleToken").onclick = () => {
-        $("sysUpTokenBox").hidden = !$("sysUpTokenBox").hidden;
       };
     }
     if ($("btnSysUpSaveToken")) {
@@ -1720,16 +1710,6 @@
         }
       };
     }
-    if ($("btnSysUpLaunchTool")) {
-      $("btnSysUpLaunchTool").onclick = async () => {
-        try {
-          await api().LaunchUpdaterTool();
-          toast("Launched standalone DariusDB-Updater.exe", "ok");
-        } catch (e) {
-          toast(errMsg(e), "err");
-        }
-      };
-    }
     const openSysUpdater = () => {
       if ($("sysUpFetchBox")) $("sysUpFetchBox").hidden = true;
       if ($("sysUpReadyBar")) $("sysUpReadyBar").hidden = true;
@@ -1741,51 +1721,6 @@
     $("btnCloseSysUpdater").onclick = closeSysUpdater;
     $("btnCancelSysUpdater").onclick = closeSysUpdater;
     $("btnSysUpCheckNow").onclick = () => refreshSystemUpdateModal(true);
-    $("btnSysUpOpenDrive").onclick = () => {
-      const url =
-        state.info?.installerUrl ||
-        "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing";
-      if (rt()?.BrowserOpenURL) rt().BrowserOpenURL(url);
-      else window.open(url, "_blank");
-      toast("Opened Official Google Drive Installer Folder", "ok");
-    };
-    $("btnSysUpPickFile").onclick = async () => {
-      try {
-        const msg = await api().ApplySystemUpdateFromFileDialog();
-        if (msg) {
-          setFetchProgress("success", 100, "✅ Update Started — Restarting Darius DB...", esc(msg));
-          $("sysUpStatusMsg").textContent = msg;
-          toast(msg, "ok");
-        }
-      } catch (e) {
-        toast(errMsg(e), "err");
-      }
-    };
-    $("btnSysUpRunUrl").onclick = async () => {
-      const url = $("sysUpDirectUrl").value.trim();
-      if (!url) {
-        toast("Enter a direct .exe or .zip URL first, or click 'Select Setup .exe / Portable .zip'", "err");
-        return;
-      }
-      const btn = $("btnSysUpRunUrl");
-      btn.disabled = true;
-      btn.textContent = "Downloading...";
-      setFetchProgress("loading", 45, "⏳ Downloading & installing update...", "Downloading binary and preparing automatic restart...");
-      try {
-        const msg = await api().ApplySystemUpdateFromURL(url);
-        if (msg) {
-          setFetchProgress("success", 100, "✅ Update Complete — Restarting Darius DB...", esc(msg));
-          $("sysUpStatusMsg").textContent = msg;
-          toast(msg, "ok");
-        }
-      } catch (e) {
-        setFetchProgress("error", 100, "⚠️ Update Failed", esc(errMsg(e)));
-        toast(errMsg(e), "err");
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "⬇️ Download & Update";
-      }
-    };
     $("btnAnnounceCheckVer").onclick = async () => {
       const btn = $("btnAnnounceCheckVer");
       const infoEl = $("announceUpdateInfo");
@@ -2327,8 +2262,8 @@ try {
         <input type="text" class="input xs tbl-col-name" placeholder="column_name" value="${esc(name)}" required />
         <select class="select sm tbl-col-type">
           ${["INT", "BIGINT", "VARCHAR(255)", "TEXT", "DECIMAL(10,2)", "BOOLEAN", "DATE", "DATETIME", "TIMESTAMP"]
-            .map((tp) => `<option value="${tp}" ${tp === type ? "selected" : ""}>${tp}</option>`)
-            .join("")}
+          .map((tp) => `<option value="${tp}" ${tp === type ? "selected" : ""}>${tp}</option>`)
+          .join("")}
         </select>
         <label><input type="checkbox" class="tbl-col-null" ${nullable ? "checked" : ""} /> Null</label>
         <label><input type="checkbox" class="tbl-col-pk" ${pk ? "checked" : ""} /> PK</label>

@@ -318,6 +318,59 @@ func isMSSQLAutoTimestampType(dt string) bool {
 	return false
 }
 
+func isMSSQLTextType(dt string) bool {
+	switch strings.ToLower(strings.TrimSpace(dt)) {
+	case "varchar", "nvarchar", "char", "nchar", "text", "ntext", "xml", "sysname":
+		return true
+	}
+	return false
+}
+
+func decodeMSSQLFieldToTSQLExpr(escaped string) string {
+	if !strings.ContainsRune(escaped, '\\') {
+		return "N'" + strings.ReplaceAll(escaped, "'", "''") + "'"
+	}
+	var parts []string
+	var lit strings.Builder
+	flushLit := func() {
+		if lit.Len() > 0 {
+			parts = append(parts, "N'"+strings.ReplaceAll(lit.String(), "'", "''")+"'")
+			lit.Reset()
+		}
+	}
+	for i := 0; i < len(escaped); i++ {
+		if escaped[i] == '\\' && i+1 < len(escaped) {
+			switch escaped[i+1] {
+			case '\\':
+				lit.WriteByte('\\')
+				i++
+				continue
+			case 'r':
+				flushLit()
+				parts = append(parts, "CHAR(13)")
+				i++
+				continue
+			case 'n':
+				flushLit()
+				parts = append(parts, "CHAR(10)")
+				i++
+				continue
+			case 't':
+				flushLit()
+				parts = append(parts, "CHAR(9)")
+				i++
+				continue
+			}
+		}
+		lit.WriteByte(escaped[i])
+	}
+	flushLit()
+	if len(parts) == 0 {
+		return "N''"
+	}
+	return strings.Join(parts, " + ")
+}
+
 func mssqlWriteTableSQL(b *strings.Builder, s EngineSettings, dbName string, t TableInfo, includeSchema, includeData bool) {
 	tableName := t.Name
 	if idx := strings.IndexByte(tableName, '.'); idx >= 0 {
@@ -405,6 +458,8 @@ func mssqlWriteTableSQL(b *strings.Builder, s EngineSettings, dbName string, t T
 				br := mssqlBracket(c.name)
 				if isMSSQLBinaryType(c.dataType) {
 					selExprs = append(selExprs, fmt.Sprintf("CONVERT(VARCHAR(MAX), %s, 1) AS %s", br, br))
+				} else if isMSSQLTextType(c.dataType) {
+					selExprs = append(selExprs, fmt.Sprintf("REPLACE(REPLACE(REPLACE(REPLACE(CAST(%s AS NVARCHAR(MAX)), N'\\', N'\\\\'), CHAR(13), N'\\r'), CHAR(10), N'\\n'), CHAR(9), N'\\t') AS %s", br, br))
 				} else {
 					selExprs = append(selExprs, br)
 				}
@@ -437,6 +492,8 @@ func mssqlWriteTableSQL(b *strings.Builder, s EngineSettings, dbName string, t T
 						vals = append(vals, "NULL")
 					} else if i < len(insertCols) && isMSSQLBinaryType(insertCols[i].dataType) && strings.HasPrefix(strings.ToLower(strings.TrimSpace(*cell)), "0x") {
 						vals = append(vals, strings.TrimSpace(*cell))
+					} else if i < len(insertCols) && isMSSQLTextType(insertCols[i].dataType) {
+						vals = append(vals, decodeMSSQLFieldToTSQLExpr(*cell))
 					} else {
 						vals = append(vals, "N'"+strings.ReplaceAll(*cell, "'", "''")+"'")
 					}

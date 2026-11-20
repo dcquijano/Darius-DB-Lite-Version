@@ -591,3 +591,24 @@ func TestMySQLBinaryAndNulEscaping(t *testing.T) {
 	}
 }
 
+func TestMSSQLMultilineAndTabFieldEncoding(t *testing.T) {
+	for _, dt := range []string{"varchar", "NVARCHAR", "char", "nchar", "text", "ntext", "xml", "sysname"} {
+		if !isMSSQLTextType(dt) {
+			t.Fatalf("expected %s to be recognized as MSSQL text type", dt)
+		}
+	}
+	if isMSSQLTextType("int") || isMSSQLTextType("varbinary") {
+		t.Fatal("int/varbinary must not be treated as MSSQL text type")
+	}
+
+	if got := decodeMSSQLFieldToTSQLExpr("plain text"); got != "N'plain text'" {
+		t.Fatalf("unexpected plain expr: %s", got)
+	}
+	if got := decodeMSSQLFieldToTSQLExpr(`Header\r\n-Void and Discount.\t\\O'Brien`); got != `N'Header' + CHAR(13) + CHAR(10) + N'-Void and Discount.' + CHAR(9) + N'\O''Brien'` {
+		t.Fatalf("unexpected decoded multiline/tab T-SQL expr: %s", got)
+	}
+	if got := decodeMSSQLFieldToTSQLExpr(`\n`); got != "CHAR(10)" {
+		t.Fatalf("unexpected newline-only T-SQL expr: %s", got)
+	}
+}
+

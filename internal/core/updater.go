@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -58,6 +60,42 @@ type SystemUpdateInfo struct {
 	RepoPrivateHint  bool               `json:"repoPrivateHint,omitempty"`
 }
 
+var (
+	gcmOnce  sync.Once
+	gcmToken string
+)
+
+// resolveGitCredentialToken queries Windows Git Credential Manager non-interactively
+// (in memory only) so machines already signed into GitHub via Git can fetch private repos.
+func resolveGitCredentialToken() string {
+	gcmOnce.Do(func() {
+		gitExe, err := exec.LookPath("git")
+		if err != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, gitExe, "credential", "fill")
+		hideWindow(cmd)
+		cmd.Env = append(os.Environ(), "GCM_INTERACTIVE=never", "GIT_TERMINAL_PROMPT=0")
+		cmd.Stdin = strings.NewReader("protocol=https\nhost=github.com\n\n")
+		out, err := cmd.Output()
+		if err != nil {
+			return
+		}
+		for _, line := range strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n") {
+			if strings.HasPrefix(line, "password=") {
+				tok := strings.TrimSpace(strings.TrimPrefix(line, "password="))
+				if tok != "" {
+					gcmToken = tok
+				}
+				return
+			}
+		}
+	})
+	return gcmToken
+}
+
 func resolveGitHubToken(tokens ...string) string {
 	for _, t := range tokens {
 		if s := strings.TrimSpace(t); s != "" {
@@ -69,7 +107,7 @@ func resolveGitHubToken(tokens ...string) string {
 			return s
 		}
 	}
-	return ""
+	return resolveGitCredentialToken()
 }
 
 func isGitHubHost(rawURL string) bool {

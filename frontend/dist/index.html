@@ -266,7 +266,7 @@
                 <button class="btn xs accent" id="btnRowCreate" title="Create / Insert a new row in the selected table"
                   hidden>+ Create</button>
                 <button class="btn xs" id="btnSqlShowAll"
-                  title="Show all rows in the selected table (no LIMIT 100)">Show All</button>
+                  title="Show all rows in the selected table (no LIMIT)">Show All</button>
                 <button class="btn xs" id="btnSqlClear">Clear</button>
                 <button class="btn xs primary" id="btnSqlRun">Run Query</button>
               </div>
@@ -285,6 +285,40 @@
                 <button class="btn xs" id="btnMetaShowAll" hidden>Show All</button>
               </div>
               <div class="table-wrap" id="sqlResults"></div>
+              <div class="result-pager-bar" id="sqlPagerBar" hidden>
+                <div class="pager-left">
+                  <span class="pager-info" id="sqlPagerInfo">Showing 0 of 0</span>
+                  <button type="button" class="btn xs accent" id="btnPagerLoadMax" hidden
+                    title="Fetch all rows in the table / query without SQL LIMIT">Load All (Max)</button>
+                </div>
+                <div class="pager-right">
+                  <label class="pager-size-wrap" for="sqlPageSize">
+                    <span>Per page</span>
+                    <select id="sqlPageSize" class="select xs" title="Rows per page (50 to Max)">
+                      <option value="50" selected>50</option>
+                      <option value="100">100</option>
+                      <option value="250">250</option>
+                      <option value="500">500</option>
+                      <option value="1000">1000</option>
+                      <option value="5000">5000</option>
+                      <option value="10000">10000</option>
+                      <option value="0">Max (All)</option>
+                    </select>
+                  </label>
+                  <div class="pager-nav" role="navigation" aria-label="Query results pagination">
+                    <button type="button" class="btn xs pager-btn" id="btnPageFirst" title="First page">«</button>
+                    <button type="button" class="btn xs pager-btn" id="btnPagePrev" title="Previous page">‹ Prev</button>
+                    <div class="pager-pages" id="sqlPagerNumbers"></div>
+                    <button type="button" class="btn xs pager-btn" id="btnPageNext" title="Next page">Next ›</button>
+                    <button type="button" class="btn xs pager-btn" id="btnPageLast" title="Last page">»</button>
+                  </div>
+                  <label class="pager-jump-wrap" id="sqlPageJumpWrap" hidden>
+                    <span>Page</span>
+                    <input type="number" id="sqlPageJump" class="input xs pager-jump-input" min="1" value="1"
+                      title="Jump to page number (Enter)" />
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
         </div>

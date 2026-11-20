@@ -24,6 +24,8 @@
     sqlColumns: [],
     sqlLastResult: null,
     sqlShowingAll: false,
+    sqlPage: 1,
+    sqlPageSize: 50,
     redisDb: 0,
     redisCursor: "0",
     redisKeys: [],
@@ -459,6 +461,8 @@
         state.sqlColumns = [];
         state.sqlLastResult = null;
         state.sqlShowingAll = false;
+        state.sqlPage = 1;
+        hideSqlPager();
         renderDbEngineTabs();
         loadDbView();
       })
@@ -606,55 +610,170 @@
       .join("");
   }
 
+  function hideSqlPager() {
+    if ($("sqlPagerBar")) $("sqlPagerBar").hidden = true;
+    if ($("btnPagerLoadMax")) $("btnPagerLoadMax").hidden = true;
+  }
+
+  function detectSqlLimit(q) {
+    const s = String(q || "").trim();
+    const mLimit = s.match(/\bLIMIT\s+(\d+)\s*;?\s*$/i);
+    if (mLimit) return Number(mLimit[1]) || 0;
+    const mTop = s.match(/^\s*SELECT\s+TOP\s+(\d+)\s+/i);
+    if (mTop) return Number(mTop[1]) || 0;
+    return 0;
+  }
+
+  function applySqlQueryLimit(q, limit) {
+    const s = String(q || "").trim();
+    if (!s) return s;
+    const hasSemi = /;\s*$/.test(s);
+    const body = s.replace(/;\s*$/, "").trim();
+    if (/\bLIMIT\s+\d+\s*$/i.test(body)) {
+      const next = limit > 0
+        ? body.replace(/\bLIMIT\s+\d+\s*$/i, `LIMIT ${limit}`)
+        : body.replace(/\s+\bLIMIT\s+\d+\s*$/i, "");
+      return hasSemi ? `${next};` : next;
+    }
+    if (/^\s*SELECT\s+TOP\s+\d+\s+/i.test(body)) {
+      const next = limit > 0
+        ? body.replace(/^(\s*SELECT\s+)TOP\s+\d+\s+/i, `$1TOP ${limit} `)
+        : body.replace(/^(\s*SELECT\s+)TOP\s+\d+\s+/i, "$1");
+      return hasSemi ? `${next};` : next;
+    }
+    return s;
+  }
+
   async function selectSqlTable(tableObj, showAll = false) {
     if (!tableObj) return;
+    const fetchAll = !!showAll || state.sqlPageSize === 0;
     state.sqlTable = tableObj.name;
-    state.sqlShowingAll = !!showAll;
+    state.sqlShowingAll = fetchAll;
+    state.sqlPage = 1;
     renderSqlTableList();
     updateSqlTableToolbar();
-    $("sqlEditor").value = showAll ? (tableObj.selectAll || tableObj.select) : tableObj.select;
+    let sql = tableObj.select;
+    if (fetchAll) {
+      sql = tableObj.selectAll || applySqlQueryLimit(tableObj.select, 0);
+    } else if (state.sqlPageSize > 100) {
+      sql = applySqlQueryLimit(tableObj.select, state.sqlPageSize);
+    }
+    $("sqlEditor").value = sql;
     try {
       state.sqlColumns = (await api().DescribeTable(state.dbEngine, state.sqlDb, tableObj.name)) || [];
     } catch {
       state.sqlColumns = [];
     }
-    await runSqlQuery(showAll);
+    await runSqlQuery(fetchAll || state.sqlPageSize > 1000);
   }
 
-  async function runSqlQuery(showAll = false) {
+  async function runSqlQuery(showAll = false, preservePage = false) {
     const q = $("sqlEditor").value.trim();
     if (!q) return;
+    if (!preservePage) state.sqlPage = 1;
     const meta = $("sqlMeta");
     const bar = meta.parentElement;
     bar.className = "result-meta-bar";
     meta.textContent = showAll ? "Loading all rows..." : "Running query...";
     $("sqlResults").innerHTML = "";
+    hideSqlPager();
     try {
       const res = showAll
         ? await api().RunQueryAll(state.dbEngine, state.sqlDb, q)
         : await api().RunQuery(state.dbEngine, state.sqlDb, q);
       state.sqlLastResult = res;
-      if ($("sqlRowFilter")) $("sqlRowFilter").value = "";
+      if (!preservePage && $("sqlRowFilter")) $("sqlRowFilter").value = "";
       updateSqlTableToolbar();
       if (res.isQuery) {
         meta.textContent = `${res.rows.length} row(s)${res.truncated ? " (capped)" : showAll ? " (all)" : ""} · ${res.durationMs.toFixed(1)} ms`;
         renderSqlTable(res);
       } else {
+        hideSqlPager();
         meta.textContent = `Query OK · ${res.affected} row(s) affected · ${res.durationMs.toFixed(1)} ms`;
         if (/\b(create|drop|alter|insert|update|delete|truncate)\b/i.test(q)) {
           loadSqlDatabases();
         }
       }
     } catch (e) {
+      hideSqlPager();
       bar.className = "result-meta-bar error";
       meta.textContent = errMsg(e);
     }
   }
 
-  function renderSqlTable(res, renderLimit = 400) {
+  function buildPageRange(current, total) {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    const items = [1];
+    let start = Math.max(2, current - 1);
+    let end = Math.min(total - 1, current + 1);
+    if (current <= 3) end = Math.min(total - 1, 4);
+    if (current >= total - 2) start = Math.max(2, total - 3);
+    if (start > 2) items.push("...");
+    for (let p = start; p <= end; p++) items.push(p);
+    if (end < total - 1) items.push("...");
+    items.push(total);
+    return items;
+  }
+
+  function renderSqlPager(res, total, totalUnfiltered, pageSize, totalPages, startRow, endRow) {
+    const pager = $("sqlPagerBar");
+    if (!pager) return;
+    pager.hidden = false;
+
+    const info = $("sqlPagerInfo");
+    if (total === 0) {
+      info.textContent = totalUnfiltered > 0 ? `Showing 0 of 0 matches (filtered from ${totalUnfiltered})` : "0 row(s)";
+    } else {
+      const base = `Showing ${startRow}–${endRow} of ${total} row(s)`;
+      const filtNote = totalUnfiltered !== total ? ` (filtered from ${totalUnfiltered})` : "";
+      const pageNote = ` · Page ${state.sqlPage}/${totalPages}`;
+      info.textContent = base + filtNote + pageNote;
+    }
+
+    const sel = $("sqlPageSize");
+    if (sel) sel.value = String(state.sqlPageSize);
+
+    const loadMaxBtn = $("btnPagerLoadMax");
+    if (loadMaxBtn) {
+      const q = $("sqlEditor")?.value || "";
+      const sqlLim = detectSqlLimit(q);
+      const isLimited = !!res && ((sqlLim > 0 && res.rows.length >= sqlLim) || !!res.truncated);
+      loadMaxBtn.hidden = !isLimited;
+    }
+
+    $("btnPageFirst").disabled = state.sqlPage <= 1 || total === 0;
+    $("btnPagePrev").disabled = state.sqlPage <= 1 || total === 0;
+    $("btnPageNext").disabled = state.sqlPage >= totalPages || total === 0;
+    $("btnPageLast").disabled = state.sqlPage >= totalPages || total === 0;
+
+    const nums = $("sqlPagerNumbers");
+    if (nums) {
+      const items = buildPageRange(state.sqlPage, totalPages);
+      nums.innerHTML = items
+        .map((it) =>
+          it === "..."
+            ? `<span class="pager-ellipsis">…</span>`
+            : `<button type="button" class="btn xs pager-btn ${it === state.sqlPage ? "active" : ""}" data-page="${it}">${it}</button>`
+        )
+        .join("");
+    }
+
+    const jumpWrap = $("sqlPageJumpWrap");
+    const jumpInp = $("sqlPageJump");
+    if (jumpWrap && jumpInp) {
+      jumpWrap.hidden = totalPages <= 5;
+      jumpInp.max = String(totalPages);
+      jumpInp.value = String(state.sqlPage);
+    }
+  }
+
+  function renderSqlTable(res) {
     const wrap = $("sqlResults");
     if (!res || !res.columns.length) {
       wrap.innerHTML = `<div class="empty-note">Empty result set</div>`;
+      hideSqlPager();
       return;
     }
     const filter = ($("sqlRowFilter")?.value || "").trim().toLowerCase();
@@ -669,8 +788,13 @@
     }
 
     const total = indexedRows.length;
-    const limit = renderLimit > 0 ? Math.min(renderLimit, total) : total;
-    const visible = limit < total ? indexedRows.slice(0, limit) : indexedRows;
+    const pageSize = state.sqlPageSize > 0 ? state.sqlPageSize : Math.max(total, 1);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    state.sqlPage = Math.min(Math.max(1, state.sqlPage || 1), totalPages);
+
+    const startIdx = (state.sqlPage - 1) * pageSize;
+    const endIdx = Math.min(startIdx + pageSize, total);
+    const visible = indexedRows.slice(startIdx, endIdx);
 
     const actHead = canRowCrud ? `<th class="row-acts-col">Actions</th>` : "";
     const thead = `<thead><tr>${actHead}${res.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>`;
@@ -691,23 +815,9 @@
       }
       rowHtml[i] = `<tr data-row-idx="${idx}">${actCell}${cells}</tr>`;
     }
-    const moreBar =
-      limit < total
-        ? `<div class="result-meta-bar" style="margin-top:8px;justify-content:space-between;align-items:center;">
-            <span>Showing first ${limit} of ${total} rows for fast rendering</span>
-            <span style="display:flex;gap:6px;">
-              <button type="button" class="btn xs" id="btnSqlRenderMore">Show +400 More</button>
-              <button type="button" class="btn xs primary" id="btnSqlRenderAll">Render All (${total})</button>
-            </span>
-          </div>`
-        : "";
-    wrap.innerHTML = `<table class="data-table">${thead}<tbody>${rowHtml.join("")}</tbody></table>${moreBar}`;
-    if (limit < total) {
-      const moreBtn = $("btnSqlRenderMore");
-      const allBtn = $("btnSqlRenderAll");
-      if (moreBtn) moreBtn.onclick = () => renderSqlTable(res, limit + 400);
-      if (allBtn) allBtn.onclick = () => renderSqlTable(res, total);
-    }
+    wrap.innerHTML = `<table class="data-table">${thead}<tbody>${rowHtml.join("")}</tbody></table>`;
+    wrap.scrollTop = 0;
+    renderSqlPager(res, total, res.rows.length, pageSize, totalPages, total === 0 ? 0 : startIdx + 1, endIdx);
   }
 
   function buildRowKeyMap(rowIdx) {
@@ -885,7 +995,7 @@
           toast("Row created!", "ok");
         }
         $("modalRowForm").hidden = true;
-        await runSqlQuery(state.sqlShowingAll);
+        await runSqlQuery(state.sqlShowingAll, true);
       } catch (err) {
         toast(errMsg(err), "err");
       } finally {
@@ -902,7 +1012,7 @@
       const { keys, hasPK } = buildRowKeyMap(rowIdx);
       await api().DeleteRow(state.dbEngine, state.sqlDb, state.sqlTable, keys, hasPK);
       toast("Row deleted", "ok");
-      await runSqlQuery(state.sqlShowingAll);
+      await runSqlQuery(state.sqlShowingAll, true);
     } catch (err) {
       toast(errMsg(err), "err");
     }
@@ -2317,6 +2427,8 @@ try {
       state.sqlTable = "";
       state.sqlColumns = [];
       state.sqlShowingAll = false;
+      state.sqlPage = 1;
+      hideSqlPager();
       renderSqlDbList();
       await loadSqlTables(state.sqlDb);
     });
@@ -2334,7 +2446,9 @@ try {
           if (state.sqlTable === tbl) {
             state.sqlTable = "";
             state.sqlColumns = [];
+            state.sqlLastResult = null;
             $("sqlResults").innerHTML = "";
+            hideSqlPager();
           }
           await loadSqlTables(state.sqlDb);
         } catch (err) {
@@ -2353,8 +2467,9 @@ try {
       if (t) {
         await selectSqlTable(t, true);
       } else if ($("sqlEditor").value.trim()) {
-        // Strip trailing LIMIT N if present so Show All returns every row
-        $("sqlEditor").value = $("sqlEditor").value.replace(/\s+LIMIT\s+\d+\s*;?\s*$/i, ";");
+        // Strip LIMIT N / TOP N so Show All returns every row
+        $("sqlEditor").value = applySqlQueryLimit($("sqlEditor").value, 0);
+        state.sqlShowingAll = true;
         await runSqlQuery(true);
       } else {
         toast("Select a table or enter a SELECT query first", "info");
@@ -2364,10 +2479,79 @@ try {
     $("btnMetaCreateRow").onclick = () => openRowFormModal("create");
     $("btnSqlShowAll").onclick = triggerShowAll;
     $("btnMetaShowAll").onclick = triggerShowAll;
+    if ($("btnPagerLoadMax")) $("btnPagerLoadMax").onclick = triggerShowAll;
+
+    const goSqlPage = (nextPage) => {
+      if (!state.sqlLastResult) return;
+      state.sqlPage = nextPage;
+      renderSqlTable(state.sqlLastResult);
+    };
+    if ($("btnPageFirst")) $("btnPageFirst").onclick = () => goSqlPage(1);
+    if ($("btnPagePrev")) $("btnPagePrev").onclick = () => goSqlPage(Math.max(1, state.sqlPage - 1));
+    if ($("btnPageNext")) $("btnPageNext").onclick = () => goSqlPage(state.sqlPage + 1);
+    if ($("btnPageLast")) {
+      $("btnPageLast").onclick = () => {
+        if (!state.sqlLastResult) return;
+        const filter = ($("sqlRowFilter")?.value || "").trim().toLowerCase();
+        const total = filter
+          ? state.sqlLastResult.rows.filter((r) => r.some((c) => c !== null && String(c).toLowerCase().includes(filter))).length
+          : state.sqlLastResult.rows.length;
+        const ps = state.sqlPageSize > 0 ? state.sqlPageSize : Math.max(total, 1);
+        goSqlPage(Math.max(1, Math.ceil(total / ps)));
+      };
+    }
+    if ($("sqlPagerNumbers")) {
+      $("sqlPagerNumbers").addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-page]");
+        if (!btn) return;
+        goSqlPage(Number(btn.dataset.page) || 1);
+      });
+    }
+    if ($("sqlPageJump")) {
+      const jump = () => goSqlPage(Math.max(1, Number($("sqlPageJump").value) || 1));
+      $("sqlPageJump").addEventListener("change", jump);
+      $("sqlPageJump").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          jump();
+        }
+      });
+    }
+    if ($("sqlPageSize")) {
+      $("sqlPageSize").addEventListener("change", async () => {
+        const raw = $("sqlPageSize").value;
+        const newSize = raw === "0" ? 0 : Number(raw) || 50;
+        state.sqlPageSize = newSize;
+        state.sqlPage = 1;
+        const res = state.sqlLastResult;
+        const q = $("sqlEditor")?.value.trim() || "";
+        const sqlLim = detectSqlLimit(q);
+        const needsFetchAll =
+          !!res &&
+          newSize === 0 &&
+          ((sqlLim > 0 && res.rows.length >= sqlLim) || !!res.truncated);
+        const needsFetchLarger =
+          !!res &&
+          newSize > 0 &&
+          ((sqlLim > 0 && newSize > sqlLim && res.rows.length >= sqlLim) ||
+            (!!res.truncated && newSize > res.rows.length));
+        if (needsFetchAll || needsFetchLarger) {
+          if (sqlLim > 0) {
+            $("sqlEditor").value = applySqlQueryLimit(q, newSize);
+          }
+          state.sqlShowingAll = newSize === 0;
+          await runSqlQuery(newSize === 0 || newSize > 1000);
+          return;
+        }
+        if (res) renderSqlTable(res);
+      });
+    }
+
     let sqlFilterTimer = null;
     $("sqlRowFilter").addEventListener("input", () => {
       clearTimeout(sqlFilterTimer);
       sqlFilterTimer = setTimeout(() => {
+        state.sqlPage = 1;
         if (state.sqlLastResult) renderSqlTable(state.sqlLastResult);
       }, 120);
     });

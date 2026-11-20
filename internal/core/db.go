@@ -19,7 +19,7 @@ import (
 
 const (
 	maxRows     = 1000
-	maxShowRows = 100000
+	maxShowRows = 250000
 	maxCellLen  = 64 * 1024
 )
 

@@ -60,6 +60,9 @@ func main() {
 		log.Fatalf("failed to initialize folders: %v", err)
 	}
 	st := core.LoadSettings(root)
+	if allOff && st.Get().AutoStartServices {
+		_ = st.Update(func(s *core.Settings) { s.AutoStartServices = false })
+	}
 
 	startHidden := !forceShow && (st.Get().StartMinimized || reqMinimized)
 

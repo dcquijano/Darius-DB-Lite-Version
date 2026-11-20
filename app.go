@@ -1024,6 +1024,7 @@ func (a *App) LaunchUpdaterTool() error {
 }
 
 func (a *App) ApplySystemUpdateAuto(primaryURL, fallbackURL string) (string, error) {
+	_ = a.settings.Update(func(s *core.Settings) { s.AutoStartServices = false })
 	_ = a.mgr.StopAll()
 	msg, err := core.ApplySystemUpdateWithFallback(a.paths, primaryURL, fallbackURL, a.settings.Get().GitHubToken)
 	if err != nil {
@@ -1037,6 +1038,7 @@ func (a *App) ApplySystemUpdateAuto(primaryURL, fallbackURL string) (string, err
 }
 
 func (a *App) ApplySystemUpdateFromURL(downloadURL string) (string, error) {
+	_ = a.settings.Update(func(s *core.Settings) { s.AutoStartServices = false })
 	_ = a.mgr.StopAll()
 	msg, err := core.ApplySystemUpdateFromURL(a.paths, downloadURL, a.settings.Get().GitHubToken)
 	if err != nil {
@@ -1062,6 +1064,7 @@ func (a *App) ApplySystemUpdateFromFileDialog() (string, error) {
 	if err != nil || path == "" {
 		return "", err
 	}
+	_ = a.settings.Update(func(s *core.Settings) { s.AutoStartServices = false })
 	_ = a.mgr.StopAll()
 	msg, err := core.ApplySystemUpdateFromFile(a.paths, path)
 	if err != nil {

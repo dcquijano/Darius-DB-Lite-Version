@@ -207,17 +207,35 @@ func (pg *postgres) Start(p *Paths, inst Installation, s EngineSettings) (*Start
 		"start", "-D", pg.DataDir(p, inst),
 		"-l", p.LogFile("postgresql"),
 		"-o", "-p "+strconv.Itoa(s.Port),
-		"-w", "-t", "60",
+		"-w", "-t", "30",
 	)
 	cmd.Dir = inst.Dir
 	return &StartSpec{Cmd: cmd, Detached: true}, nil
 }
 
 func (pg *postgres) Stop(p *Paths, inst Installation, s EngineSettings) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	return runQuiet(ctx, nil, filepath.Join(inst.Dir, "bin", "pg_ctl.exe"),
-		"stop", "-D", pg.DataDir(p, inst), "-m", "fast", "-w", "-t", "6")
+	pgCtl := filepath.Join(inst.Dir, "bin", "pg_ctl.exe")
+	data := pg.DataDir(p, inst)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err := runQuiet(ctx, nil, pgCtl, "stop", "-D", data, "-m", "fast", "-w", "-t", "4")
+	cancel()
+	if err == nil {
+		return nil
+	}
+	// Fallback to immediate mode if active connections/locks prevented fast shutdown,
+	// then ensure any remaining PostgreSQL worker processes in inst.Dir are terminated.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 4*time.Second)
+	err2 := runQuiet(ctx2, nil, pgCtl, "stop", "-D", data, "-m", "immediate", "-w", "-t", "3")
+	cancel2()
+	killProcessesInDir(inst.Dir)
+	if pid := pg.PidOf(p, inst); pid > 0 {
+		killProcessTree(pid)
+	}
+	_ = os.Remove(filepath.Join(data, "postmaster.pid"))
+	if err2 == nil || !portInUse(s.Port) {
+		return nil
+	}
+	return err2
 }
 
 func (pg *postgres) PidOf(p *Paths, inst Installation) int {

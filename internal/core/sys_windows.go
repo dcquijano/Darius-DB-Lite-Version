@@ -80,6 +80,49 @@ func killProcess(pid int) error {
 	return windows.TerminateProcess(h, 1)
 }
 
+// killProcessTree terminates pid and all of its child/descendant processes
+// (critical for PostgreSQL postmaster + workers, Apache workers, etc.).
+func killProcessTree(pid int) {
+	if pid <= 0 || pid == os.Getpid() {
+		return
+	}
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err == nil {
+		defer windows.CloseHandle(snap)
+		children := map[uint32][]uint32{}
+		var pe windows.ProcessEntry32
+		pe.Size = uint32(unsafe.Sizeof(pe))
+		if windows.Process32First(snap, &pe) == nil {
+			for {
+				if pe.ProcessID != 0 {
+					children[pe.ParentProcessID] = append(children[pe.ParentProcessID], pe.ProcessID)
+				}
+				if windows.Process32Next(snap, &pe) != nil {
+					break
+				}
+			}
+		}
+		var order []uint32
+		seen := map[uint32]bool{uint32(pid): true}
+		queue := []uint32{uint32(pid)}
+		for len(queue) > 0 {
+			cur := queue[0]
+			queue = queue[1:]
+			for _, ch := range children[cur] {
+				if !seen[ch] {
+					seen[ch] = true
+					order = append(order, ch)
+					queue = append(queue, ch)
+				}
+			}
+		}
+		for i := len(order) - 1; i >= 0; i-- {
+			_ = killProcess(int(order[i]))
+		}
+	}
+	_ = killProcess(pid)
+}
+
 // killProcessesInDir terminates any running process whose executable lives inside dir.
 func killProcessesInDir(dir string) {
 	prefix := strings.ToLower(filepath.Clean(dir)) + string(filepath.Separator)

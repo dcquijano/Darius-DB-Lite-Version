@@ -1,7 +1,7 @@
 {
   "name": "Darius DB (Lite Version 0.1.3)",
   "version": "0.1.3",
-  "build": "202611201500",
+  "build": "202611201515",
   "channel": "Lite Version",
   "releasedAt": "2026-11-20",
   "author": "Darius Cumpio",
@@ -10,8 +10,9 @@
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.3/DariusDB-0.1.3-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.3.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.3) — Local + Cloud Database Manager! Now includes the ☁️ Cloud System for cPanel, MonsterASP.NET, SmarterASP, Supabase, Neon, Aiven, TiDB, AWS RDS, Azure & Redis Cloud with live SQL/CRUD, URI/ADO.NET parser, and 1-Click Local ↔ Cloud Sync!",
+  "announcement": "Darius DB (Lite Version 0.1.3) — Local + Cloud Database Manager! Fixed PostgreSQL & Apache/Mailpit StopAll process-tree shutdown, disables Auto-Start after updates so all Dashboard toggles stay OFF until clicked, plus full ☁️ Cloud System (cPanel, MonsterASP.NET, Supabase, Neon, TiDB, Aiven, AWS RDS, Azure, Redis Cloud).",
   "changelog": [
+    "Fixed PostgreSQL & StopAll Shutdown: added killProcessTree for child worker processes, pg_ctl -m immediate fallback, cancellable Prepare/Start wait, and autoStartServices=false on update reboot so Apache & Mailpit stay OFF until clicked",
     "Added ☁️ Cloud Database System: connect cPanel (MySQL/Postgres), MonsterASP.NET / SmarterASP (MS SQL Server), Supabase, Neon, Aiven, TiDB, AWS RDS, Azure & Redis Cloud with TLS, URI/ADO.NET parser, live Test Ping, full SQL/Redis browser + CRUD, and 1-Click Local ↔ Cloud Sync",
     "Dashboard Service Controls: Updates now stop all running engines beforehand, reboot with all Dashboard switches OFF (--all-off), clear stale 'process exited' messages, and let you cancel stuck 'starting' services with a click or Stop All",
     "Fixed PostgreSQL custom-format dump import (auto-detects PGDMP/tar/dir dumps via pg_restore --no-owner --no-acl even when named .sql)",

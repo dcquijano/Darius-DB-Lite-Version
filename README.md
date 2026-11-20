@@ -10,6 +10,25 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 
 ---
 
+## System Preview
+
+### 1. Services Dashboard & Unified Web + PHP + Database Stack
+Toggle Apache + PHP (8.2 / 8.3 / 8.4), MariaDB, MySQL, PostgreSQL, MS SQL Server, Redis, and Mailpit with 1-click controls, live port monitoring, Drag & Drop `www/` hosting, and stack architecture overview.
+
+![Darius DB Services Dashboard & Unified Stack](docs/screenshots/dashboard-services-stack.jpg)
+
+### 2. Database Explorer, SQL Browser, Import / Export & Full Row CRUD
+Browse databases and tables, execute SQL/T-SQL (`Ctrl+Enter`), import `.sql` / `.csv` / `.bak` files, export single tables, selected tables, or full databases (`.sql` / `.csv`), and inspect/create/edit/delete rows (`Show`, `Edit`, `Delete`, `Show All`).
+
+![Darius DB Database Explorer & SQL Query Browser](docs/screenshots/database-explorer-crud.jpg)
+
+### 3. System Version Updater (Check Online & 1-Click GitHub Auto-Update)
+Check live GitHub releases, build IDs, commit history, and update announcements, then fetch & reboot Darius DB in-place while preserving `data/` and `www/`.
+
+![Darius DB System Version Updater](docs/screenshots/system-version-updater.jpg)
+
+---
+
 ## Features
 
 - **100% Portable or Standard `.exe` Install** — Run directly out of any folder (`www/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`, `settings.json`) or install using the standalone Windows Setup Wizard **`DariusDB-Setup-0.1.3.exe`** (with automatic double-installation protection and built-in **Repair Mode**).

@@ -8,12 +8,15 @@ import (
 )
 
 type EngineSettings struct {
-	Enabled        bool     `json:"enabled"`        // included in "Start All"
-	Version        string   `json:"version"`        // active installation (folder name in bin/<engine>)
+	Enabled        bool     `json:"enabled"`                  // included in "Start All"
+	Version        string   `json:"version"`                  // active installation (folder name in bin/<engine>)
 	Port           int      `json:"port"`
-	User           string   `json:"user"`           // admin user used by the built-in browser
-	Password       string   `json:"password"`       // admin password used by the built-in browser
+	User           string   `json:"user"`                     // admin user used by the built-in browser
+	Password       string   `json:"password"`                 // admin password used by the built-in browser
 	HiddenVersions []string `json:"hiddenVersions,omitempty"` // system/built-in installations removed by user
+	Host           string   `json:"host,omitempty"`           // remote host (used in-memory for Cloud connections)
+	SSLMode        string   `json:"sslMode,omitempty"`        // none | preferred | require | skip-verify
+	DefaultDB      string   `json:"defaultDb,omitempty"`      // default/shared DB name for remote cPanel/Cloud profiles
 }
 
 type Settings struct {
@@ -26,6 +29,7 @@ type Settings struct {
 	CatalogURL        string                     `json:"catalogUrl"`
 	GitHubToken       string                     `json:"githubToken,omitempty"`
 	Theme             string                     `json:"theme"` // system | dark | light
+	CloudConnections  []CloudConnection          `json:"cloudConnections,omitempty"`
 }
 
 func DefaultSettings() *Settings {

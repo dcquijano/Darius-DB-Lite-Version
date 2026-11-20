@@ -481,46 +481,130 @@ func (a *App) OpenTerminal() error {
 	return core.OpenTerminal(a.paths.Root, a.mgr.ClientPaths(), env, banner)
 }
 
+func (a *App) resolveTarget(engine string) (string, core.EngineSettings, *core.CloudConnection) {
+	if strings.HasPrefix(engine, "cloud:") {
+		id := strings.TrimPrefix(engine, "cloud:")
+		for _, cc := range a.settings.Get().CloudConnections {
+			if cc.ID == id {
+				nc := cc.Normalized()
+				return nc.Engine, nc.ToEngineSettings(), &nc
+			}
+		}
+	}
+	return engine, a.settings.Engine(engine), nil
+}
+
 func (a *App) ConnectionString(engine, dbName string) string {
-	es := a.settings.Engine(engine)
-	switch engine {
+	realEng, es, cloud := a.resolveTarget(engine)
+	if cloud != nil {
+		if uri, err := core.IDESnippet(realEng, es, fallback(dbName, cloud.Database)); err == nil && uri != "" {
+			if raw, rerr := a.rawCloudURI(realEng, es, fallback(dbName, cloud.Database)); rerr == nil {
+				return raw
+			}
+		}
+	}
+	switch realEng {
 	case "apache", "php":
 		return fmt.Sprintf("http://localhost:%d/", es.Port)
 	case "mailpit":
 		return fmt.Sprintf("smtp://127.0.0.1:1025 (Web Inbox: http://localhost:%d/)", es.Port)
 	case "mariadb", "mysql":
+		host := fallback(strings.TrimSpace(es.Host), "127.0.0.1")
 		auth := url.User(es.User).String()
 		if es.Password != "" {
 			auth = url.UserPassword(es.User, es.Password).String()
 		}
-		return fmt.Sprintf("mysql://%s@127.0.0.1:%d/%s", auth, es.Port, dbName)
+		return fmt.Sprintf("mysql://%s@%s:%d/%s", auth, host, es.Port, dbName)
+	case "postgresql":
+		host := fallback(strings.TrimSpace(es.Host), "127.0.0.1")
+		auth := url.User(es.User).String()
+		if es.Password != "" {
+			auth = url.UserPassword(es.User, es.Password).String()
+		}
+		if dbName == "" {
+			dbName = fallback(es.DefaultDB, "postgres")
+		}
+		return fmt.Sprintf("postgresql://%s@%s:%d/%s", auth, host, es.Port, dbName)
+	case "mssql":
+		if dbName == "" {
+			dbName = fallback(es.DefaultDB, "master")
+		}
+		if cloud != nil && cloud.Host != "" {
+			srv := cloud.Host
+			if es.Port > 0 {
+				srv = fmt.Sprintf("%s,%d", cloud.Host, es.Port)
+			}
+			return fmt.Sprintf("Server=%s;Database=%s;User Id=%s;Password=%s;Encrypt=True;TrustServerCertificate=True;", srv, dbName, es.User, es.Password)
+		}
+		srv := core.MSSQLServerName()
+		return fmt.Sprintf("Server=%s;Database=%s;Trusted_Connection=True;TrustServerCertificate=True;", srv, dbName)
+	case "redis":
+		host := fallback(strings.TrimSpace(es.Host), "127.0.0.1")
+		if es.Password != "" {
+			return fmt.Sprintf("redis://:%s@%s:%d/0", url.QueryEscape(es.Password), host, es.Port)
+		}
+		return fmt.Sprintf("redis://%s:%d/0", host, es.Port)
+	default:
+		return ""
+	}
+}
+
+func (a *App) rawCloudURI(realEng string, es core.EngineSettings, dbName string) (string, error) {
+	// Used internally to pick clean URI formatting for cloud targets
+	return a.ConnectionStringDirect(realEng, es, dbName), nil
+}
+
+func (a *App) ConnectionStringDirect(realEng string, es core.EngineSettings, dbName string) string {
+	host := fallback(strings.TrimSpace(es.Host), "127.0.0.1")
+	switch realEng {
+	case "mariadb", "mysql":
+		auth := url.User(es.User).String()
+		if es.Password != "" {
+			auth = url.UserPassword(es.User, es.Password).String()
+		}
+		return fmt.Sprintf("mysql://%s@%s:%d/%s", auth, host, es.Port, dbName)
 	case "postgresql":
 		auth := url.User(es.User).String()
 		if es.Password != "" {
 			auth = url.UserPassword(es.User, es.Password).String()
 		}
 		if dbName == "" {
-			dbName = "postgres"
+			dbName = fallback(es.DefaultDB, "postgres")
 		}
-		return fmt.Sprintf("postgresql://%s@127.0.0.1:%d/%s", auth, es.Port, dbName)
+		q := ""
+		if es.SSLMode != "" && es.SSLMode != "none" && es.SSLMode != "disable" {
+			q = "?sslmode=" + url.QueryEscape(es.SSLMode)
+		}
+		return fmt.Sprintf("postgresql://%s@%s:%d/%s%s", auth, host, es.Port, dbName, q)
 	case "mssql":
 		if dbName == "" {
-			dbName = "master"
+			dbName = fallback(es.DefaultDB, "master")
 		}
-		srv := core.MSSQLServerName()
-		return fmt.Sprintf("Server=%s;Database=%s;Trusted_Connection=True;TrustServerCertificate=True;", srv, dbName)
+		srv := host
+		if es.Port > 0 {
+			srv = fmt.Sprintf("%s,%d", host, es.Port)
+		}
+		return fmt.Sprintf("Server=%s;Database=%s;User Id=%s;Password=%s;Encrypt=True;TrustServerCertificate=True;", srv, dbName, es.User, es.Password)
 	case "redis":
-		if es.Password != "" {
-			return fmt.Sprintf("redis://:%s@127.0.0.1:%d/0", url.QueryEscape(es.Password), es.Port)
+		scheme := "redis"
+		if es.SSLMode == "require" || es.SSLMode == "skip-verify" {
+			scheme = "rediss"
 		}
-		return fmt.Sprintf("redis://127.0.0.1:%d/0", es.Port)
+		if es.Password != "" {
+			return fmt.Sprintf("%s://:%s@%s:%d/0", scheme, url.QueryEscape(es.Password), host, es.Port)
+		}
+		return fmt.Sprintf("%s://%s:%d/0", scheme, host, es.Port)
 	default:
 		return ""
 	}
 }
 
 func (a *App) IDESnippet(engine, dbName string) (string, error) {
-	return core.IDESnippet(engine, a.settings.Engine(engine), dbName)
+	realEng, es, cloud := a.resolveTarget(engine)
+	if cloud != nil && dbName == "" {
+		dbName = cloud.Database
+	}
+	return core.IDESnippet(realEng, es, dbName)
 }
 
 func (a *App) RegisterCLIInPath() error {
@@ -546,11 +630,14 @@ func (a *App) SaveSettings(s core.Settings) error {
 		}
 	}
 	prev := a.settings.Get()
-	// Preserve active version selections in case the UI didn't touch them
+	// Preserve active version selections and saved cloud connections in case the UI didn't touch them
 	for id, es := range s.Engines {
 		if es.Version == "" && prev.Engines[id] != nil {
 			es.Version = prev.Engines[id].Version
 		}
+	}
+	if s.CloudConnections == nil {
+		s.CloudConnections = prev.CloudConnections
 	}
 	if err := a.settings.Replace(s); err != nil {
 		return err
@@ -564,54 +651,66 @@ func (a *App) SaveSettings(s core.Settings) error {
 	return nil
 }
 
-// ---------------------------------------------------------------- Database Browser
+// ---------------------------------------------------------------- Database Browser (Local & Cloud)
 
 func (a *App) ListDatabases(engine string) ([]string, error) {
-	return core.ListDatabases(engine, a.settings.Engine(engine))
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.ListDatabases(realEng, es)
 }
 
 func (a *App) ListTables(engine, dbName string) ([]core.TableInfo, error) {
-	return core.ListTables(engine, a.settings.Engine(engine), dbName)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.ListTables(realEng, es, dbName)
 }
 
 func (a *App) RunQuery(engine, dbName, query string) (*core.QueryResult, error) {
-	return core.RunQuery(engine, a.settings.Engine(engine), dbName, query)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.RunQuery(realEng, es, dbName, query)
 }
 
 func (a *App) RunQueryAll(engine, dbName, query string) (*core.QueryResult, error) {
-	return core.RunQueryAll(engine, a.settings.Engine(engine), dbName, query)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.RunQueryAll(realEng, es, dbName, query)
 }
 
 func (a *App) DescribeTable(engine, dbName, tableName string) ([]core.ColumnInfo, error) {
-	return core.DescribeTable(engine, a.settings.Engine(engine), dbName, tableName)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.DescribeTable(realEng, es, dbName, tableName)
 }
 
 func (a *App) InsertRow(engine, dbName, tableName string, values map[string]core.RowValue) error {
-	return core.InsertRow(engine, a.settings.Engine(engine), dbName, tableName, values)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.InsertRow(realEng, es, dbName, tableName, values)
 }
 
 func (a *App) UpdateRow(engine, dbName, tableName string, keys, updates map[string]core.RowValue, hasPK bool) error {
-	return core.UpdateRow(engine, a.settings.Engine(engine), dbName, tableName, keys, updates, hasPK)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.UpdateRow(realEng, es, dbName, tableName, keys, updates, hasPK)
 }
 
 func (a *App) DeleteRow(engine, dbName, tableName string, keys map[string]core.RowValue, hasPK bool) error {
-	return core.DeleteRow(engine, a.settings.Engine(engine), dbName, tableName, keys, hasPK)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.DeleteRow(realEng, es, dbName, tableName, keys, hasPK)
 }
 
 func (a *App) CreateTable(engine, dbName, tableName string, cols []core.CreateTableColumn) error {
-	return core.CreateTable(engine, a.settings.Engine(engine), dbName, tableName, cols)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.CreateTable(realEng, es, dbName, tableName, cols)
 }
 
 func (a *App) DropTable(engine, dbName, tableName string) error {
-	return core.DropTable(engine, a.settings.Engine(engine), dbName, tableName)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.DropTable(realEng, es, dbName, tableName)
 }
 
 func (a *App) CreateDatabase(engine, name, user, password string) error {
-	return core.CreateDatabase(engine, a.settings.Engine(engine), name, user, password)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.CreateDatabase(realEng, es, name, user, password)
 }
 
 func (a *App) DropDatabase(engine, name string) error {
-	return core.DropDatabase(engine, a.settings.Engine(engine), name)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.DropDatabase(realEng, es, name)
 }
 
 type RestoreFileChoice struct {
@@ -651,13 +750,15 @@ type ImportResult struct {
 }
 
 func (a *App) RestoreDatabase(engine, filePath, targetDB string) (string, error) {
-	return core.RestoreDatabase(a.paths, engine, a.settings.Engine(engine), filePath, targetDB)
+	realEng, es, _ := a.resolveTarget(engine)
+	return core.RestoreDatabase(a.paths, realEng, es, filePath, targetDB)
 }
 
 func (a *App) ImportDatabaseFile(engine, filePath, targetDB, targetTable string) (*ImportResult, error) {
+	realEng, es, _ := a.resolveTarget(engine)
 	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(filePath)))
 	if ext == ".csv" {
-		dbName, count, err := core.ImportCSV(engine, a.settings.Engine(engine), filePath, targetDB, targetTable)
+		dbName, count, err := core.ImportCSV(realEng, es, filePath, targetDB, targetTable)
 		if err != nil {
 			return nil, err
 		}
@@ -671,7 +772,7 @@ func (a *App) ImportDatabaseFile(engine, filePath, targetDB, targetTable string)
 			Message:  fmt.Sprintf("Imported %d CSV row(s) into %s.%s", count, dbName, targetTable),
 		}, nil
 	}
-	dbName, err := core.RestoreDatabase(a.paths, engine, a.settings.Engine(engine), filePath, targetDB)
+	dbName, err := core.RestoreDatabase(a.paths, realEng, es, filePath, targetDB)
 	if err != nil {
 		return nil, err
 	}
@@ -735,15 +836,118 @@ func (a *App) ExportDatabaseDialog(engine, dbName string, tables []string, forma
 		return "", err
 	}
 	if ext == "bak" && len(tables) == 0 {
-		if err := core.BackupDatabase(a.paths, engine, a.settings.Engine(engine), dbName, outPath); err != nil {
+		realEng, es, _ := a.resolveTarget(engine)
+		if err := core.BackupDatabase(a.paths, realEng, es, dbName, outPath); err != nil {
 			return "", err
 		}
 		return outPath, nil
 	}
-	if err := core.ExportDatabaseSelection(a.paths, engine, a.settings.Engine(engine), dbName, tables, ext, includeSchema, includeData, outPath); err != nil {
+	realEng, es, _ := a.resolveTarget(engine)
+	if err := core.ExportDatabaseSelection(a.paths, realEng, es, dbName, tables, ext, includeSchema, includeData, outPath); err != nil {
 		return "", err
 	}
 	return outPath, nil
+}
+
+// ---------------------------------------------------------------- Cloud Database Profiles & Sync
+
+func (a *App) CloudProfiles() []core.CloudConnection {
+	list := a.settings.Get().CloudConnections
+	if list == nil {
+		return []core.CloudConnection{}
+	}
+	return list
+}
+
+func (a *App) SaveCloudProfile(conn core.CloudConnection) ([]core.CloudConnection, error) {
+	nc := conn.Normalized()
+	if nc.Host == "" {
+		return nil, errors.New("host / server address is required")
+	}
+	err := a.settings.Update(func(s *core.Settings) {
+		for i, cur := range s.CloudConnections {
+			if cur.ID == nc.ID {
+				if nc.LastConnected == "" {
+					nc.LastConnected = cur.LastConnected
+					nc.LastLatencyMs = cur.LastLatencyMs
+				}
+				s.CloudConnections[i] = nc
+				return
+			}
+		}
+		s.CloudConnections = append(s.CloudConnections, nc)
+	})
+	if err != nil {
+		return nil, err
+	}
+	core.CloseSQLPools(nc.Engine, "")
+	return a.CloudProfiles(), nil
+}
+
+func (a *App) DeleteCloudProfile(id string) ([]core.CloudConnection, error) {
+	err := a.settings.Update(func(s *core.Settings) {
+		kept := make([]core.CloudConnection, 0, len(s.CloudConnections))
+		for _, cur := range s.CloudConnections {
+			if cur.ID != id {
+				kept = append(kept, cur)
+			}
+		}
+		s.CloudConnections = kept
+	})
+	if err != nil {
+		return nil, err
+	}
+	return a.CloudProfiles(), nil
+}
+
+func (a *App) ParseCloudURI(rawURI string) (*core.CloudConnection, error) {
+	return core.ParseCloudURI(rawURI)
+}
+
+func (a *App) TestCloudProfile(conn core.CloudConnection) (*core.CloudTestResult, error) {
+	res, err := core.TestCloudConnection(conn)
+	if err == nil && res != nil && res.OK && conn.ID != "" {
+		_ = a.settings.Update(func(s *core.Settings) {
+			for i, cur := range s.CloudConnections {
+				if cur.ID == conn.ID {
+					s.CloudConnections[i].LastConnected = time.Now().Format("2006-01-02 15:04")
+					s.CloudConnections[i].LastLatencyMs = res.LatencyMs
+				}
+			}
+		})
+	}
+	return res, err
+}
+
+func (a *App) CloudSyncDatabase(srcTarget, srcDB, dstTarget, dstDB string) (string, error) {
+	srcEng, srcEs, _ := a.resolveTarget(srcTarget)
+	dstEng, dstEs, _ := a.resolveTarget(dstTarget)
+	return core.CloudSyncDatabase(a.paths, srcEng, srcEs, srcDB, dstEng, dstEs, dstDB)
+}
+
+func (a *App) CloudRedisDatabases(target string) ([]core.RedisDB, error) {
+	_, es, _ := a.resolveTarget(target)
+	return core.RedisDatabases(es)
+}
+
+func (a *App) CloudRedisScan(target string, db int, pattern, cursor string) (*core.RedisScanResult, error) {
+	_, es, _ := a.resolveTarget(target)
+	return core.RedisScan(es, db, pattern, cursor)
+}
+
+func (a *App) CloudRedisGet(target string, db int, key string) (*core.RedisValue, error) {
+	_, es, _ := a.resolveTarget(target)
+	return core.RedisGet(es, db, key)
+}
+
+func (a *App) CloudRedisCommand(target string, db int, line string) (string, error) {
+	_, es, _ := a.resolveTarget(target)
+	return core.RedisCommand(es, db, line)
+}
+
+func (a *App) CloudRedisDelete(target string, db int, key string) error {
+	_, es, _ := a.resolveTarget(target)
+	return core.RedisDelete(es, db, key)
 }
 
 func (a *App) RedisDatabases() ([]core.RedisDB, error) {

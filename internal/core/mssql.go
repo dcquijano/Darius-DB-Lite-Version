@@ -384,7 +384,22 @@ func findProcessPID(exeName string) int {
 
 // ---------------------------------------------------------------- MS SQL Browser & T-SQL Runner
 
+func isRemoteMSSQLHost(s EngineSettings) bool {
+	h := strings.TrimSpace(s.Host)
+	return h != "" && !strings.EqualFold(h, "127.0.0.1") && !strings.EqualFold(h, "localhost")
+}
+
 func mssqlServerTarget(s EngineSettings) string {
+	if isRemoteMSSQLHost(s) {
+		h := strings.TrimSpace(s.Host)
+		if strings.Contains(h, ",") || strings.Contains(h, `\`) {
+			return h
+		}
+		if s.Port > 0 {
+			return fmt.Sprintf("%s,%d", h, s.Port)
+		}
+		return h
+	}
 	if s.Port > 0 && portInUse(s.Port) {
 		return fmt.Sprintf("127.0.0.1,%d", s.Port)
 	}
@@ -444,11 +459,15 @@ func resolveLocalDBPipe(localDB string) string {
 func mssqlAuthArgs(target string, s EngineSettings) []string {
 	low := strings.ToLower(target)
 	// LocalDB instances authenticate the current Windows PC user natively via -E
-	if strings.HasPrefix(low, "(localdb)") || strings.Contains(low, "localdb#") {
+	if !isRemoteMSSQLHost(s) && (strings.HasPrefix(low, "(localdb)") || strings.Contains(low, "localdb#")) {
 		return []string{"-E"}
 	}
-	if s.User != "" && s.Password != "" {
-		return []string{"-U", s.User, "-P", s.Password}
+	if s.User != "" || s.Password != "" {
+		args := []string{"-U", s.User, "-P", s.Password}
+		if isRemoteMSSQLHost(s) {
+			args = append(args, "-C") // TrustServerCertificate for MonsterASP / SmarterASP / Azure / Cloud SQL
+		}
+		return args
 	}
 	return []string{"-E"}
 }
@@ -472,7 +491,11 @@ func mssqlRunQueryWithLimit(s EngineSettings, dbName, q string, limit int) (*Que
 		return nil, errors.New("sqlcmd.exe not found — download Portable sqlcmd in the Versions tab")
 	}
 	if dbName == "" {
-		dbName = "master"
+		if s.DefaultDB != "" {
+			dbName = s.DefaultDB
+		} else {
+			dbName = "master"
+		}
 	}
 
 	tmpFile, err := os.CreateTemp("", "dariusdb-mssql-*.sql")
@@ -504,8 +527,8 @@ func mssqlRunQueryWithLimit(s EngineSettings, dbName, q string, limit int) (*Que
 	cmd := exec.CommandContext(ctx, sqlcmd, args...)
 	hideWindow(cmd)
 	out, err := cmd.CombinedOutput()
-	// Automatic fallback to Windows Auth (-E) if SQL Login fails on local instance
-	if err != nil && len(authArgs) > 1 && strings.Contains(strings.ToLower(string(out)), "login failed") {
+	// Automatic fallback to Windows Auth (-E) only on local instances
+	if !isRemoteMSSQLHost(s) && err != nil && len(authArgs) > 1 && strings.Contains(strings.ToLower(string(out)), "login failed") {
 		retryArgs := append(append([]string{}, baseArgs...), "-E")
 		retryCmd := exec.CommandContext(ctx, sqlcmd, retryArgs...)
 		hideWindow(retryCmd)
@@ -600,15 +623,33 @@ func mssqlBracket(ident string) string {
 }
 
 func mssqlListDatabases(s EngineSettings) ([]string, error) {
-	res, err := mssqlRunQuery(s, "master", "SET NOCOUNT ON; SELECT name FROM sys.databases ORDER BY name;")
+	queryDB := "master"
+	q := "SET NOCOUNT ON; SELECT name FROM sys.databases ORDER BY name;"
+	if isRemoteMSSQLHost(s) {
+		if s.DefaultDB != "" {
+			queryDB = s.DefaultDB
+		}
+		q = "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE HAS_DBACCESS(name) = 1 ORDER BY name;"
+	}
+	res, err := mssqlRunQuery(s, queryDB, q)
 	if err != nil {
+		if isRemoteMSSQLHost(s) && s.DefaultDB != "" {
+			return []string{s.DefaultDB}, nil
+		}
 		return nil, err
 	}
 	out := make([]string, 0, len(res.Rows))
+	seenDefault := false
 	for _, r := range res.Rows {
 		if len(r) > 0 && r[0] != nil {
+			if s.DefaultDB != "" && strings.EqualFold(*r[0], s.DefaultDB) {
+				seenDefault = true
+			}
 			out = append(out, *r[0])
 		}
+	}
+	if s.DefaultDB != "" && !seenDefault {
+		out = append([]string{s.DefaultDB}, out...)
 	}
 	return out, nil
 }

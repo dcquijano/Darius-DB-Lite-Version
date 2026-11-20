@@ -451,3 +451,33 @@ func TestManagerSkipAdoptAndStopAllClearsErrors(t *testing.T) {
 	}
 }
 
+func TestCloudURIParserAndSettings(t *testing.T) {
+	c1, err := ParseCloudURI("mysql://cpanel_user:s3cr3t@server.example.com:3306/cpanel_appdb")
+	if err != nil {
+		t.Fatalf("ParseCloudURI mysql: %v", err)
+	}
+	if c1.Engine != "mysql" || c1.Host != "server.example.com" || c1.Port != 3306 || c1.Database != "cpanel_appdb" || c1.User != "cpanel_user" {
+		t.Fatalf("unexpected mysql parsed: %+v", c1)
+	}
+
+	c2, err := ParseCloudURI("Server=db12345.public.databaseasp.net,1433;Database=db12345;User Id=db12345_user;Password=Pass#1;Encrypt=True;TrustServerCertificate=True;")
+	if err != nil {
+		t.Fatalf("ParseCloudURI mssql ADO.NET: %v", err)
+	}
+	if c2.Engine != "mssql" || c2.Provider != "monsterasp" || c2.Host != "db12345.public.databaseasp.net" || c2.Port != 1433 || c2.Database != "db12345" {
+		t.Fatalf("unexpected mssql parsed: %+v", c2)
+	}
+	es := c2.ToEngineSettings()
+	if mssqlServerTarget(es) != "db12345.public.databaseasp.net,1433" {
+		t.Fatalf("unexpected remote mssql target: %q", mssqlServerTarget(es))
+	}
+
+	c3, err := ParseCloudURI("postgresql://postgres:pw@db.xyz.supabase.co:5432/postgres?sslmode=require")
+	if err != nil {
+		t.Fatalf("ParseCloudURI postgres: %v", err)
+	}
+	if c3.Engine != "postgresql" || c3.Provider != "supabase" || c3.SSLMode != "require" {
+		t.Fatalf("unexpected postgres parsed: %+v", c3)
+	}
+}
+

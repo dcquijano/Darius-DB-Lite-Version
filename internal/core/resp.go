@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -24,13 +25,38 @@ type RedisError string
 func (e RedisError) Error() string { return string(e) }
 
 func dialRedis(s EngineSettings, db int) (*redisConn, error) {
-	c, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(s.Port), 3*time.Second)
+	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
+	port := s.Port
+	if port <= 0 {
+		port = 6379
+	}
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	ssl := strings.ToLower(strings.TrimSpace(s.SSLMode))
+
+	var c net.Conn
+	var err error
+	dialer := &net.Dialer{Timeout: 6 * time.Second}
+	if ssl == "require" || ssl == "skip-verify" || ssl == "verify-full" {
+		c, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+			ServerName:         host,
+			InsecureSkipVerify: ssl == "skip-verify",
+		})
+	} else {
+		c, err = dialer.Dial("tcp", addr)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("cannot connect to Redis on port %d (is it running?)", s.Port)
+		return nil, fmt.Errorf("cannot connect to Redis at %s: %v", addr, err)
 	}
 	rc := &redisConn{c: c, r: bufio.NewReader(c)}
 	if s.Password != "" {
-		if _, err := rc.Do("AUTH", s.Password); err != nil {
+		if s.User != "" && !strings.EqualFold(s.User, "default") {
+			if _, err := rc.Do("AUTH", s.User, s.Password); err != nil {
+				if _, err2 := rc.Do("AUTH", s.Password); err2 != nil {
+					rc.Close()
+					return nil, err
+				}
+			}
+		} else if _, err := rc.Do("AUTH", s.Password); err != nil {
 			rc.Close()
 			return nil, err
 		}

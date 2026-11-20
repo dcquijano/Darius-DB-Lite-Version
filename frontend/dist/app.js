@@ -14,6 +14,7 @@
     settings: null,
     statuses: [],
     catalog: {},
+    cloudProfiles: [],
     downloads: {}, // key "engine@version" -> Progress
     dbEngine: "mariadb",
     sqlDb: "",
@@ -136,6 +137,8 @@
       pickBestDbEngine();
       renderDbEngineTabs();
       loadDbView();
+    } else if (tab === "cloud") {
+      renderCloudView();
     } else if (tab === "versions") {
       renderVerEngineTabs();
       renderVersions();
@@ -150,6 +153,10 @@
   }
 
   function pickBestDbEngine() {
+    if (String(state.dbEngine || "").startsWith("cloud:")) {
+      const id = state.dbEngine.slice(6);
+      if (state.cloudProfiles.some((p) => p.id === id)) return;
+    }
     const cur = getStatus(state.dbEngine);
     if (cur && cur.engine !== "apache" && cur.engine !== "php" && cur.state === "running") return;
     const running = state.statuses.find(
@@ -418,18 +425,30 @@
     );
   }
 
+  function getActiveCloudProfile() {
+    if (!String(state.dbEngine || "").startsWith("cloud:")) return null;
+    const id = state.dbEngine.slice(6);
+    return state.cloudProfiles.find((p) => p.id === id) || null;
+  }
+
   // ---- Database Browser ----
   function renderDbEngineTabs() {
     const el = $("dbEngineTabs");
-    el.innerHTML = state.statuses
+    const localTabs = state.statuses
       .filter((s) => s.isSql || s.engine === "redis")
       .map(
         (s) =>
           `<button class="seg ${s.engine === state.dbEngine ? "active" : ""}" data-engine="${s.engine}">
             <span class="dot ${s.state}"></span>${esc(s.name)}
           </button>`
-      )
-      .join("");
+      );
+    const activeCloud = getActiveCloudProfile();
+    if (activeCloud) {
+      localTabs.push(
+        `<button class="seg active" data-engine="cloud:${esc(activeCloud.id)}">☁️ ${esc(activeCloud.name)}</button>`
+      );
+    }
+    el.innerHTML = localTabs.join("");
     el.querySelectorAll(".seg").forEach((btn) =>
       btn.addEventListener("click", () => {
         state.dbEngine = btn.dataset.engine;
@@ -447,18 +466,28 @@
   }
 
   async function loadDbView() {
-    const s = getStatus(state.dbEngine);
+    const cloud = getActiveCloudProfile();
+    const s = cloud ? null : getStatus(state.dbEngine);
     const stoppedEl = $("dbStoppedState");
     const sqlEl = $("sqlBrowser");
     const redisEl = $("redisBrowser");
-    const isSql = s ? s.isSql : state.dbEngine !== "redis";
+    const cloudBar = $("cloudActiveBar");
+    const isSql = cloud ? cloud.engine !== "redis" : (s ? s.isSql : state.dbEngine !== "redis");
+
+    if (cloudBar) {
+      cloudBar.hidden = !cloud;
+      if (cloud) {
+        $("cloudActiveTitle").textContent = cloud.name;
+        $("cloudActiveMeta").textContent = `${(cloud.provider || "cloud").toUpperCase()} · ${cloud.engine.toUpperCase()} · ${cloud.host}:${cloud.port}${cloud.sslMode ? " (" + cloud.sslMode + ")" : ""}`;
+      }
+    }
 
     $("btnOpenImport").hidden = !isSql;
-    $("btnOpenRestore").hidden = state.dbEngine !== "mssql";
+    $("btnOpenRestore").hidden = !!cloud || state.dbEngine !== "mssql";
     $("btnBackupSql").hidden = !isSql;
-    $("btnBackupBak").hidden = state.dbEngine !== "mssql";
+    $("btnBackupBak").hidden = !!cloud || state.dbEngine !== "mssql";
 
-    if (!s || s.state !== "running") {
+    if (!cloud && (!s || s.state !== "running")) {
       sqlEl.hidden = true;
       redisEl.hidden = true;
       stoppedEl.hidden = false;
@@ -471,9 +500,10 @@
     }
 
     stoppedEl.hidden = true;
-    if (s.isSql) {
+    if (isSql) {
       redisEl.hidden = true;
       sqlEl.hidden = false;
+      if (cloud && cloud.database && !state.sqlDb) state.sqlDb = cloud.database;
       await loadSqlDatabases();
     } else {
       sqlEl.hidden = true;
@@ -877,10 +907,13 @@
     }
   }
 
-  // ---- Redis Browser ----
+  // ---- Redis Browser (Local & Cloud) ----
+  const isCloudTarget = () => String(state.dbEngine || "").startsWith("cloud:");
   async function loadRedisDatabases() {
     try {
-      const dbs = await api().RedisDatabases();
+      const dbs = isCloudTarget()
+        ? await api().CloudRedisDatabases(state.dbEngine)
+        : await api().RedisDatabases();
       const sel = $("redisDbSelect");
       sel.innerHTML = dbs
         .map(
@@ -898,7 +931,9 @@
     const cursor = append ? state.redisCursor : "0";
     const pattern = $("redisPattern").value.trim() || "*";
     try {
-      const res = await api().RedisScan(state.redisDb, pattern, cursor);
+      const res = isCloudTarget()
+        ? await api().CloudRedisScan(state.dbEngine, state.redisDb, pattern, cursor)
+        : await api().RedisScan(state.redisDb, pattern, cursor);
       state.redisCursor = res.cursor;
       state.redisKeys = append ? [...state.redisKeys, ...res.keys] : res.keys;
       renderRedisKeys();
@@ -930,7 +965,9 @@
     renderRedisKeys();
     const box = $("redisInspector");
     try {
-      const val = await api().RedisGet(state.redisDb, key);
+      const val = isCloudTarget()
+        ? await api().CloudRedisGet(state.dbEngine, state.redisDb, key)
+        : await api().RedisGet(state.redisDb, key);
       let display = val.value;
       if (val.type === "string" && (display.startsWith("{") || display.startsWith("["))) {
         try {
@@ -955,7 +992,8 @@
       $("btnRedisDelKey").onclick = async () => {
         if (!(await askConfirm("Delete Redis key?", `Delete "${key}" from db${state.redisDb}?`, "Delete"))) return;
         try {
-          await api().RedisDelete(state.redisDb, key);
+          if (isCloudTarget()) await api().CloudRedisDelete(state.dbEngine, state.redisDb, key);
+          else await api().RedisDelete(state.redisDb, key);
           state.redisSelectedKey = "";
           box.innerHTML = `<div class="empty-note">Key deleted.</div>`;
           await loadRedisDatabases();
@@ -973,7 +1011,9 @@
     const entry = document.createElement("div");
     entry.className = "cli-entry";
     try {
-      const reply = await api().RedisCommand(state.redisDb, line);
+      const reply = isCloudTarget()
+        ? await api().CloudRedisCommand(state.dbEngine, state.redisDb, line)
+        : await api().RedisCommand(state.redisDb, line);
       entry.innerHTML = `<div class="cli-cmd">db${state.redisDb}&gt; ${esc(line)}</div><div class="cli-res">${esc(reply)}</div>`;
       if (/^(set|del|hset|lpush|rpush|sadd|zadd|flushdb|flushall|expire|rename|mset)/i.test(line)) {
         loadRedisDatabases();
@@ -2765,6 +2805,8 @@ try {
         if (!$("modalRestore").hidden) closeRestore();
         if (!$("modalRepair").hidden) closeRepair();
         if (!$("modalSysUpdater").hidden) closeSysUpdater();
+        if ($("modalCloudForm") && !$("modalCloudForm").hidden) $("modalCloudForm").hidden = true;
+        if ($("modalCloudSync") && !$("modalCloudSync").hidden) $("modalCloudSync").hidden = true;
       }
     });
   }
@@ -2772,18 +2814,22 @@ try {
   // ---- Init ----
   async function init() {
     wireEvents();
+    wireCloudEvents();
 
-    const [info, settings, statuses, catalog] = await Promise.all([
+    const [info, settings, statuses, catalog, cloudProfiles] = await Promise.all([
       api().Info(),
       api().GetSettings(),
       api().Status(),
       api().Catalog(),
+      api().CloudProfiles().catch(() => []),
     ]);
 
     state.info = info;
     state.settings = settings;
     state.statuses = statuses || [];
     state.catalog = catalog || {};
+    state.cloudProfiles = cloudProfiles || [];
+    updateCloudBadge();
 
     $("appVersion").textContent = "Lite Version " + info.version;
     if ($("dashSystemBadge")) {
@@ -2853,6 +2899,399 @@ try {
     onEvent("app-updated", (build) => {
       toast(`✅ Darius DB updated and restarted cleanly (Build ${build || state.info?.version || ""})!`, "ok");
     });
+  }
+
+  // ---- Cloud Databases View & Actions ----
+  const CLOUD_PRESETS = {
+    cpanel: {
+      provider: "cpanel",
+      engine: "mysql",
+      port: 3306,
+      sslMode: "preferred",
+      hostPlaceholder: "server.yourdomain.com or IP",
+      dbPlaceholder: "cpaneluser_myapp",
+      hint: "cPanel / Plesk / Hostinger: Add your public IP (or %) under cPanel → Remote MySQL®, then enter your cPanel server hostname/IP and prefixed DB/User.",
+    },
+    monsterasp: {
+      provider: "monsterasp",
+      engine: "mssql",
+      port: 1433,
+      sslMode: "skip-verify",
+      hostPlaceholder: "db12345.public.databaseasp.net",
+      dbPlaceholder: "db12345",
+      hint: "MonsterASP.NET / SmarterASP / Somee: Paste your ADO.NET connection string above (or enter dbXXXX.public.databaseasp.net, port 1433, Database, Username, Password). Uses TrustServerCertificate automatically.",
+    },
+    supabase: {
+      provider: "supabase",
+      engine: "postgresql",
+      port: 5432,
+      sslMode: "require",
+      hostPlaceholder: "db.xxxx.supabase.co or ep-xxx.neon.tech",
+      dbPlaceholder: "postgres",
+      hint: "Supabase / Neon / Render / Railway: Paste your postgresql:// URI above for instant auto-fill (port 5432 or 6543 pooler, SSL Require).",
+    },
+    tidb: {
+      provider: "tidb",
+      engine: "mysql",
+      port: 4000,
+      sslMode: "require",
+      hostPlaceholder: "gateway01.us-east-1.prod.aws.tidbcloud.com",
+      dbPlaceholder: "test",
+      hint: "Aiven / TiDB Cloud / PlanetScale: Requires TLS enabled (Require SSL/TLS). Paste your mysql:// URI above.",
+    },
+    rds: {
+      provider: "rds",
+      engine: "mysql",
+      port: 3306,
+      sslMode: "require",
+      hostPlaceholder: "mydb.xxxxxx.region.rds.amazonaws.com",
+      dbPlaceholder: "production",
+      hint: "AWS RDS / Azure SQL / Google Cloud SQL: Ensure your Security Group or Firewall rule allows your public IP.",
+    },
+    rediscloud: {
+      provider: "rediscloud",
+      engine: "redis",
+      port: 6379,
+      sslMode: "require",
+      hostPlaceholder: "redis-12345.c1.us-east-1-2.ec2.cloud.redislabs.com",
+      dbPlaceholder: "",
+      hint: "Redis Cloud / Upstash: Paste your rediss:// URI above or set host, port, password, and TLS Require.",
+    },
+  };
+
+  function updateCloudBadge() {
+    const badge = $("cloudBadge");
+    if (!badge) return;
+    const n = (state.cloudProfiles || []).length;
+    badge.textContent = n;
+    badge.hidden = n === 0;
+  }
+
+  function renderCloudView() {
+    updateCloudBadge();
+    const grid = $("cloudProfileGrid");
+    if (!grid) return;
+    const list = state.cloudProfiles || [];
+    if (!list.length) {
+      grid.innerHTML = `<div class="empty-note" style="grid-column:1 / -1;padding:24px">
+        No cloud databases saved yet. Click a provider preset above or <strong>+ Add Cloud DB</strong> to connect cPanel, MonsterASP.NET, Supabase, Neon, Aiven, TiDB, AWS RDS, Azure, or Redis Cloud.
+      </div>`;
+      return;
+    }
+    grid.innerHTML = list
+      .map((c) => {
+        const providerLabel = (c.provider || "cloud").toUpperCase();
+        const engineLabel = (c.engine || "mysql").toUpperCase();
+        const latPill = c.lastLatencyMs
+          ? `<span class="pill running" title="Last connected ${esc(c.lastConnected || "")}">${c.lastLatencyMs} ms</span>`
+          : `<span class="pill">Ready</span>`;
+        return `<div class="cloud-card" data-cid="${esc(c.id)}">
+          <div class="cloud-card-head">
+            <div>
+              <strong style="font-size:14px">${esc(c.name)}</strong>
+              <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap">
+                <span class="pill accent">${esc(providerLabel)}</span>
+                <span class="pill">${esc(engineLabel)}</span>
+                ${c.sslMode && c.sslMode !== "disable" ? `<span class="pill">TLS: ${esc(c.sslMode)}</span>` : ""}
+              </div>
+            </div>
+            ${latPill}
+          </div>
+          <div class="cloud-card-meta">
+            ${esc(c.host)}:${c.port}${c.database ? " / " + esc(c.database) : ""}${c.user ? " · user: " + esc(c.user) : ""}
+          </div>
+          <div class="cloud-card-actions">
+            <button type="button" class="btn xs primary" data-cact="browse">🔌 Connect &amp; Browse</button>
+            <button type="button" class="btn xs accent" data-cact="test">↻ Test</button>
+            <button type="button" class="btn xs" data-cact="sync">🔄 Sync</button>
+            ${c.panelUrl ? `<button type="button" class="btn xs" data-cact="panel">🌐 Panel ↗</button>` : ""}
+            <button type="button" class="btn xs ghost" data-cact="uri">Copy URI</button>
+            <button type="button" class="btn xs ghost" data-cact="edit">Edit</button>
+            <button type="button" class="btn xs danger-ghost" data-cact="del">✕</button>
+          </div>
+        </div>`;
+      })
+      .join("");
+  }
+
+  function wireCloudEvents() {
+    const closeCloudForm = () => ($("modalCloudForm").hidden = true);
+    const closeCloudSync = () => ($("modalCloudSync").hidden = true);
+
+    const applyPresetToForm = (key) => {
+      const p = CLOUD_PRESETS[key];
+      if (!p) return;
+      $("cloudProvider").value = p.provider;
+      $("cloudEngine").value = p.engine;
+      $("cloudPort").value = p.port;
+      $("cloudSsl").value = p.sslMode;
+      $("cloudHost").placeholder = p.hostPlaceholder;
+      $("cloudDb").placeholder = p.dbPlaceholder;
+      const hintEl = $("cloudProviderHint");
+      if (hintEl) {
+        hintEl.textContent = p.hint;
+        hintEl.hidden = false;
+      }
+    };
+
+    const openCloudFormModal = (existing = null, presetKey = "") => {
+      $("formCloudProfile").reset();
+      $("cloudEditId").value = existing?.id || "";
+      $("cloudUriInput").value = "";
+      $("cloudTestStatus").hidden = true;
+      $("modalCloudTitle").textContent = existing ? `Edit Cloud Profile — ${existing.name}` : "☁️ Add Cloud Database";
+      if ($("cloudProviderHint")) $("cloudProviderHint").hidden = true;
+      if (presetKey) applyPresetToForm(presetKey);
+      if (existing) {
+        $("cloudName").value = existing.name || "";
+        $("cloudProvider").value = existing.provider || "cloud";
+        $("cloudEngine").value = existing.engine || "mysql";
+        $("cloudHost").value = existing.host || "";
+        $("cloudPort").value = existing.port || 3306;
+        $("cloudDb").value = existing.database || "";
+        $("cloudUser").value = existing.user || "";
+        $("cloudPass").value = existing.password || "";
+        $("cloudSsl").value = existing.sslMode || "preferred";
+        $("cloudPanelUrl").value = existing.panelUrl || "";
+      }
+      $("modalCloudForm").hidden = false;
+      $("cloudName").focus();
+    };
+
+    const buildCloudObjFromForm = () => ({
+      id: $("cloudEditId").value.trim(),
+      name: $("cloudName").value.trim(),
+      provider: $("cloudProvider").value,
+      engine: $("cloudEngine").value,
+      host: $("cloudHost").value.trim(),
+      port: Number($("cloudPort").value) || 3306,
+      database: $("cloudDb").value.trim(),
+      user: $("cloudUser").value.trim(),
+      password: $("cloudPass").value,
+      sslMode: $("cloudSsl").value,
+      panelUrl: $("cloudPanelUrl").value.trim(),
+    });
+
+    $("cloudEngine").addEventListener("change", () => {
+      const defaults = { mysql: 3306, mariadb: 3306, postgresql: 5432, mssql: 1433, redis: 6379 };
+      const p = Number($("cloudPort").value);
+      if (!p || [3306, 5432, 1433, 6379, 4000].includes(p)) {
+        $("cloudPort").value = defaults[$("cloudEngine").value] || 3306;
+      }
+    });
+
+    $("btnAddCloud").onclick = () => openCloudFormModal(null, "cpanel");
+    $("btnCloseCloudForm").onclick = closeCloudForm;
+    $("btnCancelCloudForm").onclick = closeCloudForm;
+
+    $("cloudPresetStrip").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-preset]");
+      if (btn) openCloudFormModal(null, btn.dataset.preset);
+    });
+
+    $("btnParseCloudUri").onclick = async () => {
+      const raw = $("cloudUriInput").value.trim();
+      if (!raw) {
+        toast("Paste a connection URI or ADO.NET string first", "err");
+        return;
+      }
+      try {
+        const parsed = await api().ParseCloudURI(raw);
+        if (!$("cloudName").value.trim()) $("cloudName").value = parsed.name || parsed.host;
+        $("cloudProvider").value = parsed.provider || "cloud";
+        $("cloudEngine").value = parsed.engine || "mysql";
+        $("cloudHost").value = parsed.host || "";
+        $("cloudPort").value = parsed.port || 3306;
+        $("cloudDb").value = parsed.database || "";
+        $("cloudUser").value = parsed.user || "";
+        $("cloudPass").value = parsed.password || "";
+        $("cloudSsl").value = parsed.sslMode || "preferred";
+        toast(`Parsed ${parsed.engine.toUpperCase()} connection (${parsed.host}:${parsed.port})`, "ok");
+      } catch (err) {
+        toast(errMsg(err), "err");
+      }
+    };
+
+    $("btnTestCloudForm").onclick = async () => {
+      const box = $("cloudTestStatus");
+      const btn = $("btnTestCloudForm");
+      btn.disabled = true;
+      btn.textContent = "⏳ Testing...";
+      box.hidden = false;
+      box.style.color = "var(--text-muted)";
+      box.textContent = "Connecting to remote database server...";
+      try {
+        const res = await api().TestCloudProfile(buildCloudObjFromForm());
+        box.style.color = "var(--green)";
+        box.textContent = `✅ ${res.message}`;
+        toast(res.message, "ok");
+      } catch (err) {
+        box.style.color = "var(--red)";
+        box.textContent = `⚠️ ${errMsg(err)}`;
+        toast(errMsg(err), "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🔌 Test Connection";
+      }
+    };
+
+    $("formCloudProfile").onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        state.cloudProfiles = (await api().SaveCloudProfile(buildCloudObjFromForm())) || [];
+        closeCloudForm();
+        renderCloudView();
+        toast("Cloud database profile saved", "ok");
+      } catch (err) {
+        toast(errMsg(err), "err");
+      }
+    };
+
+    const loadSyncLocalDbs = async () => {
+      const eng = $("syncLocalEngine").value;
+      const dl = $("syncLocalDbOptions");
+      if (!dl) return;
+      try {
+        const dbs = await api().ListDatabases(eng);
+        dl.innerHTML = (dbs || [])
+          .filter((d) => !SYSTEM_DBS.has(d.toLowerCase()))
+          .map((d) => `<option value="${esc(d)}"></option>`)
+          .join("");
+      } catch {
+        dl.innerHTML = "";
+      }
+    };
+
+    const openCloudSyncModal = async (preselectCloudId = "") => {
+      const sqlProfiles = (state.cloudProfiles || []).filter((p) => p.engine !== "redis");
+      if (!sqlProfiles.length) {
+        toast("Add a Cloud MySQL, MariaDB, PostgreSQL, or MS SQL profile first", "info");
+        openCloudFormModal(null, "cpanel");
+        return;
+      }
+      const sel = $("syncCloudProfile");
+      sel.innerHTML = sqlProfiles
+        .map((p) => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.engine)} · ${esc(p.host)})</option>`)
+        .join("");
+      if (preselectCloudId) sel.value = preselectCloudId;
+      const chosen = sqlProfiles.find((p) => p.id === sel.value) || sqlProfiles[0];
+      if (chosen) {
+        $("syncCloudDb").value = chosen.database || "";
+        if ($("syncLocalEngine").querySelector(`option[value="${chosen.engine}"]`)) {
+          $("syncLocalEngine").value = chosen.engine;
+        }
+      }
+      await loadSyncLocalDbs();
+      $("modalCloudSync").hidden = false;
+    };
+
+    $("syncCloudProfile").addEventListener("change", () => {
+      const c = (state.cloudProfiles || []).find((p) => p.id === $("syncCloudProfile").value);
+      if (c && c.database) $("syncCloudDb").value = c.database;
+    });
+    $("syncLocalEngine").addEventListener("change", loadSyncLocalDbs);
+    $("syncDirTabs").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-dir]");
+      if (!btn) return;
+      $("syncDirTabs").querySelectorAll(".seg").forEach((b) => b.classList.toggle("active", b === btn));
+    });
+    $("btnOpenCloudSync").onclick = () => openCloudSyncModal("");
+    $("btnCloseCloudSync").onclick = closeCloudSync;
+    $("btnCancelCloudSync").onclick = closeCloudSync;
+
+    $("formCloudSync").onsubmit = async (e) => {
+      e.preventDefault();
+      const dir = $("syncDirTabs").querySelector(".seg.active")?.dataset.dir || "push";
+      const localEng = $("syncLocalEngine").value;
+      const localDb = $("syncLocalDb").value.trim();
+      const cloudId = $("syncCloudProfile").value;
+      const cloudDb = $("syncCloudDb").value.trim();
+      const btn = $("btnRunCloudSync");
+      btn.disabled = true;
+      btn.textContent = "⏳ Syncing...";
+      try {
+        const msg = dir === "push"
+          ? await api().CloudSyncDatabase(localEng, localDb, "cloud:" + cloudId, cloudDb)
+          : await api().CloudSyncDatabase("cloud:" + cloudId, cloudDb, localEng, localDb);
+        closeCloudSync();
+        toast(msg || "Sync complete!", "ok");
+        if (state.tab === "database") await loadSqlDatabases();
+      } catch (err) {
+        toast(errMsg(err), "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🔄 Sync Now";
+      }
+    };
+
+    $("cloudProfileGrid").addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-cact]");
+      if (!btn) return;
+      const card = btn.closest("[data-cid]");
+      const id = card?.dataset.cid;
+      const c = (state.cloudProfiles || []).find((p) => p.id === id);
+      if (!c) return;
+      const act = btn.dataset.cact;
+
+      if (act === "browse") {
+        state.dbEngine = "cloud:" + c.id;
+        state.sqlDb = c.database || "";
+        state.sqlDbs = [];
+        state.sqlTables = [];
+        state.sqlTable = "";
+        state.sqlLastResult = null;
+        switchTab("database");
+      } else if (act === "test") {
+        const prev = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "⏳...";
+        try {
+          const res = await api().TestCloudProfile(c);
+          state.cloudProfiles = (await api().CloudProfiles()) || state.cloudProfiles;
+          renderCloudView();
+          toast(res.message, "ok");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = prev;
+        }
+      } else if (act === "sync") {
+        await openCloudSyncModal(c.id);
+      } else if (act === "panel" && c.panelUrl) {
+        if (rt()?.BrowserOpenURL) rt().BrowserOpenURL(c.panelUrl);
+        else window.open(c.panelUrl, "_blank");
+      } else if (act === "uri") {
+        const uri = await api().ConnectionString("cloud:" + c.id, c.database || "");
+        await copyText(uri);
+        toast("Copied cloud connection URI", "ok");
+      } else if (act === "edit") {
+        openCloudFormModal(c);
+      } else if (act === "del") {
+        if (!(await askConfirm("Delete Cloud Profile?", `Remove "${c.name}" from saved cloud profiles?`, "Delete"))) return;
+        state.cloudProfiles = (await api().DeleteCloudProfile(c.id)) || [];
+        if (state.dbEngine === "cloud:" + c.id) state.dbEngine = "mariadb";
+        renderCloudView();
+        toast(`Removed ${c.name}`, "ok");
+      }
+    });
+
+    if ($("btnCloudBarSync")) {
+      $("btnCloudBarSync").onclick = () => {
+        const c = getActiveCloudProfile();
+        openCloudSyncModal(c ? c.id : "");
+      };
+    }
+    if ($("btnCloudBarAll")) $("btnCloudBarAll").onclick = () => switchTab("cloud");
+    if ($("btnCloudBarLocal")) {
+      $("btnCloudBarLocal").onclick = () => {
+        state.dbEngine = "mariadb";
+        pickBestDbEngine();
+        state.sqlDb = "";
+        renderDbEngineTabs();
+        loadDbView();
+      };
+    }
   }
 
   window.addEventListener("DOMContentLoaded", () => {

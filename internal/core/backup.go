@@ -327,14 +327,13 @@ func mysqlImportSQL(p *Paths, engine string, s EngineSettings, sqlPath, targetDB
 	if !nameRe.MatchString(targetDB) {
 		return errors.New("database name may only contain letters, digits, _ $ -")
 	}
-	db, err := openSQL(engine, s, "")
-	if err != nil {
-		return err
-	}
-	_, err = db.Exec("CREATE DATABASE IF NOT EXISTS " + quoteIdent(engine, targetDB) + " CHARACTER SET utf8mb4")
-	db.Close()
-	if err != nil {
-		return err
+	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
+	isRemote := !strings.EqualFold(host, "127.0.0.1") && !strings.EqualFold(host, "localhost")
+	if !isRemote || !strings.EqualFold(targetDB, s.DefaultDB) {
+		if db, err := openSQL(engine, s, ""); err == nil {
+			_, _ = db.Exec("CREATE DATABASE IF NOT EXISTS " + quoteIdent(engine, targetDB) + " CHARACTER SET utf8mb4")
+			db.Close()
+		}
 	}
 
 	// Prefer native client binary if installed for large dump streaming
@@ -350,7 +349,7 @@ func mysqlImportSQL(p *Paths, engine string, s EngineSettings, sqlPath, targetDB
 			}
 			defer f.Close()
 			args := []string{
-				"-h", "127.0.0.1",
+				"-h", host,
 				"-P", fmt.Sprint(s.Port),
 				"-u", fallbackStr(s.User, "root"),
 				"--default-character-set=utf8mb4",
@@ -387,6 +386,7 @@ func mysqlImportSQL(p *Paths, engine string, s EngineSettings, sqlPath, targetDB
 }
 
 func mysqlBackupSQL(p *Paths, engine string, s EngineSettings, dbName, outPath string) error {
+	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
 	if inst, ok := FindInstallation(p, engine, s.Version); ok {
 		dump := filepath.Join(inst.Dir, "bin", "mariadb-dump.exe")
 		if !fileExists(dump) {
@@ -394,7 +394,7 @@ func mysqlBackupSQL(p *Paths, engine string, s EngineSettings, dbName, outPath s
 		}
 		if fileExists(dump) {
 			args := []string{
-				"-h", "127.0.0.1",
+				"-h", host,
 				"-P", fmt.Sprint(s.Port),
 				"-u", fallbackStr(s.User, "root"),
 				"--routines",
@@ -410,11 +410,14 @@ func mysqlBackupSQL(p *Paths, engine string, s EngineSettings, dbName, outPath s
 			defer cancel()
 			cmd := exec.CommandContext(ctx, dump, args...)
 			hideWindow(cmd)
-			out, err := cmd.CombinedOutput()
-			if err != nil {
+			if out, err := cmd.CombinedOutput(); err == nil {
+				return nil
+			} else if !strings.EqualFold(host, "127.0.0.1") {
+				// Retry with pure-Go export if remote cloud server rejects mysqldump flags/GTID/TLS
+				_ = out
+			} else {
 				return fmt.Errorf("%s", strings.TrimSpace(string(out)))
 			}
-			return nil
 		}
 	}
 
@@ -512,18 +515,16 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 	if !nameRe.MatchString(targetDB) {
 		return errors.New("database name may only contain letters, digits, _ $ -")
 	}
-	// Create targetDB if it does not exist yet
-	adminDB, err := openSQL("postgresql", s, "postgres")
-	if err != nil {
-		return err
-	}
-	var exists bool
-	_ = adminDB.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", targetDB).Scan(&exists)
-	if !exists {
-		_, err = adminDB.Exec("CREATE DATABASE " + quoteIdent("postgresql", targetDB) + " ENCODING 'UTF8'")
-	}
-	adminDB.Close()
-	if err != nil {
+	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
+	isRemote := !strings.EqualFold(host, "127.0.0.1") && !strings.EqualFold(host, "localhost")
+	exists := false
+	if adminDB, err := openSQL("postgresql", s, fallbackStr(s.DefaultDB, "postgres")); err == nil {
+		_ = adminDB.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", targetDB).Scan(&exists)
+		if !exists && (!isRemote || !strings.EqualFold(targetDB, s.DefaultDB)) {
+			_, _ = adminDB.Exec("CREATE DATABASE " + quoteIdent("postgresql", targetDB) + " ENCODING 'UTF8'")
+		}
+		adminDB.Close()
+	} else if !isRemote {
 		return err
 	}
 
@@ -537,7 +538,7 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 			return errors.New("this file is a PostgreSQL custom/archive dump — install PostgreSQL in Versions so pg_restore.exe is available")
 		}
 		args := []string{
-			"-h", "127.0.0.1", "-p", fmt.Sprint(s.Port), "-U", user,
+			"-h", host, "-p", fmt.Sprint(s.Port), "-U", user,
 			"-d", targetDB, "--no-owner", "--no-acl",
 		}
 		if exists {
@@ -546,9 +547,14 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 		args = append(args, filePath)
 		cmd := exec.CommandContext(ctx, pgRestore, args...)
 		hideWindow(cmd)
+		env := os.Environ()
 		if s.Password != "" {
-			cmd.Env = append(os.Environ(), "PGPASSWORD="+s.Password)
+			env = append(env, "PGPASSWORD="+s.Password)
 		}
+		if s.SSLMode != "" && s.SSLMode != "none" {
+			env = append(env, "PGSSLMODE="+s.SSLMode)
+		}
+		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			msg := strings.TrimSpace(string(out))
@@ -566,13 +572,18 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 
 	if psql := findPostgresTool(p, s, "psql.exe"); psql != "" {
 		cmd := exec.CommandContext(ctx, psql,
-			"-h", "127.0.0.1", "-p", fmt.Sprint(s.Port), "-U", user,
+			"-h", host, "-p", fmt.Sprint(s.Port), "-U", user,
 			"-d", targetDB, "-v", "ON_ERROR_STOP=1", "-f", filePath,
 		)
 		hideWindow(cmd)
+		env := os.Environ()
 		if s.Password != "" {
-			cmd.Env = append(os.Environ(), "PGPASSWORD="+s.Password)
+			env = append(env, "PGPASSWORD="+s.Password)
 		}
+		if s.SSLMode != "" && s.SSLMode != "none" {
+			env = append(env, "PGSSLMODE="+s.SSLMode)
+		}
+		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			msg := strings.TrimSpace(string(out))
@@ -604,9 +615,10 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 }
 
 func postgresBackupSQL(p *Paths, s EngineSettings, dbName, outPath string) error {
+	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
 	if pgDump := findPostgresTool(p, s, "pg_dump.exe"); pgDump != "" {
 		user := fallbackStr(s.User, "postgres")
-		args := []string{"-h", "127.0.0.1", "-p", fmt.Sprint(s.Port), "-U", user, "-f", outPath}
+		args := []string{"-h", host, "-p", fmt.Sprint(s.Port), "-U", user, "-f", outPath}
 		ext := strings.ToLower(filepath.Ext(outPath))
 		if ext == ".backup" || ext == ".dump" {
 			args = append(args, "-F", "c")
@@ -619,14 +631,26 @@ func postgresBackupSQL(p *Paths, s EngineSettings, dbName, outPath string) error
 		defer cancel()
 		cmd := exec.CommandContext(ctx, pgDump, args...)
 		hideWindow(cmd)
+		env := os.Environ()
 		if s.Password != "" {
-			cmd.Env = append(os.Environ(), "PGPASSWORD="+s.Password)
+			env = append(env, "PGPASSWORD="+s.Password)
 		}
+		if s.SSLMode != "" && s.SSLMode != "none" {
+			env = append(env, "PGSSLMODE="+s.SSLMode)
+		}
+		cmd.Env = env
 		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		if err == nil {
+			return nil
 		}
-		return nil
+		if !strings.EqualFold(host, "127.0.0.1") && ext != ".backup" && ext != ".dump" {
+			// Fallback to pure-Go table SQL export when remote Cloud PG server version is newer than local pg_dump
+			return postgresExportTablesPureGo(s, dbName, nil, true, true, outPath)
+		}
+		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+	}
+	if strings.ToLower(filepath.Ext(outPath)) != ".backup" && strings.ToLower(filepath.Ext(outPath)) != ".dump" {
+		return postgresExportTablesPureGo(s, dbName, nil, true, true, outPath)
 	}
 	return errors.New("pg_dump.exe not found — install a PostgreSQL version in Versions")
 }
@@ -835,6 +859,7 @@ func exportTableCSV(engine string, s EngineSettings, dbName, tableName, outPath 
 }
 
 func mysqlExportTablesSQL(p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
 	if inst, ok := FindInstallation(p, engine, s.Version); ok {
 		dump := filepath.Join(inst.Dir, "bin", "mariadb-dump.exe")
 		if !fileExists(dump) {
@@ -842,7 +867,7 @@ func mysqlExportTablesSQL(p *Paths, engine string, s EngineSettings, dbName stri
 		}
 		if fileExists(dump) {
 			args := []string{
-				"-h", "127.0.0.1",
+				"-h", host,
 				"-P", fmt.Sprint(s.Port),
 				"-u", fallbackStr(s.User, "root"),
 				"--single-transaction",
@@ -865,11 +890,11 @@ func mysqlExportTablesSQL(p *Paths, engine string, s EngineSettings, dbName stri
 			defer cancel()
 			cmd := exec.CommandContext(ctx, dump, args...)
 			hideWindow(cmd)
-			out, err := cmd.CombinedOutput()
-			if err != nil {
+			if out, err := cmd.CombinedOutput(); err == nil {
+				return nil
+			} else if strings.EqualFold(host, "127.0.0.1") {
 				return fmt.Errorf("%s", strings.TrimSpace(string(out)))
 			}
-			return nil
 		}
 	}
 
@@ -925,40 +950,116 @@ func mysqlExportTablesSQL(p *Paths, engine string, s EngineSettings, dbName stri
 }
 
 func postgresExportTablesSQL(p *Paths, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
-	if inst, ok := FindInstallation(p, "postgresql", s.Version); ok {
-		pgDump := filepath.Join(inst.Dir, "bin", "pg_dump.exe")
-		if fileExists(pgDump) {
-			user := fallbackStr(s.User, "postgres")
-			args := []string{"-h", "127.0.0.1", "-p", fmt.Sprint(s.Port), "-U", user, "-f", outPath, "--no-owner"}
-			if includeSchema && !includeData {
-				args = append(args, "--schema-only")
-			} else if !includeSchema && includeData {
-				args = append(args, "--data-only")
-			}
-			if includeSchema {
-				args = append(args, "--clean", "--if-exists")
-			}
-			for _, tbl := range tables {
-				schema, table := splitSchemaTable("postgresql", dbName, tbl)
-				args = append(args, "-t", quoteIdent("postgresql", schema)+"."+quoteIdent("postgresql", table))
-			}
-			args = append(args, dbName)
+	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
+	if pgDump := findPostgresTool(p, s, "pg_dump.exe"); pgDump != "" {
+		user := fallbackStr(s.User, "postgres")
+		args := []string{"-h", host, "-p", fmt.Sprint(s.Port), "-U", user, "-f", outPath, "--no-owner"}
+		if includeSchema && !includeData {
+			args = append(args, "--schema-only")
+		} else if !includeSchema && includeData {
+			args = append(args, "--data-only")
+		}
+		if includeSchema {
+			args = append(args, "--clean", "--if-exists")
+		}
+		for _, tbl := range tables {
+			schema, table := splitSchemaTable("postgresql", dbName, tbl)
+			args = append(args, "-t", quoteIdent("postgresql", schema)+"."+quoteIdent("postgresql", table))
+		}
+		args = append(args, dbName)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, pgDump, args...)
-			hideWindow(cmd)
-			if s.Password != "" {
-				cmd.Env = append(os.Environ(), "PGPASSWORD="+s.Password)
-			}
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("%s", strings.TrimSpace(string(out)))
-			}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, pgDump, args...)
+		hideWindow(cmd)
+		env := os.Environ()
+		if s.Password != "" {
+			env = append(env, "PGPASSWORD="+s.Password)
+		}
+		if s.SSLMode != "" && s.SSLMode != "none" {
+			env = append(env, "PGSSLMODE="+s.SSLMode)
+		}
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err == nil {
 			return nil
+		} else if strings.EqualFold(host, "127.0.0.1") {
+			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
 		}
 	}
-	return errors.New("pg_dump.exe not found — install a PostgreSQL version in Versions")
+	return postgresExportTablesPureGo(s, dbName, tables, includeSchema, includeData, outPath)
+}
+
+func postgresExportTablesPureGo(s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	allTables, err := ListTables("postgresql", s, dbName)
+	if err != nil {
+		return err
+	}
+	selected := map[string]bool{}
+	for _, t := range tables {
+		selected[strings.ToLower(strings.TrimSpace(t))] = true
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.3) PostgreSQL SQL Export\n-- Database: %s\n\n", dbName)
+	for _, t := range allTables {
+		if len(selected) > 0 && !selected[strings.ToLower(t.Name)] {
+			continue
+		}
+		if strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
+			continue
+		}
+		schema, tbl := splitSchemaTable("postgresql", dbName, t.Name)
+		fullIdent := quoteIdent("postgresql", schema) + "." + quoteIdent("postgresql", tbl)
+		if includeSchema {
+			cols, err := DescribeTable("postgresql", s, dbName, t.Name)
+			if err == nil && len(cols) > 0 {
+				fmt.Fprintf(&b, "DROP TABLE IF EXISTS %s CASCADE;\nCREATE TABLE %s (\n", fullIdent, fullIdent)
+				var pks []string
+				for i, c := range cols {
+					nullStr := " NOT NULL"
+					if c.Nullable {
+						nullStr = ""
+					}
+					comma := ","
+					if i == len(cols)-1 && len(pks) == 0 && !c.IsPrimaryKey {
+						comma = ""
+					}
+					fmt.Fprintf(&b, "  %s %s%s%s\n", quoteIdent("postgresql", c.Name), c.DataType, nullStr, comma)
+					if c.IsPrimaryKey {
+						pks = append(pks, quoteIdent("postgresql", c.Name))
+					}
+				}
+				if len(pks) > 0 {
+					fmt.Fprintf(&b, "  PRIMARY KEY (%s)\n", strings.Join(pks, ", "))
+				}
+				b.WriteString(");\n\n")
+			}
+		}
+		if !includeData {
+			continue
+		}
+		res, err := RunQueryAll("postgresql", s, dbName, "SELECT * FROM "+fullIdent+";")
+		if err == nil && len(res.Rows) > 0 {
+			var colIdents []string
+			for _, cn := range res.Columns {
+				colIdents = append(colIdents, quoteIdent("postgresql", cn))
+			}
+			colsJoined := strings.Join(colIdents, ", ")
+			for _, row := range res.Rows {
+				var vals []string
+				for _, cell := range row {
+					if cell == nil {
+						vals = append(vals, "NULL")
+					} else {
+						vals = append(vals, quoteStr("postgresql", *cell))
+					}
+				}
+				fmt.Fprintf(&b, "INSERT INTO %s (%s) VALUES (%s);\n", fullIdent, colsJoined, strings.Join(vals, ", "))
+			}
+			b.WriteString("\n")
+		}
+	}
+	return os.WriteFile(outPath, []byte(b.String()), 0o644)
 }
 
 func mssqlExportTablesSQL(s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"sort"
@@ -23,32 +24,76 @@ const (
 )
 
 func sqlDriverAndDSN(engine string, s EngineSettings, dbName string) (driverName, dsn string, err error) {
+	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
+	isRemote := !strings.EqualFold(host, "127.0.0.1") && !strings.EqualFold(host, "localhost")
+	ssl := strings.ToLower(strings.TrimSpace(s.SSLMode))
+
 	switch engine {
 	case "mariadb", "mysql":
 		cfg := mysql.NewConfig()
 		cfg.User = s.User
 		cfg.Passwd = s.Password
 		cfg.Net = "tcp"
-		cfg.Addr = fmt.Sprintf("127.0.0.1:%d", s.Port)
+		port := s.Port
+		if port <= 0 {
+			port = 3306
+		}
+		cfg.Addr = net.JoinHostPort(host, strconv.Itoa(port))
+		if dbName == "" && isRemote && s.DefaultDB != "" {
+			dbName = s.DefaultDB
+		}
 		cfg.DBName = dbName
-		cfg.Timeout = 5 * time.Second
+		cfg.Timeout = 8 * time.Second
 		cfg.ReadTimeout = 120 * time.Second
 		cfg.MultiStatements = true
 		cfg.AllowNativePasswords = true
 		cfg.AllowCleartextPasswords = true
-		cfg.TLSConfig = "preferred"
+		switch ssl {
+		case "require", "true", "verify-full":
+			cfg.TLSConfig = "true"
+		case "skip-verify":
+			cfg.TLSConfig = "skip-verify"
+		case "disable", "none", "false":
+			cfg.TLSConfig = "false"
+		default:
+			cfg.TLSConfig = "preferred"
+		}
 		cfg.Params = map[string]string{"charset": "utf8mb4"}
 		return "mysql", cfg.FormatDSN(), nil
 	case "postgresql":
 		if dbName == "" {
-			dbName = "postgres"
+			if s.DefaultDB != "" {
+				dbName = s.DefaultDB
+			} else {
+				dbName = "postgres"
+			}
+		}
+		port := s.Port
+		if port <= 0 {
+			port = 5432
+		}
+		pgSSL := "disable"
+		if isRemote {
+			pgSSL = "require"
+		}
+		switch ssl {
+		case "require", "skip-verify":
+			pgSSL = "require"
+		case "verify-full":
+			pgSSL = "verify-full"
+		case "verify-ca":
+			pgSSL = "verify-ca"
+		case "preferred", "prefer":
+			pgSSL = "prefer"
+		case "disable", "none":
+			pgSSL = "disable"
 		}
 		u := url.URL{
 			Scheme:   "postgres",
 			User:     url.UserPassword(s.User, s.Password),
-			Host:     fmt.Sprintf("127.0.0.1:%d", s.Port),
+			Host:     net.JoinHostPort(host, strconv.Itoa(port)),
 			Path:     "/" + dbName,
-			RawQuery: "sslmode=disable&connect_timeout=5",
+			RawQuery: fmt.Sprintf("sslmode=%s&connect_timeout=8", pgSSL),
 		}
 		return "postgres", u.String(), nil
 	default:
@@ -211,7 +256,7 @@ func ListDatabases(engine string, s EngineSettings) ([]string, error) {
 	if engine == "mssql" {
 		return mssqlListDatabases(s)
 	}
-	db, err := pooledSQL(engine, s, "")
+	db, err := pooledSQL(engine, s, s.DefaultDB)
 	if err != nil {
 		return nil, err
 	}
@@ -221,18 +266,34 @@ func ListDatabases(engine string, s EngineSettings) ([]string, error) {
 	}
 	rows, err := db.Query(q)
 	if err != nil {
+		if s.DefaultDB != "" {
+			return []string{s.DefaultDB}, nil
+		}
 		return nil, err
 	}
 	defer rows.Close()
 	out := []string{}
+	seenDefault := false
 	for rows.Next() {
 		var n string
 		if err := rows.Scan(&n); err != nil {
 			return nil, err
 		}
+		if s.DefaultDB != "" && strings.EqualFold(n, s.DefaultDB) {
+			seenDefault = true
+		}
 		out = append(out, n)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		if s.DefaultDB != "" {
+			return []string{s.DefaultDB}, nil
+		}
+		return nil, err
+	}
+	if s.DefaultDB != "" && !seenDefault {
+		out = append([]string{s.DefaultDB}, out...)
+	}
+	return out, nil
 }
 
 func ListTables(engine string, s EngineSettings, dbName string) ([]TableInfo, error) {

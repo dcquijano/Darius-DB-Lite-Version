@@ -338,4 +338,3 @@ func EnsureConfig(p *Paths, engineID string) error {
 		return nil
 	}
 }
-

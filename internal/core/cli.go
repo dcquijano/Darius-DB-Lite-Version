@@ -23,7 +23,7 @@ const (
 )
 
 // CLIAppBuild identifies the build timestamp (overridden via -ldflags at build time).
-var CLIAppBuild = "202611201445"
+var CLIAppBuild = "202611201500"
 
 // RunCLI executes a CLI subcommand and returns an process exit code.
 func RunCLI(root string, args []string) int {
@@ -569,6 +569,8 @@ func normalizeEngineArg(s string) string {
 }
 
 func buildConnectionURI(engine string, es EngineSettings, dbName string) (string, error) {
+	host := fallbackStr(strings.TrimSpace(es.Host), "127.0.0.1")
+	isRemote := !strings.EqualFold(host, "127.0.0.1") && !strings.EqualFold(host, "localhost")
 	switch engine {
 	case "apache", "php":
 		return fmt.Sprintf("http://localhost:%d/", es.Port), nil
@@ -579,27 +581,56 @@ func buildConnectionURI(engine string, es EngineSettings, dbName string) (string
 		if es.Password != "" {
 			auth = url.UserPassword(es.User, es.Password).String()
 		}
-		return fmt.Sprintf("mysql://%s@127.0.0.1:%d/%s", auth, es.Port, dbName), nil
+		if dbName == "" && es.DefaultDB != "" {
+			dbName = es.DefaultDB
+		}
+		return fmt.Sprintf("mysql://%s@%s:%d/%s", auth, host, es.Port, dbName), nil
 	case "postgresql":
 		auth := url.User(es.User).String()
 		if es.Password != "" {
 			auth = url.UserPassword(es.User, es.Password).String()
 		}
 		if dbName == "" {
-			dbName = "postgres"
+			if es.DefaultDB != "" {
+				dbName = es.DefaultDB
+			} else {
+				dbName = "postgres"
+			}
 		}
-		return fmt.Sprintf("postgresql://%s@127.0.0.1:%d/%s", auth, es.Port, dbName), nil
+		q := ""
+		if es.SSLMode != "" && es.SSLMode != "none" && es.SSLMode != "disable" {
+			q = "?sslmode=" + url.QueryEscape(es.SSLMode)
+		}
+		return fmt.Sprintf("postgresql://%s@%s:%d/%s%s", auth, host, es.Port, dbName, q), nil
 	case "mssql":
 		if dbName == "" {
-			dbName = "master"
+			if es.DefaultDB != "" {
+				dbName = es.DefaultDB
+			} else {
+				dbName = "master"
+			}
+		}
+		if isRemote {
+			srv := host
+			if es.Port > 0 {
+				srv = fmt.Sprintf("%s,%d", host, es.Port)
+			}
+			return fmt.Sprintf("Server=%s;Database=%s;User Id=%s;Password=%s;Encrypt=True;TrustServerCertificate=True;", srv, dbName, es.User, es.Password), nil
 		}
 		srv := MSSQLServerName()
 		return fmt.Sprintf("Server=%s;Database=%s;Trusted_Connection=True;TrustServerCertificate=True;", srv, dbName), nil
 	case "redis":
-		if es.Password != "" {
-			return fmt.Sprintf("redis://:%s@127.0.0.1:%d/0", url.QueryEscape(es.Password), es.Port), nil
+		scheme := "redis"
+		if es.SSLMode == "require" || es.SSLMode == "skip-verify" {
+			scheme = "rediss"
 		}
-		return fmt.Sprintf("redis://127.0.0.1:%d/0", es.Port), nil
+		if es.Password != "" {
+			if es.User != "" {
+				return fmt.Sprintf("%s://%s:%s@%s:%d/0", scheme, url.QueryEscape(es.User), url.QueryEscape(es.Password), host, es.Port), nil
+			}
+			return fmt.Sprintf("%s://:%s@%s:%d/0", scheme, url.QueryEscape(es.Password), host, es.Port), nil
+		}
+		return fmt.Sprintf("%s://%s:%d/0", scheme, host, es.Port), nil
 	default:
 		return "", fmt.Errorf("unknown engine %q (choose mariadb, mysql, postgresql, mssql, or redis)", engine)
 	}
@@ -615,6 +646,8 @@ func buildIDECredentialsSnippet(engine string, es EngineSettings, dbName string)
 	if err != nil {
 		return "", err
 	}
+	host := fallbackStr(strings.TrimSpace(es.Host), "127.0.0.1")
+	isRemote := !strings.EqualFold(host, "127.0.0.1") && !strings.EqualFold(host, "localhost")
 	var b strings.Builder
 	fmt.Fprintf(&b, "=== %s Connection Configs for Visual Studio, VS Code & CLI ===\n\n", strings.ToUpper(engine))
 
@@ -625,47 +658,58 @@ func buildIDECredentialsSnippet(engine string, es EngineSettings, dbName string)
 
 	case "mssql":
 		srv := MSSQLServerName()
+		if isRemote {
+			srv = host
+		}
 		dotnet := uri
 		fmt.Fprintf(&b, "[MS SQL Server Connection Info]\n")
-		fmt.Fprintf(&b, "Server Name: %s\nAuth Mode:   Windows Authentication (Trusted_Connection)\nPort:        %d\n\n", srv, es.Port)
+		if isRemote {
+			fmt.Fprintf(&b, "Server Name: %s\nAuth Mode:   SQL Server Authentication\nPort:        %d\nUser:        %s\n\n", srv, es.Port, es.User)
+		} else {
+			fmt.Fprintf(&b, "Server Name: %s\nAuth Mode:   Windows Authentication (Trusted_Connection)\nPort:        %d\n\n", srv, es.Port)
+		}
 		fmt.Fprintf(&b, "[Visual Studio / .NET appsettings.json]\n")
 		fmt.Fprintf(&b, "{\n  \"ConnectionStrings\": {\n    \"DefaultConnection\": %q\n  }\n}\n\n", dotnet)
 		fmt.Fprintf(&b, "[VS Code / .env (Prisma / Node / Python)]\n")
-		fmt.Fprintf(&b, "DATABASE_URL=\"sqlserver://%s:%d;database=%s;integratedSecurity=true;trustServerCertificate=true\"\n\n", srv, es.Port, dbName)
+		if isRemote {
+			fmt.Fprintf(&b, "DATABASE_URL=\"sqlserver://%s:%d;database=%s;user=%s;password=%s;encrypt=true;trustServerCertificate=true\"\n\n", srv, es.Port, dbName, es.User, es.Password)
+		} else {
+			fmt.Fprintf(&b, "DATABASE_URL=\"sqlserver://%s:%d;database=%s;integratedSecurity=true;trustServerCertificate=true\"\n\n", srv, es.Port, dbName)
+		}
 		fmt.Fprintf(&b, "[Terminal / Package Manager Console]\n")
 		fmt.Fprintf(&b, "darius sql mssql \"SELECT @@VERSION\" -d %s\n", dbName)
 
 	case "mariadb", "mysql":
-		dotnet := fmt.Sprintf("Server=127.0.0.1;Port=%d;Database=%s;Uid=%s;Pwd=%s;", es.Port, dbName, es.User, es.Password)
+		dotnet := fmt.Sprintf("Server=%s;Port=%d;Database=%s;Uid=%s;Pwd=%s;", host, es.Port, dbName, es.User, es.Password)
 		fmt.Fprintf(&b, "[Visual Studio / .NET appsettings.json]\n")
 		fmt.Fprintf(&b, "{\n  \"ConnectionStrings\": {\n    \"DefaultConnection\": %q\n  }\n}\n\n", dotnet)
 		fmt.Fprintf(&b, "[VS Code / .env (Node / Prisma / Python / Laravel)]\n")
 		fmt.Fprintf(&b, "DATABASE_URL=%q\n", uri)
-		fmt.Fprintf(&b, "DB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_PORT=%d\nDB_DATABASE=%s\nDB_USERNAME=%s\nDB_PASSWORD=%s\n\n",
-			es.Port, dbName, es.User, es.Password)
+		fmt.Fprintf(&b, "DB_CONNECTION=mysql\nDB_HOST=%s\nDB_PORT=%d\nDB_DATABASE=%s\nDB_USERNAME=%s\nDB_PASSWORD=%s\n\n",
+			host, es.Port, dbName, es.User, es.Password)
 		fmt.Fprintf(&b, "[Terminal / CLI]\n")
 		fmt.Fprintf(&b, "darius sql %s \"SHOW TABLES;\" -d %s\n", engine, dbName)
 
 	case "postgresql":
-		dotnet := fmt.Sprintf("Host=127.0.0.1;Port=%d;Database=%s;Username=%s;Password=%s;", es.Port, dbName, es.User, es.Password)
+		dotnet := fmt.Sprintf("Host=%s;Port=%d;Database=%s;Username=%s;Password=%s;", host, es.Port, dbName, es.User, es.Password)
 		fmt.Fprintf(&b, "[Visual Studio / .NET appsettings.json (Npgsql)]\n")
 		fmt.Fprintf(&b, "{\n  \"ConnectionStrings\": {\n    \"DefaultConnection\": %q\n  }\n}\n\n", dotnet)
 		fmt.Fprintf(&b, "[VS Code / .env (Node / Prisma / Python / Laravel)]\n")
 		fmt.Fprintf(&b, "DATABASE_URL=%q\n", uri)
-		fmt.Fprintf(&b, "DB_CONNECTION=pgsql\nDB_HOST=127.0.0.1\nDB_PORT=%d\nDB_DATABASE=%s\nDB_USERNAME=%s\nDB_PASSWORD=%s\n\n",
-			es.Port, dbName, es.User, es.Password)
+		fmt.Fprintf(&b, "DB_CONNECTION=pgsql\nDB_HOST=%s\nDB_PORT=%d\nDB_DATABASE=%s\nDB_USERNAME=%s\nDB_PASSWORD=%s\n\n",
+			host, es.Port, dbName, es.User, es.Password)
 		fmt.Fprintf(&b, "[Terminal / CLI]\n")
 		fmt.Fprintf(&b, "darius sql postgresql \"SELECT version();\" -d %s\n", dbName)
 
 	case "redis":
-		dotnet := fmt.Sprintf("127.0.0.1:%d", es.Port)
+		dotnet := fmt.Sprintf("%s:%d", host, es.Port)
 		if es.Password != "" {
 			dotnet += ",password=" + es.Password
 		}
 		fmt.Fprintf(&b, "[Visual Studio / .NET appsettings.json (StackExchange.Redis)]\n")
 		fmt.Fprintf(&b, "{\n  \"ConnectionStrings\": {\n    \"Redis\": %q\n  }\n}\n\n", dotnet)
 		fmt.Fprintf(&b, "[VS Code / .env]\n")
-		fmt.Fprintf(&b, "REDIS_URL=%q\nREDIS_HOST=127.0.0.1\nREDIS_PORT=%d\n\n", uri, es.Port)
+		fmt.Fprintf(&b, "REDIS_URL=%q\nREDIS_HOST=%s\nREDIS_PORT=%d\n\n", uri, host, es.Port)
 		fmt.Fprintf(&b, "[Terminal / CLI]\n")
 		fmt.Fprintf(&b, "darius sql redis \"PING\"\n")
 	}

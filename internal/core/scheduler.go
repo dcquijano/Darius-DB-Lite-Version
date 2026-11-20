@@ -287,11 +287,68 @@ func isScheduleDue(now time.Time, hhmm, lastDate, createdAt string) bool {
 	return true
 }
 
+// EnsureLocalEngineReady verifies a local database engine is running (auto-starting it via mgr
+// if installed and stopped, or falling back between wire-compatible MySQL/MariaDB on the same port).
+func EnsureLocalEngineReady(p *Paths, st *SettingsStore, mgr *Manager, engine string, es EngineSettings) (string, EngineSettings, error) {
+	host := strings.TrimSpace(es.Host)
+	if host != "" && !strings.EqualFold(host, "127.0.0.1") && !strings.EqualFold(host, "localhost") {
+		return engine, es, nil
+	}
+	if engine == "mssql" {
+		if mgr != nil && !mgr.IsRunning("mssql") {
+			_ = mgr.Start("mssql")
+		}
+		return engine, es, nil
+	}
+	alt := ""
+	if engine == "mysql" {
+		alt = "mariadb"
+	} else if engine == "mariadb" {
+		alt = "mysql"
+	}
+
+	if mgr != nil {
+		if mgr.IsRunning(engine) {
+			return engine, es, nil
+		}
+		if alt != "" && mgr.IsRunning(alt) && st != nil {
+			altEs := st.Engine(alt)
+			if altEs.Port == es.Port || altEs.Port == 3306 {
+				return alt, altEs, nil
+			}
+		}
+		if p != nil {
+			if _, ok := FindInstallation(p, engine, es.Version); ok {
+				if err := mgr.Start(engine); err == nil {
+					return engine, st.Engine(engine), nil
+				} else if alt == "" {
+					return engine, es, err
+				}
+			}
+			if alt != "" && st != nil {
+				altEs := st.Engine(alt)
+				if _, ok := FindInstallation(p, alt, altEs.Version); ok {
+					if err := mgr.Start(alt); err == nil {
+						return alt, st.Engine(alt), nil
+					}
+				}
+			}
+		}
+	}
+
+	if es.Port > 0 && portInUse(es.Port) {
+		return engine, es, nil
+	}
+	return engine, es, fmt.Errorf("local %s is not running on port %d — start %s (or MariaDB/MySQL) on the Dashboard first, or download it in Versions",
+		strings.ToUpper(engine), es.Port, strings.ToUpper(engine))
+}
+
 // Scheduler runs enabled daily Auto-Sync (Pull Cloud -> Local / Push) and daily Auto-Backup
 // + 1-week snapshot purge tasks in the background.
 type Scheduler struct {
 	p          *Paths
 	st         *SettingsStore
+	mgr        *Manager
 	onChange   func()
 	onProgress func(CloudSyncProgress)
 
@@ -300,10 +357,11 @@ type Scheduler struct {
 	runMu    sync.Mutex
 }
 
-func NewScheduler(p *Paths, st *SettingsStore, onChange func(), onProgress func(CloudSyncProgress)) *Scheduler {
+func NewScheduler(p *Paths, st *SettingsStore, mgr *Manager, onChange func(), onProgress func(CloudSyncProgress)) *Scheduler {
 	return &Scheduler{
 		p:          p,
 		st:         st,
+		mgr:        mgr,
 		onChange:   onChange,
 		onProgress: onProgress,
 		stopCh:     make(chan struct{}),
@@ -465,10 +523,12 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 			localDB := fallbackStr(sched.LocalDB, cloudDB)
 			var msg string
 			var syncErr error
-			if sched.SyncDirection == "push" {
-				msg, syncErr = CloudSyncDatabaseWithProgress(sc.p, localEng, localEs, localDB, cloudEng, cloudEs, cloudDB, sc.onProgress)
+			if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
+				syncErr = rErr
+			} else if sched.SyncDirection == "push" {
+				msg, syncErr = CloudSyncDatabaseWithProgress(sc.p, effEng, effEs, localDB, cloudEng, cloudEs, cloudDB, sc.onProgress)
 			} else {
-				msg, syncErr = CloudSyncDatabaseWithProgress(sc.p, cloudEng, cloudEs, cloudDB, localEng, localEs, localDB, sc.onProgress)
+				msg, syncErr = CloudSyncDatabaseWithProgress(sc.p, cloudEng, cloudEs, cloudDB, effEng, effEs, localDB, sc.onProgress)
 			}
 			if syncErr != nil {
 				firstErr = syncErr
@@ -521,19 +581,33 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 					runZip(cloudEng, cloudEs, fallbackStr(sched.CloudDB, cloudConn.Database), "_cloud")
 				}
 				if sched.LocalDB != "" {
-					runZip(localEng, localEs, sched.LocalDB, "_local")
+					if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
+						if bErr == nil {
+							bErr = rErr
+						}
+					} else {
+						runZip(effEng, effEs, sched.LocalDB, "_local")
+					}
 				}
 			case "cloud":
 				if cloudConn != nil {
 					runZip(cloudEng, cloudEs, fallbackStr(sched.CloudDB, cloudConn.Database), "")
 				} else if sched.LocalDB != "" {
-					runZip(localEng, localEs, sched.LocalDB, "")
+					if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
+						bErr = rErr
+					} else {
+						runZip(effEng, effEs, sched.LocalDB, "")
+					}
 				} else {
 					bErr = errors.New("cloud profile not found for scheduled backup")
 				}
 			default: // local
 				if sched.LocalDB != "" {
-					runZip(localEng, localEs, sched.LocalDB, "")
+					if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
+						bErr = rErr
+					} else {
+						runZip(effEng, effEs, sched.LocalDB, "")
+					}
 				} else {
 					bErr = errors.New("local database name is required for backup")
 				}

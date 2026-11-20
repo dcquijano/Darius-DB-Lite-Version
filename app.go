@@ -83,7 +83,7 @@ func NewAppWithOptions(paths *core.Paths, st *core.SettingsStore, skipAdopt bool
 		a.mgr.OnInstalled(engine, name)
 	})
 	a.term = core.NewTerminal(paths, st, a.mgr, nil)
-	a.sched = core.NewScheduler(paths, st, func() {
+	a.sched = core.NewScheduler(paths, st, a.mgr, func() {
 		if a.ctx != nil {
 			runtime.EventsEmit(a.ctx, "schedules-updated", a.Schedules())
 		}
@@ -956,11 +956,28 @@ func (a *App) TestCloudProfile(conn core.CloudConnection) (*core.CloudTestResult
 func (a *App) CloudSyncDatabase(srcTarget, srcDB, dstTarget, dstDB string) (string, error) {
 	srcEng, srcEs, _ := a.resolveTarget(srcTarget)
 	dstEng, dstEs, _ := a.resolveTarget(dstTarget)
-	return core.CloudSyncDatabaseWithProgress(a.paths, srcEng, srcEs, srcDB, dstEng, dstEs, dstDB, func(prog core.CloudSyncProgress) {
+	emit := func(prog core.CloudSyncProgress) {
 		if a.ctx != nil {
 			runtime.EventsEmit(a.ctx, "cloud-sync-progress", prog)
 		}
-	})
+	}
+	if !strings.HasPrefix(srcTarget, "cloud:") {
+		emit(core.CloudSyncProgress{Percent: 3, State: "running", Stage: "Checking local service...", Detail: fmt.Sprintf("Ensuring local %s is running...", strings.ToUpper(srcEng))})
+		var rErr error
+		srcEng, srcEs, rErr = core.EnsureLocalEngineReady(a.paths, a.settings, a.mgr, srcEng, srcEs)
+		if rErr != nil {
+			return "", rErr
+		}
+	}
+	if !strings.HasPrefix(dstTarget, "cloud:") {
+		emit(core.CloudSyncProgress{Percent: 4, State: "running", Stage: "Checking local service...", Detail: fmt.Sprintf("Ensuring local %s is running...", strings.ToUpper(dstEng))})
+		var rErr error
+		dstEng, dstEs, rErr = core.EnsureLocalEngineReady(a.paths, a.settings, a.mgr, dstEng, dstEs)
+		if rErr != nil {
+			return "", rErr
+		}
+	}
+	return core.CloudSyncDatabaseWithProgress(a.paths, srcEng, srcEs, srcDB, dstEng, dstEs, dstDB, emit)
 }
 
 // ---------------------------------------------------------------- Daily Auto-Sync & 2:00 AM Auto-Backup (1-Week Purge)

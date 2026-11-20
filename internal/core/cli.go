@@ -24,7 +24,7 @@ const (
 )
 
 // CLIAppBuild identifies the build timestamp (overridden via -ldflags at build time).
-var CLIAppBuild = "202611201820"
+var CLIAppBuild = "202611201835"
 
 // RunCLI executes a CLI subcommand and returns an process exit code.
 func RunCLI(root string, args []string) int {
@@ -514,7 +514,7 @@ func RunCLI(root string, args []string) int {
 		if len(rest) > 0 {
 			sub = strings.ToLower(strings.TrimLeft(rest[0], "-"))
 		}
-		sc := NewScheduler(paths, st, nil, nil)
+		sc := NewScheduler(paths, st, mgr, nil, nil)
 		switch sub {
 		case "run":
 			if len(rest) > 1 && strings.ToLower(rest[1]) != "due" {

@@ -723,7 +723,8 @@ func (a *App) PickRestoreFile(engine string) (*RestoreFileChoice, error) {
 		return nil, errors.New("window not ready")
 	}
 	filters := []runtime.FileFilter{
-		{DisplayName: "Database Imports & Backups (*.sql;*.csv;*.bak;*.backup;*.dump)", Pattern: "*.sql;*.csv;*.bak;*.backup;*.dump"},
+		{DisplayName: "Database Imports & Backups (*.sql;*.zip;*.csv;*.bak;*.backup;*.dump)", Pattern: "*.sql;*.zip;*.csv;*.bak;*.backup;*.dump"},
+		{DisplayName: "Full Backup Archive (*.zip)", Pattern: "*.zip"},
 		{DisplayName: "SQL Script (*.sql)", Pattern: "*.sql"},
 		{DisplayName: "CSV Data File (*.csv)", Pattern: "*.csv"},
 		{DisplayName: "MS SQL Server Backup (*.bak)", Pattern: "*.bak"},
@@ -810,6 +811,11 @@ func (a *App) ExportDatabaseDialog(engine, dbName string, tables []string, forma
 	defaultName := fmt.Sprintf("%s%s_%s.%s", dbName, suffix, time.Now().Format("20060102"), ext)
 	var filters []runtime.FileFilter
 	switch ext {
+	case "zip":
+		filters = []runtime.FileFilter{
+			{DisplayName: "Full Database Backup Archive (*.zip)", Pattern: "*.zip"},
+			{DisplayName: "SQL Script (*.sql)", Pattern: "*.sql"},
+		}
 	case "csv":
 		filters = []runtime.FileFilter{
 			{DisplayName: "CSV Spreadsheet (*.csv)", Pattern: "*.csv"},
@@ -818,11 +824,13 @@ func (a *App) ExportDatabaseDialog(engine, dbName string, tables []string, forma
 	case "bak":
 		filters = []runtime.FileFilter{
 			{DisplayName: "MS SQL Server Backup (*.bak)", Pattern: "*.bak"},
+			{DisplayName: "Full Database Backup Archive (*.zip)", Pattern: "*.zip"},
 			{DisplayName: "SQL Script (*.sql)", Pattern: "*.sql"},
 		}
 	default:
 		filters = []runtime.FileFilter{
 			{DisplayName: "SQL Script (*.sql)", Pattern: "*.sql"},
+			{DisplayName: "Full Database Backup Archive (*.zip)", Pattern: "*.zip"},
 			{DisplayName: "CSV Spreadsheet (*.csv)", Pattern: "*.csv"},
 			{DisplayName: "MS SQL Server Backup (*.bak)", Pattern: "*.bak"},
 		}

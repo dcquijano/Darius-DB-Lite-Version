@@ -3,9 +3,11 @@
 package core
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -53,6 +55,10 @@ func RestoreDatabase(p *Paths, engine string, s EngineSettings, filePath, target
 	}
 
 	ext := strings.ToLower(filepath.Ext(filePath))
+
+	if ext == ".zip" {
+		return targetDB, restoreDatabaseFromZip(p, engine, s, filePath, targetDB)
+	}
 
 	switch engine {
 	case "mssql":
@@ -805,6 +811,10 @@ func ExportDatabaseSelection(p *Paths, engine string, s EngineSettings, dbName s
 		return exportTableCSV(engine, s, dbName, tables[0], outPath)
 	}
 
+	if ext == "zip" {
+		return ExportDatabaseFullZip(p, engine, s, dbName, tables, includeSchema, includeData, outPath)
+	}
+
 	if !includeSchema && !includeData {
 		return errors.New("select at least Structure (CREATE TABLE) or Data (INSERT) to export")
 	}
@@ -856,6 +866,177 @@ func exportTableCSV(engine string, s EngineSettings, dbName, tableName, outPath 
 	}
 	w.Flush()
 	return w.Error()
+}
+
+// ExportDatabaseFullZip creates a compressed .zip backup archive containing:
+// 1) <dbName>.sql (full SQL dump or selected tables),
+// 2) tables/<table>.csv (UTF-8 CSV export per base table when Data is enabled), and
+// 3) manifest.json metadata.
+func ExportDatabaseFullZip(p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	if !includeSchema && !includeData {
+		includeSchema = true
+		includeData = true
+	}
+	tmpDir, err := os.MkdirTemp("", "dariusdb-fullzip-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	allTables, err := ListTables(engine, s, dbName)
+	if err != nil {
+		return err
+	}
+	selected := map[string]bool{}
+	for _, t := range tables {
+		selected[strings.ToLower(strings.TrimSpace(t))] = true
+	}
+	var exportTables []string
+	for _, t := range allTables {
+		if strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
+			continue
+		}
+		if len(selected) > 0 && !selected[strings.ToLower(t.Name)] {
+			continue
+		}
+		exportTables = append(exportTables, t.Name)
+	}
+
+	safeDB := cleanDBNameRe.ReplaceAllString(dbName, "_")
+	if safeDB == "" {
+		safeDB = "database"
+	}
+	sqlPath := filepath.Join(tmpDir, safeDB+".sql")
+	if err := ExportDatabaseSelection(p, engine, s, dbName, tables, "sql", includeSchema, includeData, sqlPath); err != nil {
+		return fmt.Errorf("SQL dump failed: %w", err)
+	}
+
+	csvFiles := map[string]string{}
+	if includeData {
+		tablesDir := filepath.Join(tmpDir, "tables")
+		_ = os.MkdirAll(tablesDir, 0o755)
+		for _, t := range exportTables {
+			safeTbl := cleanDBNameRe.ReplaceAllString(t, "_")
+			if safeTbl == "" {
+				safeTbl = "table"
+			}
+			csvPath := filepath.Join(tablesDir, safeTbl+".csv")
+			if err := exportTableCSV(engine, s, dbName, t, csvPath); err == nil {
+				csvFiles["tables/"+safeTbl+".csv"] = csvPath
+			}
+		}
+	}
+
+	manifest := struct {
+		App           string   `json:"app"`
+		Engine        string   `json:"engine"`
+		Host          string   `json:"host"`
+		Database      string   `json:"database"`
+		ExportedAt    string   `json:"exportedAt"`
+		IncludeSchema bool     `json:"includeSchema"`
+		IncludeData   bool     `json:"includeData"`
+		TableCount    int      `json:"tableCount"`
+		Tables        []string `json:"tables"`
+	}{
+		App:           "Darius DB (Lite Version 0.1.3)",
+		Engine:        engine,
+		Host:          fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1"),
+		Database:      dbName,
+		ExportedAt:    time.Now().Format(time.RFC3339),
+		IncludeSchema: includeSchema,
+		IncludeData:   includeData,
+		TableCount:    len(exportTables),
+		Tables:        exportTables,
+	}
+	manifestPath := filepath.Join(tmpDir, "manifest.json")
+	if mb, err := json.MarshalIndent(manifest, "", "  "); err == nil {
+		_ = os.WriteFile(manifestPath, mb, 0o644)
+	}
+
+	zf, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	zw := zip.NewWriter(zf)
+	addZipFile := func(arcName, srcPath string) error {
+		src, err := os.Open(srcPath)
+		if err != nil {
+			return err
+		}
+		defer src.Close()
+		w, err := zw.CreateHeader(&zip.FileHeader{
+			Name:   filepath.ToSlash(arcName),
+			Method: zip.Deflate,
+		})
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(w, src)
+		return err
+	}
+
+	if err := addZipFile(safeDB+".sql", sqlPath); err != nil {
+		zw.Close()
+		zf.Close()
+		return err
+	}
+	_ = addZipFile("manifest.json", manifestPath)
+	for arcName, srcPath := range csvFiles {
+		_ = addZipFile(arcName, srcPath)
+	}
+	if err := zw.Close(); err != nil {
+		zf.Close()
+		return err
+	}
+	return zf.Close()
+}
+
+func restoreDatabaseFromZip(p *Paths, engine string, s EngineSettings, zipPath, targetDB string) error {
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("invalid .zip backup: %w", err)
+	}
+	defer zr.Close()
+
+	var sqlEntry *zip.File
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		if strings.EqualFold(filepath.Ext(f.Name), ".sql") {
+			if sqlEntry == nil || (!strings.Contains(f.Name, "/") && strings.Contains(sqlEntry.Name, "/")) || f.UncompressedSize64 > sqlEntry.UncompressedSize64 {
+				sqlEntry = f
+			}
+		}
+	}
+	if sqlEntry == nil {
+		return errors.New("the .zip backup does not contain a .sql dump file")
+	}
+
+	tmpDir, err := os.MkdirTemp("", "dariusdb-restorezip-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	rc, err := sqlEntry.Open()
+	if err != nil {
+		return err
+	}
+	extractedSQL := filepath.Join(tmpDir, filepath.Base(sqlEntry.Name))
+	out, err := os.Create(extractedSQL)
+	if err != nil {
+		rc.Close()
+		return err
+	}
+	_, cerr := io.Copy(out, rc)
+	out.Close()
+	rc.Close()
+	if cerr != nil {
+		return cerr
+	}
+	_, err = RestoreDatabase(p, engine, s, extractedSQL, targetDB)
+	return err
 }
 
 func mysqlExportTablesSQL(p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {

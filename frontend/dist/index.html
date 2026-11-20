@@ -213,7 +213,9 @@
             <button class="btn sm accent" id="btnBackupBak" title="Back up selected database to .bak file" hidden>Backup
               .bak</button>
             <button class="btn sm" id="btnBackupSql"
-              title="Export entire database, single table, or selected tables (.sql / .csv)">📤 Export</button>
+              title="Export entire database, single table, or selected tables (.sql / .zip / .csv)">📤 Export</button>
+            <button class="btn sm accent" id="btnBackupZip"
+              title="Back up the entire selected database as a full .zip archive (SQL + CSV tables + manifest.json)">📦 Backup .zip</button>
             <button class="btn sm" id="btnCopyIDE"
               title="Copy Visual Studio (appsettings.json) &amp; VS Code (.env) config">VS / .env</button>
             <button class="btn sm" id="btnCopyConn" title="Copy connection URI">Copy URI</button>
@@ -228,6 +230,7 @@
             <span class="muted" id="cloudActiveMeta" style="font-size:12px"></span>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn xs primary" id="btnCloudBarBackupZip">📦 Backup Full .zip</button>
             <button class="btn xs accent" id="btnCloudBarSync">🔄 Sync Local ↔ Cloud</button>
             <button class="btn xs" id="btnCloudBarAll">☁️ Cloud Profiles</button>
             <button class="btn xs ghost" id="btnCloudBarLocal">← Local DBs</button>
@@ -782,6 +785,7 @@
             <span>Format</span>
             <select id="exportFormat" class="select">
               <option value="sql">SQL Dump (.sql)</option>
+              <option value="zip">📦 Full Backup Archive (.zip — SQL + CSVs)</option>
               <option value="csv">CSV Spreadsheet (.csv — single table)</option>
             </select>
           </label>

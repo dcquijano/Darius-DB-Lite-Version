@@ -485,6 +485,7 @@
     $("btnOpenImport").hidden = !isSql;
     $("btnOpenRestore").hidden = !!cloud || state.dbEngine !== "mssql";
     $("btnBackupSql").hidden = !isSql;
+    if ($("btnBackupZip")) $("btnBackupZip").hidden = !isSql;
     $("btnBackupBak").hidden = !!cloud || state.dbEngine !== "mssql";
 
     if (!cloud && (!s || s.state !== "running")) {
@@ -2247,8 +2248,22 @@ try {
         toast(errMsg(e), "err");
       }
     };
+    const runFullZipBackup = async (targetEngine, dbName) => {
+      if (!dbName) {
+        toast("Select a database first", "err");
+        return;
+      }
+      try {
+        toast(`Creating full .zip backup of ${dbName} (SQL dump + table CSVs)...`, "info");
+        const outPath = await api().ExportDatabaseDialog(targetEngine, dbName, [], "zip", true, true);
+        if (outPath) toast(`Full .zip backup saved: ${outPath}`, "ok");
+      } catch (e) {
+        toast(errMsg(e), "err");
+      }
+    };
     $("btnBackupBak").onclick = () => runBackupDialog("bak");
     $("btnBackupSql").onclick = () => openExportModal(state.sqlTable ? "single" : "all");
+    if ($("btnBackupZip")) $("btnBackupZip").onclick = () => runFullZipBackup(state.dbEngine, state.sqlDb);
     if ($("btnMetaExportTable")) $("btnMetaExportTable").onclick = () => openExportModal("single");
 
     $("btnCopyIDE").onclick = async () => {
@@ -3003,6 +3018,7 @@ try {
           <div class="cloud-card-actions">
             <button type="button" class="btn xs primary" data-cact="browse">🔌 Connect &amp; Browse</button>
             <button type="button" class="btn xs accent" data-cact="test">↻ Test</button>
+            ${c.engine !== "redis" ? `<button type="button" class="btn xs" data-cact="backupzip" title="Download full .zip backup (SQL + CSVs)">📦 Backup .zip</button>` : ""}
             <button type="button" class="btn xs" data-cact="sync">🔄 Sync</button>
             ${c.panelUrl ? `<button type="button" class="btn xs" data-cact="panel">🌐 Panel ↗</button>` : ""}
             <button type="button" class="btn xs ghost" data-cact="uri">Copy URI</button>
@@ -3256,6 +3272,34 @@ try {
           btn.disabled = false;
           btn.textContent = prev;
         }
+      } else if (act === "backupzip") {
+        let db = c.database || "";
+        if (!db) {
+          try {
+            const dbs = await api().ListDatabases("cloud:" + c.id);
+            db = (dbs || []).find((d) => !SYSTEM_DBS.has(d.toLowerCase())) || (dbs || [])[0] || "";
+          } catch (err) {
+            toast(errMsg(err), "err");
+            return;
+          }
+        }
+        if (!db) {
+          toast("Set a Default Database on this Cloud profile first", "err");
+          return;
+        }
+        const prev = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "⏳ Backing up...";
+        try {
+          toast(`Creating full .zip backup of ${db}...`, "info");
+          const outPath = await api().ExportDatabaseDialog("cloud:" + c.id, db, [], "zip", true, true);
+          if (outPath) toast(`Full .zip backup saved: ${outPath}`, "ok");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = prev;
+        }
       } else if (act === "sync") {
         await openCloudSyncModal(c.id);
       } else if (act === "panel" && c.panelUrl) {
@@ -3276,6 +3320,19 @@ try {
       }
     });
 
+    if ($("btnCloudBarBackupZip")) {
+      $("btnCloudBarBackupZip").onclick = () => {
+        const c = getActiveCloudProfile();
+        const db = state.sqlDb || c?.database || "";
+        if (!db) {
+          toast("Select a database first", "err");
+          return;
+        }
+        api().ExportDatabaseDialog(state.dbEngine, db, [], "zip", true, true).then((outPath) => {
+          if (outPath) toast(`Full .zip backup saved: ${outPath}`, "ok");
+        }).catch((err) => toast(errMsg(err), "err"));
+      };
+    }
     if ($("btnCloudBarSync")) {
       $("btnCloudBarSync").onclick = () => {
         const c = getActiveCloudProfile();

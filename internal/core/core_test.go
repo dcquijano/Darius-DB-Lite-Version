@@ -309,3 +309,26 @@ func TestE2ERedis(t *testing.T) {
 	}
 }
 
+func TestTableAndWhereHelpers(t *testing.T) {
+	s1, t1 := splitSchemaTable("mysql", "govsystem", "web_configurations")
+	if s1 != "govsystem" || t1 != "web_configurations" {
+		t.Fatalf("mysql splitSchemaTable got %q.%q", s1, t1)
+	}
+	s2, t2 := splitSchemaTable("postgresql", "mydb", "analytics.events")
+	if s2 != "analytics" || t2 != "events" {
+		t.Fatalf("pg splitSchemaTable got %q.%q", s2, t2)
+	}
+	if got := qualifiedTable("mssql", "dbo", "users"); got != "[dbo].[users]" {
+		t.Fatalf("mssql qualifiedTable got %q", got)
+	}
+
+	keys := map[string]RowValue{
+		"id":   {Value: "42"},
+		"note": {IsNull: true},
+	}
+	whereSQL, args := buildWhereClause("postgresql", keys, 3)
+	if whereSQL != `"id" = $3 AND "note" IS NULL` || len(args) != 1 || args[0] != "42" {
+		t.Fatalf("buildWhereClause got %q args=%v", whereSQL, args)
+	}
+}
+

@@ -559,6 +559,34 @@ func (a *App) RunQuery(engine, dbName, query string) (*core.QueryResult, error) 
 	return core.RunQuery(engine, a.settings.Engine(engine), dbName, query)
 }
 
+func (a *App) RunQueryAll(engine, dbName, query string) (*core.QueryResult, error) {
+	return core.RunQueryAll(engine, a.settings.Engine(engine), dbName, query)
+}
+
+func (a *App) DescribeTable(engine, dbName, tableName string) ([]core.ColumnInfo, error) {
+	return core.DescribeTable(engine, a.settings.Engine(engine), dbName, tableName)
+}
+
+func (a *App) InsertRow(engine, dbName, tableName string, values map[string]core.RowValue) error {
+	return core.InsertRow(engine, a.settings.Engine(engine), dbName, tableName, values)
+}
+
+func (a *App) UpdateRow(engine, dbName, tableName string, keys, updates map[string]core.RowValue, hasPK bool) error {
+	return core.UpdateRow(engine, a.settings.Engine(engine), dbName, tableName, keys, updates, hasPK)
+}
+
+func (a *App) DeleteRow(engine, dbName, tableName string, keys map[string]core.RowValue, hasPK bool) error {
+	return core.DeleteRow(engine, a.settings.Engine(engine), dbName, tableName, keys, hasPK)
+}
+
+func (a *App) CreateTable(engine, dbName, tableName string, cols []core.CreateTableColumn) error {
+	return core.CreateTable(engine, a.settings.Engine(engine), dbName, tableName, cols)
+}
+
+func (a *App) DropTable(engine, dbName, tableName string) error {
+	return core.DropTable(engine, a.settings.Engine(engine), dbName, tableName)
+}
+
 func (a *App) CreateDatabase(engine, name, user, password string) error {
 	return core.CreateDatabase(engine, a.settings.Engine(engine), name, user, password)
 }
@@ -577,13 +605,14 @@ func (a *App) PickRestoreFile(engine string) (*RestoreFileChoice, error) {
 		return nil, errors.New("window not ready")
 	}
 	filters := []runtime.FileFilter{
-		{DisplayName: "Database Backups & SQL (*.bak;*.sql;*.backup;*.dump)", Pattern: "*.bak;*.sql;*.backup;*.dump"},
-		{DisplayName: "MS SQL Server Backup (*.bak)", Pattern: "*.bak"},
+		{DisplayName: "Database Imports & Backups (*.sql;*.csv;*.bak;*.backup;*.dump)", Pattern: "*.sql;*.csv;*.bak;*.backup;*.dump"},
 		{DisplayName: "SQL Script (*.sql)", Pattern: "*.sql"},
+		{DisplayName: "CSV Data File (*.csv)", Pattern: "*.csv"},
+		{DisplayName: "MS SQL Server Backup (*.bak)", Pattern: "*.bak"},
 		{DisplayName: "All Files (*.*)", Pattern: "*.*"},
 	}
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title:   "Select .bak Backup or .sql Script File to Restore",
+		Title:   "Select .sql, .csv, or .bak File to Import / Restore",
 		Filters: filters,
 	})
 	if err != nil || path == "" {
@@ -595,8 +624,42 @@ func (a *App) PickRestoreFile(engine string) (*RestoreFileChoice, error) {
 	}, nil
 }
 
+type ImportResult struct {
+	Database string `json:"database"`
+	Table    string `json:"table,omitempty"`
+	Rows     int    `json:"rows,omitempty"`
+	Message  string `json:"message"`
+}
+
 func (a *App) RestoreDatabase(engine, filePath, targetDB string) (string, error) {
 	return core.RestoreDatabase(a.paths, engine, a.settings.Engine(engine), filePath, targetDB)
+}
+
+func (a *App) ImportDatabaseFile(engine, filePath, targetDB, targetTable string) (*ImportResult, error) {
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(filePath)))
+	if ext == ".csv" {
+		dbName, count, err := core.ImportCSV(engine, a.settings.Engine(engine), filePath, targetDB, targetTable)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(targetTable) == "" {
+			targetTable = core.DeriveDBNameFromFile(filePath)
+		}
+		return &ImportResult{
+			Database: dbName,
+			Table:    targetTable,
+			Rows:     count,
+			Message:  fmt.Sprintf("Imported %d CSV row(s) into %s.%s", count, dbName, targetTable),
+		}, nil
+	}
+	dbName, err := core.RestoreDatabase(a.paths, engine, a.settings.Engine(engine), filePath, targetDB)
+	if err != nil {
+		return nil, err
+	}
+	return &ImportResult{
+		Database: dbName,
+		Message:  fmt.Sprintf("Successfully imported %q into database %q", filepath.Base(filePath), dbName),
+	}, nil
 }
 
 func (a *App) BackupDatabaseDialog(engine, dbName, format string) (string, error) {

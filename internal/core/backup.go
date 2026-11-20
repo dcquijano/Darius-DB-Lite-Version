@@ -4,8 +4,10 @@ package core
 
 import (
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -570,3 +572,120 @@ func fallbackStr(s, def string) string {
 	}
 	return s
 }
+
+// ImportCSV imports a .csv file (first row = column headers) into targetDB.targetTable.
+// Creates targetDB and/or targetTable automatically if they do not exist yet.
+func ImportCSV(engine string, s EngineSettings, csvPath, targetDB, targetTable string) (string, int, error) {
+	csvPath = strings.TrimSpace(csvPath)
+	if csvPath == "" {
+		return "", 0, errors.New("no CSV file selected")
+	}
+	f, err := os.Open(csvPath)
+	if err != nil {
+		return "", 0, err
+	}
+	defer f.Close()
+
+	r := csv.NewReader(f)
+	r.FieldsPerRecord = -1
+	records, err := r.ReadAll()
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid CSV: %w", err)
+	}
+	if len(records) < 2 {
+		return "", 0, errors.New("CSV must have a header row and at least 1 data row")
+	}
+
+	targetDB = strings.TrimSpace(targetDB)
+	if targetDB == "" {
+		targetDB = DeriveDBNameFromFile(csvPath)
+	}
+	if !nameRe.MatchString(targetDB) {
+		return "", 0, errors.New("database name may only contain letters, digits, _ $ -")
+	}
+
+	targetTable = strings.TrimSpace(targetTable)
+	if targetTable == "" {
+		targetTable = DeriveDBNameFromFile(csvPath)
+	}
+	if !nameRe.MatchString(targetTable) {
+		return "", 0, errors.New("table name may only contain letters, digits, _ $ -")
+	}
+
+	headers := make([]string, len(records[0]))
+	seen := map[string]int{}
+	for i, h := range records[0] {
+		h = strings.TrimPrefix(strings.TrimSpace(h), "\xEF\xBB\xBF")
+		h = cleanDBNameRe.ReplaceAllString(h, "_")
+		h = strings.Trim(h, "_-")
+		if h == "" {
+			h = fmt.Sprintf("col_%d", i+1)
+		}
+		if h[0] >= '0' && h[0] <= '9' {
+			h = "c_" + h
+		}
+		seen[h]++
+		if seen[h] > 1 {
+			h = fmt.Sprintf("%s_%d", h, seen[h])
+		}
+		headers[i] = h
+	}
+
+	// Ensure database exists
+	dbs, err := ListDatabases(engine, s)
+	if err != nil {
+		return "", 0, err
+	}
+	dbExists := false
+	for _, d := range dbs {
+		if strings.EqualFold(d, targetDB) {
+			dbExists = true
+			targetDB = d
+			break
+		}
+	}
+	if !dbExists {
+		if err := CreateDatabase(engine, s, targetDB, "", ""); err != nil {
+			return "", 0, err
+		}
+	}
+
+	// Create table if it doesn't exist yet
+	existingCols, err := DescribeTable(engine, s, targetDB, targetTable)
+	if err != nil || len(existingCols) == 0 {
+		var colDefs []CreateTableColumn
+		for _, h := range headers {
+			colDefs = append(colDefs, CreateTableColumn{
+				Name:     h,
+				Type:     "TEXT",
+				Nullable: true,
+			})
+		}
+		if err := CreateTable(engine, s, targetDB, targetTable, colDefs); err != nil {
+			return "", 0, err
+		}
+	}
+
+	inserted := 0
+	for _, rec := range records[1:] {
+		if len(rec) == 0 || (len(rec) == 1 && strings.TrimSpace(rec[0]) == "") {
+			continue
+		}
+		rowMap := map[string]RowValue{}
+		for i, col := range headers {
+			if i < len(rec) {
+				rowMap[col] = RowValue{Value: rec[i]}
+			} else {
+				rowMap[col] = RowValue{IsNull: true}
+			}
+		}
+		if err := InsertRow(engine, s, targetDB, targetTable, rowMap); err != nil {
+			return targetDB, inserted, fmt.Errorf("row %d: %w", inserted+1, err)
+		}
+		inserted++
+	}
+	return targetDB, inserted, nil
+}
+
+// unused io import guard
+var _ = io.EOF

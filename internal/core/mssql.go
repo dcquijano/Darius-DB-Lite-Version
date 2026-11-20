@@ -369,9 +369,16 @@ func mssqlAuthArgs(target string, s EngineSettings) []string {
 var affectedRe = regexp.MustCompile(`^\((\d+) rows? affected\)$`)
 
 func mssqlRunQuery(s EngineSettings, dbName, q string) (*QueryResult, error) {
+	return mssqlRunQueryWithLimit(s, dbName, q, maxRows)
+}
+
+func mssqlRunQueryWithLimit(s EngineSettings, dbName, q string, limit int) (*QueryResult, error) {
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return nil, errors.New("query is empty")
+	}
+	if limit <= 0 {
+		limit = maxShowRows
 	}
 	sqlcmd := findSqlcmd()
 	if sqlcmd == "" {
@@ -460,7 +467,7 @@ func mssqlRunQuery(s EngineSettings, dbName, q string) (*QueryResult, error) {
 				res.Affected, _ = strconv.ParseInt(m[1], 10, 64)
 				break
 			}
-			if len(res.Rows) >= maxRows {
+			if len(res.Rows) >= limit {
 				res.Truncated = true
 				continue
 			}
@@ -535,10 +542,11 @@ func mssqlListTables(s EngineSettings, dbName string) ([]TableInfo, error) {
 			display = schema + "." + name
 		}
 		out = append(out, TableInfo{
-			Schema: schema,
-			Name:   display,
-			Kind:   kind,
-			Select: fmt.Sprintf("SELECT TOP 100 * FROM %s.%s;", mssqlBracket(schema), mssqlBracket(name)),
+			Schema:    schema,
+			Name:      display,
+			Kind:      kind,
+			Select:    fmt.Sprintf("SELECT TOP 100 * FROM %s.%s;", mssqlBracket(schema), mssqlBracket(name)),
+			SelectAll: fmt.Sprintf("SELECT * FROM %s.%s;", mssqlBracket(schema), mssqlBracket(name)),
 		})
 	}
 	return out, nil
@@ -577,4 +585,127 @@ func mssqlDropDatabase(s EngineSettings, name string) error {
 		mssqlBracket(name), mssqlBracket(name))
 	_, err := mssqlRunQuery(s, "master", q)
 	return err
+}
+
+func mssqlLit(rv RowValue) string {
+	if rv.IsNull {
+		return "NULL"
+	}
+	return "N'" + strings.ReplaceAll(rv.Value, "'", "''") + "'"
+}
+
+func mssqlWhereClause(keys map[string]RowValue) string {
+	colNames := sortedKeys(keys)
+	var parts []string
+	for _, col := range colNames {
+		rv := keys[col]
+		if rv.IsNull {
+			parts = append(parts, mssqlBracket(col)+" IS NULL")
+		} else {
+			parts = append(parts, mssqlBracket(col)+" = "+mssqlLit(rv))
+		}
+	}
+	return strings.Join(parts, " AND ")
+}
+
+func mssqlDescribeTable(s EngineSettings, dbName, schema, table string) ([]ColumnInfo, error) {
+	escS := strings.ReplaceAll(schema, "'", "''")
+	escT := strings.ReplaceAll(table, "'", "''")
+	q := fmt.Sprintf(`SET NOCOUNT ON;
+SELECT c.COLUMN_NAME,
+       CASE WHEN c.CHARACTER_MAXIMUM_LENGTH IS NOT NULL THEN c.DATA_TYPE + '(' + CASE WHEN c.CHARACTER_MAXIMUM_LENGTH = -1 THEN 'MAX' ELSE CAST(c.CHARACTER_MAXIMUM_LENGTH AS VARCHAR(16)) END + ')' ELSE c.DATA_TYPE END,
+       c.IS_NULLABLE,
+       c.COLUMN_DEFAULT,
+       CASE WHEN EXISTS (
+         SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+         JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+           ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+         WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+           AND tc.TABLE_SCHEMA = c.TABLE_SCHEMA
+           AND tc.TABLE_NAME = c.TABLE_NAME
+           AND kcu.COLUMN_NAME = c.COLUMN_NAME
+       ) THEN '1' ELSE '0' END,
+       CAST(COLUMNPROPERTY(OBJECT_ID(QUOTENAME(c.TABLE_SCHEMA)+'.'+QUOTENAME(c.TABLE_NAME)), c.COLUMN_NAME, 'IsIdentity') AS VARCHAR(8))
+FROM INFORMATION_SCHEMA.COLUMNS c
+WHERE c.TABLE_SCHEMA = N'%s' AND c.TABLE_NAME = N'%s'
+ORDER BY c.ORDINAL_POSITION;`, escS, escT)
+
+	res, err := mssqlRunQuery(s, dbName, q)
+	if err != nil {
+		return nil, err
+	}
+	cols := make([]ColumnInfo, 0, len(res.Rows))
+	for _, r := range res.Rows {
+		name := valAt(r, 0)
+		if name == "" {
+			continue
+		}
+		var defPtr *string
+		if len(r) > 3 && r[3] != nil {
+			v := *r[3]
+			defPtr = &v
+		}
+		cols = append(cols, ColumnInfo{
+			Name:            name,
+			DataType:        valAt(r, 1),
+			Nullable:        strings.EqualFold(valAt(r, 2), "YES"),
+			DefaultVal:      defPtr,
+			IsPrimaryKey:    valAt(r, 4) == "1",
+			IsAutoIncrement: valAt(r, 5) == "1",
+		})
+	}
+	return cols, nil
+}
+
+func mssqlInsertRow(s EngineSettings, dbName, schema, table string, values map[string]RowValue) error {
+	colNames := sortedKeys(values)
+	var cols []string
+	var vals []string
+	for _, c := range colNames {
+		cols = append(cols, mssqlBracket(c))
+		vals = append(vals, mssqlLit(values[c]))
+	}
+	q := fmt.Sprintf("INSERT INTO %s.%s (%s) VALUES (%s);",
+		mssqlBracket(schema), mssqlBracket(table), strings.Join(cols, ", "), strings.Join(vals, ", "))
+	_, err := mssqlRunQuery(s, dbName, q)
+	return err
+}
+
+func mssqlUpdateRow(s EngineSettings, dbName, schema, table string, keys, updates map[string]RowValue, hasPK bool) error {
+	updNames := sortedKeys(updates)
+	var setParts []string
+	for _, c := range updNames {
+		setParts = append(setParts, mssqlBracket(c)+" = "+mssqlLit(updates[c]))
+	}
+	prefix := "UPDATE"
+	if !hasPK {
+		prefix = "UPDATE TOP (1)"
+	}
+	q := fmt.Sprintf("%s %s.%s SET %s WHERE %s;",
+		prefix, mssqlBracket(schema), mssqlBracket(table), strings.Join(setParts, ", "), mssqlWhereClause(keys))
+	res, err := mssqlRunQuery(s, dbName, q)
+	if err != nil {
+		return err
+	}
+	if res.Affected == 0 {
+		return errors.New("no matching row was updated")
+	}
+	return nil
+}
+
+func mssqlDeleteRow(s EngineSettings, dbName, schema, table string, keys map[string]RowValue, hasPK bool) error {
+	prefix := "DELETE"
+	if !hasPK {
+		prefix = "DELETE TOP (1)"
+	}
+	q := fmt.Sprintf("%s FROM %s.%s WHERE %s;",
+		prefix, mssqlBracket(schema), mssqlBracket(table), mssqlWhereClause(keys))
+	res, err := mssqlRunQuery(s, dbName, q)
+	if err != nil {
+		return err
+	}
+	if res.Affected == 0 {
+		return errors.New("no matching row was deleted")
+	}
+	return nil
 }

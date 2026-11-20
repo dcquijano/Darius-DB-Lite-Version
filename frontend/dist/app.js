@@ -19,6 +19,10 @@
     sqlDb: "",
     sqlDbs: [],
     sqlTables: [],
+    sqlTable: "",
+    sqlColumns: [],
+    sqlLastResult: null,
+    sqlShowingAll: false,
     redisDb: 0,
     redisCursor: "0",
     redisKeys: [],
@@ -423,16 +427,20 @@
           </button>`
       )
       .join("");
-    el.querySelectorAll(".seg").forEach((btn) =>
-      btn.addEventListener("click", () => {
-        state.dbEngine = btn.dataset.engine;
-        state.sqlDb = "";
-        state.sqlDbs = [];
-        state.sqlTables = [];
-        renderDbEngineTabs();
-        loadDbView();
-      })
-    );
+      el.querySelectorAll(".seg").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          state.dbEngine = btn.dataset.engine;
+          state.sqlDb = "";
+          state.sqlDbs = [];
+          state.sqlTables = [];
+          state.sqlTable = "";
+          state.sqlColumns = [];
+          state.sqlLastResult = null;
+          state.sqlShowingAll = false;
+          renderDbEngineTabs();
+          loadDbView();
+        })
+      );
   }
 
   async function loadDbView() {
@@ -442,7 +450,8 @@
     const redisEl = $("redisBrowser");
     const isSql = s ? s.isSql : state.dbEngine !== "redis";
 
-    $("btnOpenRestore").hidden = !isSql;
+    $("btnOpenImport").hidden = !isSql;
+    $("btnOpenRestore").hidden = state.dbEngine !== "mssql";
     $("btnBackupSql").hidden = !isSql;
     $("btnBackupBak").hidden = state.dbEngine !== "mssql";
 
@@ -483,7 +492,10 @@
         await loadSqlTables(state.sqlDb);
       } else {
         state.sqlTables = [];
+        state.sqlTable = "";
+        state.sqlColumns = [];
         renderSqlTableList();
+        updateSqlTableToolbar();
       }
     } catch (e) {
       toast(errMsg(e), "err");
@@ -508,15 +520,36 @@
       .join("");
   }
 
+  function updateSqlTableToolbar() {
+    const hasTable = !!state.sqlTable;
+    const chip = $("sqlActiveTable");
+    if (chip) {
+      chip.hidden = !hasTable;
+      chip.textContent = hasTable ? state.sqlTable : "";
+    }
+    if ($("btnRowCreate")) $("btnRowCreate").hidden = !hasTable;
+    if ($("btnMetaCreateRow")) $("btnMetaCreateRow").hidden = !hasTable;
+    if ($("btnMetaShowAll")) $("btnMetaShowAll").hidden = !hasTable;
+    if ($("sqlRowFilter")) $("sqlRowFilter").hidden = !(state.sqlLastResult && state.sqlLastResult.isQuery);
+  }
+
   async function loadSqlTables(db) {
     $("sqlTablesTitle").textContent = `Tables (${db})`;
     try {
       const tables = await api().ListTables(state.dbEngine, db);
       state.sqlTables = tables || [];
+      if (state.sqlTable && !state.sqlTables.some((t) => t.name === state.sqlTable)) {
+        state.sqlTable = "";
+        state.sqlColumns = [];
+      }
       renderSqlTableList();
+      updateSqlTableToolbar();
     } catch (e) {
       state.sqlTables = [];
+      state.sqlTable = "";
+      state.sqlColumns = [];
       renderSqlTableList();
+      updateSqlTableToolbar();
       toast(errMsg(e), "err");
     }
   }
@@ -530,59 +563,293 @@
     list.innerHTML = state.sqlTables
       .map(
         (t, idx) =>
-          `<div class="tree-item" data-table-idx="${idx}" title="${esc(t.name)} (${esc(t.kind)})">
+          `<div class="tree-item ${t.name === state.sqlTable ? "active" : ""}" data-table-idx="${idx}" title="${esc(t.name)} (${esc(t.kind)})">
             <span class="tree-label">${esc(t.name)}</span>
-            ${t.kind && t.kind.toUpperCase().includes("VIEW") ? `<span class="type-tag">VIEW</span>` : ""}
+            ${t.kind && t.kind.toUpperCase().includes("VIEW") ? `<span class="type-tag">VIEW</span>` : `<button class="tree-del" data-drop-table="${esc(t.name)}" title="Drop table">✕</button>`}
           </div>`
       )
       .join("");
   }
 
-  async function runSqlQuery() {
+  async function selectSqlTable(tableObj, showAll = false) {
+    if (!tableObj) return;
+    state.sqlTable = tableObj.name;
+    state.sqlShowingAll = !!showAll;
+    renderSqlTableList();
+    updateSqlTableToolbar();
+    $("sqlEditor").value = showAll ? (tableObj.selectAll || tableObj.select) : tableObj.select;
+    try {
+      state.sqlColumns = (await api().DescribeTable(state.dbEngine, state.sqlDb, tableObj.name)) || [];
+    } catch {
+      state.sqlColumns = [];
+    }
+    await runSqlQuery(showAll);
+  }
+
+  async function runSqlQuery(showAll = false) {
     const q = $("sqlEditor").value.trim();
     if (!q) return;
     const meta = $("sqlMeta");
-    meta.className = "result-meta";
-    meta.textContent = "Running query...";
+    const bar = meta.parentElement;
+    bar.className = "result-meta-bar";
+    meta.textContent = showAll ? "Loading all rows..." : "Running query...";
     $("sqlResults").innerHTML = "";
     try {
-      const res = await api().RunQuery(state.dbEngine, state.sqlDb, q);
+      const res = showAll
+        ? await api().RunQueryAll(state.dbEngine, state.sqlDb, q)
+        : await api().RunQuery(state.dbEngine, state.sqlDb, q);
+      state.sqlLastResult = res;
+      if ($("sqlRowFilter")) $("sqlRowFilter").value = "";
+      updateSqlTableToolbar();
       if (res.isQuery) {
-        meta.textContent = `${res.rows.length} row(s)${res.truncated ? " (capped at 1,000)" : ""} · ${res.durationMs.toFixed(1)} ms`;
+        meta.textContent = `${res.rows.length} row(s)${res.truncated ? " (capped)" : showAll ? " (all)" : ""} · ${res.durationMs.toFixed(1)} ms`;
         renderSqlTable(res);
       } else {
         meta.textContent = `Query OK · ${res.affected} row(s) affected · ${res.durationMs.toFixed(1)} ms`;
-        // Refresh sidebar in case DDL created/dropped tables or DBs
-        if (/\b(create|drop|alter)\b/i.test(q)) {
+        if (/\b(create|drop|alter|insert|update|delete|truncate)\b/i.test(q)) {
           loadSqlDatabases();
         }
       }
     } catch (e) {
-      meta.className = "result-meta error";
+      bar.className = "result-meta-bar error";
       meta.textContent = errMsg(e);
     }
   }
 
   function renderSqlTable(res) {
     const wrap = $("sqlResults");
-    if (!res.columns.length) {
+    if (!res || !res.columns.length) {
       wrap.innerHTML = `<div class="empty-note">Empty result set</div>`;
       return;
     }
-    const thead = `<thead><tr>${res.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>`;
-    const tbody = `<tbody>${res.rows
-      .map(
-        (row) =>
-          `<tr>${row
-            .map((cell) =>
-              cell === null
-                ? `<td class="null-val">NULL</td>`
-                : `<td title="${esc(cell)}">${esc(cell)}</td>`
-            )
-            .join("")}</tr>`
-      )
+    const filter = ($("sqlRowFilter")?.value || "").trim().toLowerCase();
+    const canRowCrud = !!state.sqlTable;
+    const indexedRows = res.rows
+      .map((row, idx) => ({ row, idx }))
+      .filter(({ row }) => {
+        if (!filter) return true;
+        return row.some((c) => c !== null && String(c).toLowerCase().includes(filter));
+      });
+
+    const actHead = canRowCrud ? `<th class="row-acts-col">Actions</th>` : "";
+    const thead = `<thead><tr>${actHead}${res.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>`;
+    const tbody = `<tbody>${indexedRows
+      .map(({ row, idx }) => {
+        const actCell = canRowCrud
+          ? `<td class="row-acts-col"><div class="row-acts">
+              <button type="button" class="row-btn show" data-row-act="show" data-row-idx="${idx}" title="Show full row details">Show</button>
+              <button type="button" class="row-btn edit" data-row-act="edit" data-row-idx="${idx}" title="Edit this row">Edit</button>
+              <button type="button" class="row-btn del" data-row-act="delete" data-row-idx="${idx}" title="Delete this row">Delete</button>
+            </div></td>`
+          : "";
+        return `<tr data-row-idx="${idx}">${actCell}${row
+          .map((cell) =>
+            cell === null
+              ? `<td class="null-val">NULL</td>`
+              : `<td title="${esc(cell)}">${esc(cell)}</td>`
+          )
+          .join("")}</tr>`;
+      })
       .join("")}</tbody>`;
     wrap.innerHTML = `<table class="data-table">${thead}${tbody}</table>`;
+  }
+
+  function buildRowKeyMap(rowIdx) {
+    const res = state.sqlLastResult;
+    if (!res || !res.rows[rowIdx]) return { keys: {}, hasPK: false };
+    const row = res.rows[rowIdx];
+    const colMap = new Map((state.sqlColumns || []).map((c) => [c.name.toLowerCase(), c]));
+    const pkCols = res.columns.filter((c) => colMap.get(c.toLowerCase())?.isPrimaryKey);
+    const hasPK = pkCols.length > 0;
+    const keyNames = hasPK ? pkCols : res.columns;
+    const keys = {};
+    keyNames.forEach((colName) => {
+      const ci = res.columns.indexOf(colName);
+      if (ci >= 0) {
+        const val = row[ci];
+        keys[colName] = val === null ? { value: "", isNull: true } : { value: String(val), isNull: false };
+      }
+    });
+    return { keys, hasPK };
+  }
+
+  function openShowRowModal(rowIdx) {
+    const res = state.sqlLastResult;
+    const row = res?.rows?.[rowIdx];
+    if (!row) return;
+    $("modalRowShowTitle").textContent = `Show Row — ${state.sqlTable} (#${rowIdx + 1})`;
+    const jsonObj = {};
+    $("rowShowFields").innerHTML = res.columns
+      .map((col, ci) => {
+        const val = row[ci];
+        jsonObj[col] = val;
+        let display = val === null ? "NULL" : String(val);
+        if (val !== null && (display.startsWith("{") || display.startsWith("["))) {
+          try {
+            display = JSON.stringify(JSON.parse(display), null, 2);
+          } catch { }
+        }
+        return `<div class="row-detail-item">
+          <div class="row-detail-head">
+            <strong>${esc(col)}</strong>
+            <button type="button" class="btn xs ghost" data-copy-field="${ci}">Copy</button>
+          </div>
+          <pre class="row-detail-val ${val === null ? "null-val" : ""}">${esc(display)}</pre>
+        </div>`;
+      })
+      .join("");
+    $("rowShowFields").querySelectorAll("[data-copy-field]").forEach((b) => {
+      b.onclick = async () => {
+        const v = row[Number(b.dataset.copyField)];
+        await copyText(v === null ? "" : String(v));
+        toast("Copied field value", "ok");
+      };
+    });
+    $("btnRowShowCopyJson").onclick = async () => {
+      await copyText(JSON.stringify(jsonObj, null, 2));
+      toast("Copied row JSON", "ok");
+    };
+    $("btnRowShowEdit").onclick = () => {
+      $("modalRowShow").hidden = true;
+      openRowFormModal("edit", rowIdx);
+    };
+    $("btnRowShowDelete").onclick = async () => {
+      $("modalRowShow").hidden = true;
+      await deleteSqlRow(rowIdx);
+    };
+    $("modalRowShow").hidden = false;
+  }
+
+  async function openRowFormModal(mode, rowIdx = -1) {
+    if (!state.sqlTable) {
+      toast("Select a table on the left first", "err");
+      return;
+    }
+    if (!state.sqlColumns || !state.sqlColumns.length) {
+      try {
+        state.sqlColumns = (await api().DescribeTable(state.dbEngine, state.sqlDb, state.sqlTable)) || [];
+      } catch (e) {
+        toast(errMsg(e), "err");
+        return;
+      }
+    }
+    const cols = state.sqlColumns;
+    if (!cols.length) {
+      toast("Could not inspect columns for this table", "err");
+      return;
+    }
+    const isEdit = mode === "edit";
+    const res = state.sqlLastResult;
+    const row = isEdit ? res?.rows?.[rowIdx] : null;
+    if (isEdit && !row) return;
+
+    $("modalRowFormTitle").textContent = isEdit
+      ? `Edit Row — ${state.sqlTable}`
+      : `Create New Row — ${state.sqlTable}`;
+    $("btnSubmitRowForm").textContent = isEdit ? "Save Changes" : "Create Row";
+
+    $("rowFormFields").innerHTML = cols
+      .map((col, idx) => {
+        let curVal = "";
+        let isNull = false;
+        if (isEdit && res) {
+          const ci = res.columns.indexOf(col.name);
+          const raw = ci >= 0 ? row[ci] : null;
+          isNull = raw === null;
+          curVal = raw === null ? "" : String(raw);
+        } else if (!isEdit) {
+          if (col.isAutoIncrement) {
+            curVal = "";
+          } else if (col.defaultVal !== undefined && col.defaultVal !== null) {
+            curVal = col.defaultVal;
+          } else if (col.nullable) {
+            isNull = false;
+          }
+        }
+        const isLong = /text|json|blob|clob|xml/i.test(col.dataType) || curVal.length > 90 || curVal.includes("\n");
+        const placeholder = !isEdit && col.isAutoIncrement ? "Auto-generated if left blank" : "";
+        const control = isLong
+          ? `<textarea class="input row-field-val" data-col="${esc(col.name)}" rows="3" placeholder="${esc(placeholder)}" ${isNull ? "disabled" : ""}>${esc(curVal)}</textarea>`
+          : `<input type="text" class="input row-field-val" data-col="${esc(col.name)}" value="${esc(curVal)}" placeholder="${esc(placeholder)}" ${isNull ? "disabled" : ""} />`;
+        return `<div class="row-form-item" data-col-idx="${idx}">
+          <div class="row-form-head">
+            <strong>${esc(col.name)}</strong>
+            <span class="meta-tag">${esc(col.dataType)}</span>
+            ${col.isPrimaryKey ? `<span class="pill accent">PK</span>` : ""}
+            ${col.isAutoIncrement ? `<span class="pill running">AUTO</span>` : ""}
+            <div class="spacer"></div>
+            ${col.nullable
+              ? `<label class="check-inline" style="font-size:11.5px"><input type="checkbox" class="row-field-null" data-col="${esc(col.name)}" ${isNull ? "checked" : ""} /> NULL</label>`
+              : ""}
+          </div>
+          ${control}
+        </div>`;
+      })
+      .join("");
+
+    $("rowFormFields").querySelectorAll(".row-field-null").forEach((chk) => {
+      chk.onchange = () => {
+        const inp = $("rowFormFields").querySelector(`.row-field-val[data-col="${CSS.escape(chk.dataset.col)}"]`);
+        if (inp) inp.disabled = chk.checked;
+      };
+    });
+
+    $("formRowCrud").onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = $("btnSubmitRowForm");
+      btn.disabled = true;
+      try {
+        const values = {};
+        cols.forEach((col) => {
+          const inp = $("rowFormFields").querySelector(`.row-field-val[data-col="${CSS.escape(col.name)}"]`);
+          const nullChk = $("rowFormFields").querySelector(`.row-field-null[data-col="${CSS.escape(col.name)}"]`);
+          const isNull = !!(nullChk && nullChk.checked);
+          const val = inp ? inp.value : "";
+          if (!isEdit && col.isAutoIncrement && !isNull && val === "") {
+            return; // let DB auto-generate PK/identity
+          }
+          if (isEdit && res) {
+            const ci = res.columns.indexOf(col.name);
+            const origRaw = ci >= 0 ? row[ci] : null;
+            const origIsNull = origRaw === null;
+            const origStr = origRaw === null ? "" : String(origRaw);
+            // Skip unchanged identity/PK columns (required for SQL Server IDENTITY columns)
+            if (col.isAutoIncrement && isNull === origIsNull && val === origStr) {
+              return;
+            }
+          }
+          values[col.name] = { value: val, isNull };
+        });
+        if (isEdit) {
+          const { keys, hasPK } = buildRowKeyMap(rowIdx);
+          await api().UpdateRow(state.dbEngine, state.sqlDb, state.sqlTable, keys, values, hasPK);
+          toast("Row updated!", "ok");
+        } else {
+          await api().InsertRow(state.dbEngine, state.sqlDb, state.sqlTable, values);
+          toast("Row created!", "ok");
+        }
+        $("modalRowForm").hidden = true;
+        await runSqlQuery(state.sqlShowingAll);
+      } catch (err) {
+        toast(errMsg(err), "err");
+      } finally {
+        btn.disabled = false;
+      }
+    };
+    $("modalRowForm").hidden = false;
+  }
+
+  async function deleteSqlRow(rowIdx) {
+    if (!state.sqlTable) return;
+    if (!(await askConfirm("Delete Row?", `Permanently delete this row from "${state.sqlTable}"?`, "Delete"))) return;
+    try {
+      const { keys, hasPK } = buildRowKeyMap(rowIdx);
+      await api().DeleteRow(state.dbEngine, state.sqlDb, state.sqlTable, keys, hasPK);
+      toast("Row deleted", "ok");
+      await runSqlQuery(state.sqlShowingAll);
+    } catch (err) {
+      toast(errMsg(err), "err");
+    }
   }
 
   // ---- Redis Browser ----
@@ -1703,20 +1970,37 @@ try {
     $("btnDbRefresh").onclick = () => loadDbView();
 
     const closeRestore = () => ($("modalRestore").hidden = true);
-    $("btnOpenRestore").onclick = () => {
+    const updateImportTableVisibility = () => {
+      const fp = ($("restoreFilePath").value || "").trim().toLowerCase();
+      const isCsv = fp.endsWith(".csv");
+      $("restoreTableWrap").hidden = !isCsv;
+      if (isCsv && !$("restoreTableName").value.trim()) {
+        if (state.sqlTable) {
+          $("restoreTableName").value = state.sqlTable;
+        } else {
+          const base = fp.split(/[\\/]/).pop().replace(/\.csv$/i, "").replace(/[^A-Za-z0-9_$\-]/g, "_");
+          if (base) $("restoreTableName").value = base;
+        }
+      }
+    };
+    const openImportModal = (modeLabel) => {
       const s = getStatus(state.dbEngine);
       $("modalRestoreTitle").textContent =
-        state.dbEngine === "mssql"
-          ? "Restore .bak Backup or Import .sql (MS SQL Server)"
-          : `Import / Restore .sql (${s ? s.name : state.dbEngine})`;
+        modeLabel === "restore" && state.dbEngine === "mssql"
+          ? "Restore .bak Backup or Import .sql / .csv (MS SQL Server)"
+          : `Import .sql / .csv into Database (${s ? s.name : state.dbEngine})`;
       $("formRestore").reset();
+      $("restoreTableWrap").hidden = true;
       if (state.sqlDb && !SYSTEM_DBS.has(state.sqlDb.toLowerCase())) {
         $("restoreDbName").value = state.sqlDb;
       }
       $("modalRestore").hidden = false;
     };
+    $("btnOpenImport").onclick = () => openImportModal("import");
+    $("btnOpenRestore").onclick = () => openImportModal("restore");
     $("btnCloseRestore").onclick = closeRestore;
     $("btnCancelRestore").onclick = closeRestore;
+    $("restoreFilePath").addEventListener("input", updateImportTableVisibility);
     $("btnBrowseRestore").onclick = async () => {
       try {
         const res = await api().PickRestoreFile(state.dbEngine);
@@ -1726,6 +2010,7 @@ try {
         if (!curDb || SYSTEM_DBS.has(curDb.toLowerCase())) {
           $("restoreDbName").value = res.suggestedDb || "";
         }
+        updateImportTableVisibility();
       } catch (e) {
         toast(errMsg(e), "err");
       }
@@ -1734,16 +2019,18 @@ try {
       e.preventDefault();
       const filePath = $("restoreFilePath").value.trim();
       const targetDb = $("restoreDbName").value.trim();
+      const targetTable = $("restoreTableName").value.trim();
       if (!filePath) return;
       const btn = $("btnSubmitRestore");
       const orig = btn.textContent;
       btn.disabled = true;
-      btn.textContent = "Restoring...";
+      btn.textContent = "Importing...";
       try {
-        const restoredDb = await api().RestoreDatabase(state.dbEngine, filePath, targetDb);
+        const res = await api().ImportDatabaseFile(state.dbEngine, filePath, targetDb, targetTable);
         closeRestore();
-        toast(`Successfully restored into database "${restoredDb}"!`, "ok");
-        state.sqlDb = restoredDb;
+        toast(res?.message || `Imported into "${res?.database || targetDb}"!`, "ok");
+        if (res?.database) state.sqlDb = res.database;
+        if (res?.table) state.sqlTable = res.table;
         await loadSqlDatabases();
       } catch (err) {
         toast(errMsg(err), "err");
@@ -1819,20 +2106,140 @@ try {
       const item = e.target.closest("[data-db]");
       if (!item) return;
       state.sqlDb = item.dataset.db;
+      state.sqlTable = "";
+      state.sqlColumns = [];
+      state.sqlShowingAll = false;
       renderSqlDbList();
       await loadSqlTables(state.sqlDb);
     });
 
-    $("sqlTableList").addEventListener("click", (e) => {
+    $("sqlTableList").addEventListener("click", async (e) => {
+      const dropBtn = e.target.closest("[data-drop-table]");
+      if (dropBtn) {
+        e.stopPropagation();
+        const tbl = dropBtn.dataset.dropTable;
+        if (!(await askConfirm("Drop Table?", `Permanently delete table "${tbl}" from "${state.sqlDb}"?`, "Drop")))
+          return;
+        try {
+          await api().DropTable(state.dbEngine, state.sqlDb, tbl);
+          toast(`Dropped table ${tbl}`, "ok");
+          if (state.sqlTable === tbl) {
+            state.sqlTable = "";
+            state.sqlColumns = [];
+            $("sqlResults").innerHTML = "";
+          }
+          await loadSqlTables(state.sqlDb);
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+        return;
+      }
       const item = e.target.closest("[data-table-idx]");
       if (!item) return;
       const t = state.sqlTables[Number(item.dataset.tableIdx)];
-      if (!t) return;
-      $("sqlEditor").value = t.select;
-      runSqlQuery();
+      await selectSqlTable(t, false);
     });
 
-    $("btnSqlRun").onclick = runSqlQuery;
+    const triggerShowAll = async () => {
+      const t = state.sqlTables.find((x) => x.name === state.sqlTable);
+      if (t) {
+        await selectSqlTable(t, true);
+      } else if ($("sqlEditor").value.trim()) {
+        // Strip trailing LIMIT N if present so Show All returns every row
+        $("sqlEditor").value = $("sqlEditor").value.replace(/\s+LIMIT\s+\d+\s*;?\s*$/i, ";");
+        await runSqlQuery(true);
+      } else {
+        toast("Select a table or enter a SELECT query first", "info");
+      }
+    };
+    $("btnRowCreate").onclick = () => openRowFormModal("create");
+    $("btnMetaCreateRow").onclick = () => openRowFormModal("create");
+    $("btnSqlShowAll").onclick = triggerShowAll;
+    $("btnMetaShowAll").onclick = triggerShowAll;
+    $("sqlRowFilter").addEventListener("input", () => {
+      if (state.sqlLastResult) renderSqlTable(state.sqlLastResult);
+    });
+
+    $("sqlResults").addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-row-act]");
+      if (!btn) return;
+      const idx = Number(btn.dataset.rowIdx);
+      const act = btn.dataset.rowAct;
+      if (act === "show") openShowRowModal(idx);
+      else if (act === "edit") await openRowFormModal("edit", idx);
+      else if (act === "delete") await deleteSqlRow(idx);
+    });
+    $("sqlResults").addEventListener("dblclick", (e) => {
+      const tr = e.target.closest("tbody tr[data-row-idx]");
+      if (!tr || !state.sqlTable) return;
+      openShowRowModal(Number(tr.dataset.rowIdx));
+    });
+
+    $("btnCloseRowShow").onclick = () => ($("modalRowShow").hidden = true);
+    $("btnDoneRowShow").onclick = () => ($("modalRowShow").hidden = true);
+    $("btnCloseRowForm").onclick = () => ($("modalRowForm").hidden = true);
+    $("btnCancelRowForm").onclick = () => ($("modalRowForm").hidden = true);
+
+    // Create Table modal
+    const appendNewTableColRow = (name = "", type = "VARCHAR(255)", nullable = true, pk = false, auto = false) => {
+      const row = document.createElement("div");
+      row.className = "new-col-row";
+      row.innerHTML = `
+        <input type="text" class="input xs tbl-col-name" placeholder="column_name" value="${esc(name)}" required />
+        <select class="select sm tbl-col-type">
+          ${["INT", "BIGINT", "VARCHAR(255)", "TEXT", "DECIMAL(10,2)", "BOOLEAN", "DATE", "DATETIME", "TIMESTAMP"]
+            .map((tp) => `<option value="${tp}" ${tp === type ? "selected" : ""}>${tp}</option>`)
+            .join("")}
+        </select>
+        <label><input type="checkbox" class="tbl-col-null" ${nullable ? "checked" : ""} /> Null</label>
+        <label><input type="checkbox" class="tbl-col-pk" ${pk ? "checked" : ""} /> PK</label>
+        <label><input type="checkbox" class="tbl-col-auto" ${auto ? "checked" : ""} /> Auto</label>
+        <button type="button" class="btn xs danger-ghost tbl-col-rm" title="Remove column">✕</button>
+      `;
+      row.querySelector(".tbl-col-rm").onclick = () => row.remove();
+      $("newTableCols").appendChild(row);
+    };
+    const closeNewTable = () => ($("modalNewTable").hidden = true);
+    $("btnNewTable").onclick = () => {
+      if (!state.sqlDb) {
+        toast("Select a database first", "err");
+        return;
+      }
+      $("modalNewTableTitle").textContent = `Create Table in "${state.sqlDb}"`;
+      $("formNewTable").reset();
+      $("newTableCols").innerHTML = "";
+      appendNewTableColRow("id", "INT", false, true, true);
+      appendNewTableColRow("name", "VARCHAR(255)", false, false, false);
+      appendNewTableColRow("created_at", "TIMESTAMP", true, false, false);
+      $("modalNewTable").hidden = false;
+      $("newTableName").focus();
+    };
+    $("btnCloseNewTable").onclick = closeNewTable;
+    $("btnCancelNewTable").onclick = closeNewTable;
+    $("btnAddTableCol").onclick = () => appendNewTableColRow();
+    $("formNewTable").onsubmit = async (e) => {
+      e.preventDefault();
+      const tblName = $("newTableName").value.trim();
+      const cols = Array.from($("newTableCols").querySelectorAll(".new-col-row")).map((r) => ({
+        name: r.querySelector(".tbl-col-name").value.trim(),
+        type: r.querySelector(".tbl-col-type").value,
+        nullable: r.querySelector(".tbl-col-null").checked,
+        primaryKey: r.querySelector(".tbl-col-pk").checked,
+        autoIncrement: r.querySelector(".tbl-col-auto").checked,
+      }));
+      try {
+        await api().CreateTable(state.dbEngine, state.sqlDb, tblName, cols);
+        closeNewTable();
+        toast(`Created table "${tblName}"`, "ok");
+        await loadSqlTables(state.sqlDb);
+        const created = state.sqlTables.find((t) => t.name === tblName);
+        if (created) await selectSqlTable(created, false);
+      } catch (err) {
+        toast(errMsg(err), "err");
+      }
+    };
+
+    $("btnSqlRun").onclick = () => runSqlQuery(false);
     $("btnSqlClear").onclick = () => {
       $("sqlEditor").value = "";
       $("sqlEditor").focus();
@@ -1840,7 +2247,7 @@ try {
     $("sqlEditor").addEventListener("keydown", (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
-        runSqlQuery();
+        runSqlQuery(false);
       }
     });
 

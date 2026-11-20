@@ -202,8 +202,10 @@
         <header class="view-head compact">
           <div class="seg-tabs" id="dbEngineTabs"></div>
           <div class="head-actions">
-            <button class="btn sm primary" id="btnOpenRestore"
-              title="Restore a .bak backup or import a .sql script">Restore (.bak / .sql)</button>
+            <button class="btn sm primary" id="btnOpenImport"
+              title="Import .sql script or .csv data into the selected or new database">📥 Import</button>
+            <button class="btn sm accent" id="btnOpenRestore"
+              title="Restore a .bak backup or import a .sql script (MS SQL Server)" hidden>Restore .bak</button>
             <button class="btn sm accent" id="btnBackupBak" title="Back up selected database to .bak file" hidden>Backup
               .bak</button>
             <button class="btn sm" id="btnBackupSql" title="Export selected database to .sql script">Export
@@ -230,6 +232,7 @@
             <div class="tree-list" id="sqlDbList"></div>
             <div class="pane-head sub">
               <span id="sqlTablesTitle">Tables</span>
+              <button class="btn xs primary" id="btnNewTable" title="Create a new table in this database">+ New</button>
             </div>
             <div class="tree-list" id="sqlTableList"></div>
           </aside>
@@ -237,8 +240,11 @@
             <div class="editor-box">
               <div class="editor-bar">
                 <span class="chip" id="sqlActiveDb">No DB selected</span>
+                <span class="chip accent" id="sqlActiveTable" hidden></span>
                 <div class="spacer"></div>
                 <span class="hint">Ctrl+Enter to run</span>
+                <button class="btn xs accent" id="btnRowCreate" title="Create / Insert a new row in the selected table" hidden>+ Create</button>
+                <button class="btn xs" id="btnSqlShowAll" title="Show all rows in the selected table (no LIMIT 100)">Show All</button>
                 <button class="btn xs" id="btnSqlClear">Clear</button>
                 <button class="btn xs primary" id="btnSqlRun">Run Query</button>
               </div>
@@ -246,7 +252,13 @@
                 placeholder="SELECT 1; -- Click a table on the left or write SQL here..."></textarea>
             </div>
             <div class="result-box">
-              <div class="result-meta" id="sqlMeta">Ready</div>
+              <div class="result-meta-bar">
+                <div class="result-meta-text" id="sqlMeta">Ready</div>
+                <div class="spacer"></div>
+                <input type="search" id="sqlRowFilter" class="input xs" placeholder="Filter visible rows..." style="width:170px" hidden />
+                <button class="btn xs accent" id="btnMetaCreateRow" hidden>+ Create</button>
+                <button class="btn xs" id="btnMetaShowAll" hidden>Show All</button>
+              </div>
               <div class="table-wrap" id="sqlResults"></div>
             </div>
           </div>
@@ -600,34 +612,101 @@
     </div>
   </div>
 
-  <!-- Restore .bak / Import .sql Modal -->
+  <!-- Import .sql / .csv / Restore .bak Modal -->
   <div class="modal-backdrop" id="modalRestore" hidden>
     <div class="modal">
       <div class="modal-head">
-        <h3 id="modalRestoreTitle">Restore .bak / Import .sql</h3>
+        <h3 id="modalRestoreTitle">Import (.sql / .csv) / Restore</h3>
         <button class="icon-btn" id="btnCloseRestore" aria-label="Close">✕</button>
       </div>
       <form id="formRestore" class="modal-body">
         <label class="field">
-          <span>Backup or SQL File (<code>.bak</code>, <code>.sql</code>, <code>.backup</code>) *</span>
+          <span>File to Import (<code>.sql</code>, <code>.csv</code>, <code>.bak</code>, <code>.backup</code>) *</span>
           <div style="display:flex;gap:6px">
             <input type="text" id="restoreFilePath" class="input" style="flex:1" required
-              placeholder="C:\path\to\backup.bak or dump.sql" />
+              placeholder="C:\path\to\dump.sql or data.csv or backup.bak" />
             <button type="button" class="btn sm accent" id="btnBrowseRestore">Browse...</button>
           </div>
         </label>
         <label class="field">
           <span>Target Database Name *</span>
           <input type="text" id="restoreDbName" class="input" required pattern="[A-Za-z0-9_][A-Za-z0-9_$\-]{0,62}"
-            placeholder="Auto-filled from file or enter database name" />
+            placeholder="Auto-filled from active DB or file" />
+        </label>
+        <label class="field" id="restoreTableWrap" hidden>
+          <span>Target Table Name (for CSV import)</span>
+          <input type="text" id="restoreTableName" class="input" pattern="[A-Za-z0-9_][A-Za-z0-9_$\-]{0,62}"
+            placeholder="Auto-created from CSV headers if new" />
         </label>
         <p class="muted" id="restoreHint" style="margin:0;font-size:11.5px">
-          For MS SQL Server <code>.bak</code> files, logical data &amp; log files are mapped automatically to
-          <code>data/mssql/</code>. If the target database does not exist yet, it will be created automatically.
+          Supports <code>.sql</code> scripts, <code>.csv</code> spreadsheets (creates table automatically from headers), and MS SQL <code>.bak</code> / PostgreSQL <code>.backup</code> archives. If the target database does not exist yet, it will be created automatically.
         </p>
         <div class="modal-actions">
           <button type="button" class="btn" id="btnCancelRestore">Cancel</button>
-          <button type="submit" class="btn primary" id="btnSubmitRestore">Restore / Import</button>
+          <button type="submit" class="btn primary" id="btnSubmitRestore">Import Now</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Show Row Details Modal -->
+  <div class="modal-backdrop" id="modalRowShow" hidden>
+    <div class="modal" style="width:620px;max-width:94vw">
+      <div class="modal-head">
+        <h3 id="modalRowShowTitle">Row Details</h3>
+        <button class="icon-btn" id="btnCloseRowShow" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="rowShowFields" class="row-detail-list"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn sm" id="btnRowShowCopyJson">Copy JSON</button>
+          <div class="spacer"></div>
+          <button type="button" class="btn sm danger-ghost" id="btnRowShowDelete">Delete</button>
+          <button type="button" class="btn sm accent" id="btnRowShowEdit">Edit</button>
+          <button type="button" class="btn sm" id="btnDoneRowShow">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create / Edit Row Modal -->
+  <div class="modal-backdrop" id="modalRowForm" hidden>
+    <div class="modal" style="width:600px;max-width:94vw">
+      <div class="modal-head">
+        <h3 id="modalRowFormTitle">Create Row</h3>
+        <button class="icon-btn" id="btnCloseRowForm" aria-label="Close">✕</button>
+      </div>
+      <form id="formRowCrud" class="modal-body">
+        <div id="rowFormFields" class="row-form-list"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnCancelRowForm">Cancel</button>
+          <button type="submit" class="btn primary" id="btnSubmitRowForm">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Create Table Modal -->
+  <div class="modal-backdrop" id="modalNewTable" hidden>
+    <div class="modal" style="width:660px;max-width:95vw">
+      <div class="modal-head">
+        <h3 id="modalNewTableTitle">Create Table</h3>
+        <button class="icon-btn" id="btnCloseNewTable" aria-label="Close">✕</button>
+      </div>
+      <form id="formNewTable" class="modal-body">
+        <label class="field">
+          <span>Table Name *</span>
+          <input type="text" id="newTableName" class="input" required pattern="[A-Za-z0-9_][A-Za-z0-9_$\-]{0,62}"
+            placeholder="e.g. customers" />
+        </label>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:12px;font-weight:600;color:var(--text-muted)">Columns</span>
+          <button type="button" class="btn xs accent" id="btnAddTableCol">+ Add Column</button>
+        </div>
+        <div id="newTableCols" class="new-table-cols"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnCancelNewTable">Cancel</button>
+          <button type="submit" class="btn primary" id="btnSubmitNewTable">Create Table</button>
         </div>
       </form>
     </div>

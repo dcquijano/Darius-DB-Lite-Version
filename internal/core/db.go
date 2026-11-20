@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +15,11 @@ import (
 	_ "github.com/lib/pq"
 )
 
-const maxRows = 1000
+const (
+	maxRows     = 1000
+	maxShowRows = 100000
+	maxCellLen  = 64 * 1024
+)
 
 func openSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
 	var db *sql.DB
@@ -71,10 +76,33 @@ type QueryResult struct {
 }
 
 type TableInfo struct {
-	Name   string `json:"name"`
-	Schema string `json:"schema"`
-	Kind   string `json:"kind"`
-	Select string `json:"select"` // ready-to-run preview query
+	Name      string `json:"name"`
+	Schema    string `json:"schema"`
+	Kind      string `json:"kind"`
+	Select    string `json:"select"` // ready-to-run preview query
+	SelectAll string `json:"selectAll"`
+}
+
+type ColumnInfo struct {
+	Name            string  `json:"name"`
+	DataType        string  `json:"dataType"`
+	Nullable        bool    `json:"nullable"`
+	DefaultVal      *string `json:"defaultVal,omitempty"`
+	IsPrimaryKey    bool    `json:"isPrimaryKey"`
+	IsAutoIncrement bool    `json:"isAutoIncrement"`
+}
+
+type RowValue struct {
+	Value  string `json:"value"`
+	IsNull bool   `json:"isNull"`
+}
+
+type CreateTableColumn struct {
+	Name          string `json:"name"`
+	Type          string `json:"type"`
+	Nullable      bool   `json:"nullable"`
+	PrimaryKey    bool   `json:"primaryKey"`
+	AutoIncrement bool   `json:"autoIncrement"`
 }
 
 func isMy(engine string) bool { return engine == "mariadb" || engine == "mysql" }
@@ -162,6 +190,7 @@ func ListTables(engine string, s EngineSettings, dbName string) ([]TableInfo, er
 			}
 		}
 		t.Select = "SELECT * FROM " + from + " LIMIT 100;"
+		t.SelectAll = "SELECT * FROM " + from + ";"
 		out = append(out, t)
 	}
 	return out, rows.Err()
@@ -189,12 +218,23 @@ func returnsRows(q string) bool {
 }
 
 func RunQuery(engine string, s EngineSettings, dbName, q string) (*QueryResult, error) {
+	return RunQueryWithLimit(engine, s, dbName, q, maxRows)
+}
+
+func RunQueryAll(engine string, s EngineSettings, dbName, q string) (*QueryResult, error) {
+	return RunQueryWithLimit(engine, s, dbName, q, maxShowRows)
+}
+
+func RunQueryWithLimit(engine string, s EngineSettings, dbName, q string, limit int) (*QueryResult, error) {
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return nil, errors.New("query is empty")
 	}
+	if limit <= 0 {
+		limit = maxShowRows
+	}
 	if engine == "mssql" {
-		return mssqlRunQuery(s, dbName, q)
+		return mssqlRunQueryWithLimit(s, dbName, q, limit)
 	}
 	db, err := openSQL(engine, s, dbName)
 	if err != nil {
@@ -231,7 +271,7 @@ func RunQuery(engine string, s EngineSettings, dbName, q string) (*QueryResult, 
 		ptrs[i] = &raw[i]
 	}
 	for rows.Next() {
-		if len(res.Rows) >= maxRows {
+		if len(res.Rows) >= limit {
 			res.Truncated = true
 			break
 		}
@@ -242,8 +282,8 @@ func RunQuery(engine string, s EngineSettings, dbName, q string) (*QueryResult, 
 		for i, b := range raw {
 			if b != nil {
 				v := string(b)
-				if len(v) > 2000 {
-					v = v[:2000] + "…"
+				if len(v) > maxCellLen {
+					v = v[:maxCellLen] + "…"
 				}
 				row[i] = &v
 			}
@@ -342,6 +382,381 @@ func DropDatabase(engine string, s EngineSettings, name string) error {
 		}
 	}
 	_, err = db.Exec("DROP DATABASE " + quoteIdent(engine, name))
+	return err
+}
+
+// ---------------------------------------------------------------- Table & Row CRUD
+
+func splitSchemaTable(engine, dbName, tableName string) (string, string) {
+	tableName = strings.TrimSpace(tableName)
+	if idx := strings.IndexByte(tableName, '.'); idx >= 0 {
+		return strings.TrimSpace(tableName[:idx]), strings.TrimSpace(tableName[idx+1:])
+	}
+	switch engine {
+	case "postgresql":
+		return "public", tableName
+	case "mssql":
+		return "dbo", tableName
+	default:
+		return dbName, tableName
+	}
+}
+
+func qualifiedTable(engine, schema, table string) string {
+	switch engine {
+	case "mssql":
+		return mssqlBracket(schema) + "." + mssqlBracket(table)
+	case "postgresql":
+		return quoteIdent(engine, schema) + "." + quoteIdent(engine, table)
+	default:
+		return quoteIdent(engine, table)
+	}
+}
+
+// DescribeTable returns ordered column metadata (types, nullability, defaults, PK, auto-increment).
+func DescribeTable(engine string, s EngineSettings, dbName, tableName string) ([]ColumnInfo, error) {
+	schema, table := splitSchemaTable(engine, dbName, tableName)
+	if table == "" {
+		return nil, errors.New("table name is required")
+	}
+	if engine == "mssql" {
+		return mssqlDescribeTable(s, dbName, schema, table)
+	}
+	db, err := openSQL(engine, s, dbName)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	var rows *sql.Rows
+	if isMy(engine) {
+		rows, err = db.Query(`SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY, EXTRA
+			FROM information_schema.COLUMNS
+			WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+			ORDER BY ORDINAL_POSITION`, schema, table)
+	} else {
+		rows, err = db.Query(`SELECT c.column_name,
+			CASE WHEN c.character_maximum_length IS NOT NULL THEN c.data_type || '(' || c.character_maximum_length::text || ')' ELSE c.data_type END,
+			c.is_nullable,
+			c.column_default,
+			CASE WHEN EXISTS (
+				SELECT 1 FROM information_schema.table_constraints tc
+				JOIN information_schema.key_column_usage kcu
+				  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+				WHERE tc.constraint_type = 'PRIMARY KEY'
+				  AND tc.table_schema = c.table_schema
+				  AND tc.table_name = c.table_name
+				  AND kcu.column_name = c.column_name
+			) THEN 'PRI' ELSE '' END,
+			CASE WHEN c.is_identity = 'YES' OR COALESCE(c.column_default, '') LIKE 'nextval(%' THEN 'auto_increment' ELSE '' END
+		FROM information_schema.columns c
+		WHERE c.table_schema = $1 AND c.table_name = $2
+		ORDER BY c.ordinal_position`, schema, table)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	cols := []ColumnInfo{}
+	for rows.Next() {
+		var name, dataType, isNull, colKey, extra string
+		var def sql.NullString
+		if err := rows.Scan(&name, &dataType, &isNull, &def, &colKey, &extra); err != nil {
+			return nil, err
+		}
+		var defPtr *string
+		if def.Valid {
+			v := def.String
+			defPtr = &v
+		}
+		cols = append(cols, ColumnInfo{
+			Name:            name,
+			DataType:        dataType,
+			Nullable:        strings.EqualFold(isNull, "YES"),
+			DefaultVal:      defPtr,
+			IsPrimaryKey:    strings.EqualFold(colKey, "PRI"),
+			IsAutoIncrement: strings.Contains(strings.ToLower(extra), "auto_increment"),
+		})
+	}
+	return cols, rows.Err()
+}
+
+func ph(engine string, idx int) string {
+	if engine == "postgresql" {
+		return fmt.Sprintf("$%d", idx)
+	}
+	return "?"
+}
+
+func sortedKeys(m map[string]RowValue) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func buildWhereClause(engine string, keys map[string]RowValue, startIdx int) (string, []interface{}) {
+	colNames := sortedKeys(keys)
+	var parts []string
+	var args []interface{}
+	idx := startIdx
+	for _, col := range colNames {
+		rv := keys[col]
+		if rv.IsNull {
+			parts = append(parts, quoteIdent(engine, col)+" IS NULL")
+		} else {
+			parts = append(parts, quoteIdent(engine, col)+" = "+ph(engine, idx))
+			args = append(args, rv.Value)
+			idx++
+		}
+	}
+	return strings.Join(parts, " AND "), args
+}
+
+// InsertRow inserts a new row into tableName using parameterized queries.
+func InsertRow(engine string, s EngineSettings, dbName, tableName string, values map[string]RowValue) error {
+	schema, table := splitSchemaTable(engine, dbName, tableName)
+	if table == "" {
+		return errors.New("table name is required")
+	}
+	if len(values) == 0 {
+		return errors.New("no column values provided")
+	}
+	if engine == "mssql" {
+		return mssqlInsertRow(s, dbName, schema, table, values)
+	}
+	db, err := openSQL(engine, s, dbName)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	colNames := sortedKeys(values)
+	var cols []string
+	var placeholders []string
+	var args []interface{}
+	idx := 1
+	for _, c := range colNames {
+		cols = append(cols, quoteIdent(engine, c))
+		rv := values[c]
+		if rv.IsNull {
+			placeholders = append(placeholders, "NULL")
+		} else {
+			placeholders = append(placeholders, ph(engine, idx))
+			args = append(args, rv.Value)
+			idx++
+		}
+	}
+	q := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+		qualifiedTable(engine, schema, table), strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+	_, err = db.Exec(q, args...)
+	return err
+}
+
+// UpdateRow updates a matching row in tableName.
+func UpdateRow(engine string, s EngineSettings, dbName, tableName string, keys, updates map[string]RowValue, hasPK bool) error {
+	schema, table := splitSchemaTable(engine, dbName, tableName)
+	if table == "" {
+		return errors.New("table name is required")
+	}
+	if len(updates) == 0 {
+		return errors.New("no changes to save")
+	}
+	if len(keys) == 0 {
+		return errors.New("cannot identify target row (no key values)")
+	}
+	if engine == "mssql" {
+		return mssqlUpdateRow(s, dbName, schema, table, keys, updates, hasPK)
+	}
+	db, err := openSQL(engine, s, dbName)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	updNames := sortedKeys(updates)
+	var setParts []string
+	var args []interface{}
+	idx := 1
+	for _, c := range updNames {
+		rv := updates[c]
+		if rv.IsNull {
+			setParts = append(setParts, quoteIdent(engine, c)+" = NULL")
+		} else {
+			setParts = append(setParts, quoteIdent(engine, c)+" = "+ph(engine, idx))
+			args = append(args, rv.Value)
+			idx++
+		}
+	}
+
+	whereSQL, whereArgs := buildWhereClause(engine, keys, idx)
+	args = append(args, whereArgs...)
+	qt := qualifiedTable(engine, schema, table)
+
+	var q string
+	if engine == "postgresql" && !hasPK {
+		q = fmt.Sprintf("UPDATE %s SET %s WHERE ctid = (SELECT ctid FROM %s WHERE %s LIMIT 1)",
+			qt, strings.Join(setParts, ", "), qt, whereSQL)
+	} else {
+		q = fmt.Sprintf("UPDATE %s SET %s WHERE %s", qt, strings.Join(setParts, ", "), whereSQL)
+		if isMy(engine) && !hasPK {
+			q += " LIMIT 1"
+		}
+	}
+	res, err := db.Exec(q, args...)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return errors.New("no matching row was updated (the row may have changed or been deleted)")
+	}
+	return nil
+}
+
+// DeleteRow deletes a matching row from tableName.
+func DeleteRow(engine string, s EngineSettings, dbName, tableName string, keys map[string]RowValue, hasPK bool) error {
+	schema, table := splitSchemaTable(engine, dbName, tableName)
+	if table == "" {
+		return errors.New("table name is required")
+	}
+	if len(keys) == 0 {
+		return errors.New("cannot identify target row (no key values)")
+	}
+	if engine == "mssql" {
+		return mssqlDeleteRow(s, dbName, schema, table, keys, hasPK)
+	}
+	db, err := openSQL(engine, s, dbName)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	whereSQL, args := buildWhereClause(engine, keys, 1)
+	qt := qualifiedTable(engine, schema, table)
+	var q string
+	if engine == "postgresql" && !hasPK {
+		q = fmt.Sprintf("DELETE FROM %s WHERE ctid = (SELECT ctid FROM %s WHERE %s LIMIT 1)", qt, qt, whereSQL)
+	} else {
+		q = fmt.Sprintf("DELETE FROM %s WHERE %s", qt, whereSQL)
+		if isMy(engine) && !hasPK {
+			q += " LIMIT 1"
+		}
+	}
+	res, err := db.Exec(q, args...)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return errors.New("no matching row was deleted")
+	}
+	return nil
+}
+
+var colTypeSafeRe = regexp.MustCompile(`^[A-Za-z0-9_ ()\,]+$`)
+
+// CreateTable creates a new table in dbName from column definitions.
+func CreateTable(engine string, s EngineSettings, dbName, tableName string, cols []CreateTableColumn) error {
+	if !nameRe.MatchString(tableName) {
+		return errors.New("table name may only contain letters, digits, _ $ -")
+	}
+	if len(cols) == 0 {
+		return errors.New("add at least one column")
+	}
+	var defs []string
+	var pks []string
+	for _, c := range cols {
+		colName := strings.TrimSpace(c.Name)
+		if !nameRe.MatchString(colName) {
+			return fmt.Errorf("invalid column name %q", c.Name)
+		}
+		typ := strings.TrimSpace(c.Type)
+		if typ == "" {
+			typ = "VARCHAR(255)"
+		}
+		if !colTypeSafeRe.MatchString(typ) {
+			return fmt.Errorf("invalid column type %q", typ)
+		}
+
+		ident := quoteIdent(engine, colName)
+		if engine == "mssql" {
+			ident = mssqlBracket(colName)
+		}
+
+		var def string
+		if c.AutoIncrement {
+			switch engine {
+			case "postgresql":
+				if strings.Contains(strings.ToUpper(typ), "BIG") {
+					def = ident + " BIGSERIAL"
+				} else {
+					def = ident + " SERIAL"
+				}
+			case "mssql":
+				base := typ
+				if strings.Contains(strings.ToUpper(base), "VARCHAR") {
+					base = "INT"
+				}
+				def = ident + " " + base + " IDENTITY(1,1) NOT NULL"
+			default:
+				def = ident + " " + typ + " NOT NULL AUTO_INCREMENT"
+			}
+		} else {
+			if engine == "mssql" && strings.EqualFold(typ, "BOOLEAN") {
+				typ = "BIT"
+			} else if engine == "mssql" && strings.EqualFold(typ, "TEXT") {
+				typ = "NVARCHAR(MAX)"
+			}
+			nullSQL := " NOT NULL"
+			if c.Nullable {
+				nullSQL = " NULL"
+			}
+			def = ident + " " + typ + nullSQL
+		}
+		defs = append(defs, def)
+		if c.PrimaryKey {
+			pks = append(pks, ident)
+		}
+	}
+	if len(pks) > 0 {
+		defs = append(defs, "PRIMARY KEY ("+strings.Join(pks, ", ")+")")
+	}
+
+	schema, table := splitSchemaTable(engine, dbName, tableName)
+	q := fmt.Sprintf("CREATE TABLE %s (\n  %s\n)", qualifiedTable(engine, schema, table), strings.Join(defs, ",\n  "))
+
+	if engine == "mssql" {
+		_, err := mssqlRunQuery(s, dbName, q+";")
+		return err
+	}
+	db, err := openSQL(engine, s, dbName)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.Exec(q)
+	return err
+}
+
+// DropTable drops a table from dbName.
+func DropTable(engine string, s EngineSettings, dbName, tableName string) error {
+	schema, table := splitSchemaTable(engine, dbName, tableName)
+	if table == "" {
+		return errors.New("table name is required")
+	}
+	q := "DROP TABLE " + qualifiedTable(engine, schema, table)
+	if engine == "mssql" {
+		_, err := mssqlRunQuery(s, dbName, q+";")
+		return err
+	}
+	db, err := openSQL(engine, s, dbName)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.Exec(q)
 	return err
 }
 

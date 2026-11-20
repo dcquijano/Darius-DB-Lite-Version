@@ -389,7 +389,22 @@ func (p *phpEngine) Stop(paths *Paths, inst Installation, s EngineSettings) erro
 
 func (p *phpEngine) PidOf(paths *Paths, inst Installation) int { return 0 }
 
+var (
+	sysPHPMu      sync.Mutex
+	sysPHPCached  Installation
+	sysPHPFound   bool
+	sysPHPChecked time.Time
+)
+
 func detectSystemPHP() (Installation, bool) {
+	sysPHPMu.Lock()
+	if !sysPHPChecked.IsZero() && time.Since(sysPHPChecked) < sysDetectCacheTTL {
+		inst, ok := sysPHPCached, sysPHPFound
+		sysPHPMu.Unlock()
+		return inst, ok
+	}
+	sysPHPMu.Unlock()
+
 	candidates := []string{}
 	if pathExe, err := exec.LookPath("php.exe"); err == nil && pathExe != "" {
 		candidates = append(candidates, filepath.Dir(pathExe))
@@ -399,6 +414,8 @@ func detectSystemPHP() (Installation, bool) {
 			candidates = append(candidates, matches...)
 		}
 	}
+	var foundInst Installation
+	var found bool
 	for _, dir := range candidates {
 		exe := filepath.Join(dir, "php.exe")
 		if !fileExists(exe) {
@@ -412,14 +429,20 @@ func detectSystemPHP() (Installation, bool) {
 				ver = parseVersion(v)
 			}
 		}
-		return Installation{
+		foundInst = Installation{
 			Engine:  "php",
 			Name:    "php-" + ver,
 			Version: ver,
 			Dir:     dir,
-		}, true
+		}
+		found = true
+		break
 	}
-	return Installation{}, false
+
+	sysPHPMu.Lock()
+	sysPHPCached, sysPHPFound, sysPHPChecked = foundInst, found, time.Now()
+	sysPHPMu.Unlock()
+	return foundInst, found
 }
 
 // ---------------------------------------------------------------- Mailpit Engine

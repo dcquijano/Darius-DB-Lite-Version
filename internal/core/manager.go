@@ -104,26 +104,34 @@ func (m *Manager) ensureActiveVersions() {
 
 // adopt re-attaches to servers left running by a previous session.
 func (m *Manager) adopt() {
+	var wg sync.WaitGroup
 	for _, id := range EngineIDs {
-		eng, _ := GetEngine(id)
-		es := m.st.Engine(id)
-		inst, ok := FindInstallation(m.p, id, es.Version)
-		if !ok {
-			continue
-		}
-		pid := eng.PidOf(m.p, inst)
-		if pid == 0 {
-			if b, err := os.ReadFile(m.p.PidFile(id)); err == nil {
-				pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			eng, _ := GetEngine(id)
+			es := m.st.Engine(id)
+			inst, ok := FindInstallation(m.p, id, es.Version)
+			if !ok {
+				return
 			}
-		}
-		if pid > 0 && (processBelongsTo(pid, m.p.Root) || (id == "mssql" && processAlive(pid))) {
-			s := m.svc[id]
-			s.state, s.pid, s.inst = StateRunning, pid, inst
-		} else {
-			os.Remove(m.p.PidFile(id))
-		}
+			pid := eng.PidOf(m.p, inst)
+			if pid == 0 {
+				if b, err := os.ReadFile(m.p.PidFile(id)); err == nil {
+					pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+				}
+			}
+			if pid > 0 && (processBelongsTo(pid, m.p.Root) || (id == "mssql" && processAlive(pid))) {
+				m.mu.Lock()
+				s := m.svc[id]
+				s.state, s.pid, s.inst = StateRunning, pid, inst
+				m.mu.Unlock()
+			} else {
+				os.Remove(m.p.PidFile(id))
+			}
+		}(id)
 	}
+	wg.Wait()
 }
 
 func (m *Manager) monitor() {
@@ -144,10 +152,16 @@ func (m *Manager) monitor() {
 }
 
 func (m *Manager) Status() []ServiceStatus {
-	out := make([]ServiceStatus, 0, len(EngineIDs))
-	for _, id := range EngineIDs {
-		out = append(out, m.status(id))
+	out := make([]ServiceStatus, len(EngineIDs))
+	var wg sync.WaitGroup
+	for i, id := range EngineIDs {
+		wg.Add(1)
+		go func(i int, id string) {
+			defer wg.Done()
+			out[i] = m.status(id)
+		}(i, id)
 	}
+	wg.Wait()
 	return out
 }
 
@@ -170,9 +184,20 @@ func (m *Manager) status(id string) ServiceStatus {
 		st.ServerName = MSSQLServerName()
 		st.User = ""
 	}
-	if inst, ok := FindInstallation(m.p, id, es.Version); ok {
-		st.DataDir = eng.DataDir(m.p, inst)
-		st.ConfigFile = eng.ConfigFile(m.p, inst)
+	var activeInst Installation
+	var hasInst bool
+	for _, in := range insts {
+		if in.Name == es.Version {
+			activeInst, hasInst = in, true
+			break
+		}
+	}
+	if !hasInst && es.Version == "" && len(insts) > 0 {
+		activeInst, hasInst = insts[0], true
+	}
+	if hasInst {
+		st.DataDir = eng.DataDir(m.p, activeInst)
+		st.ConfigFile = eng.ConfigFile(m.p, activeInst)
 	} else if s.state == StateStopped {
 		st.State = StateNotInstalled
 	}
@@ -370,6 +395,7 @@ func (m *Manager) Stop(id string) error {
 
 	logf := m.logf(id)
 	logf("Stopping " + eng.Name())
+	CloseSQLPools(id, "")
 	waitTimeout := 20 * time.Second
 	if err := eng.Stop(m.p, inst, m.st.Engine(id)); err != nil {
 		logf("graceful stop failed: " + err.Error())
@@ -515,6 +541,7 @@ func (m *Manager) Uninstall(id, name string) error {
 			es.Version = ""
 		}
 	})
+	InvalidateSystemDetectCache()
 	m.ensureActiveVersions()
 	m.changed()
 	return nil
@@ -522,6 +549,7 @@ func (m *Manager) Uninstall(id, name string) error {
 
 // OnInstalled is called after a download finishes.
 func (m *Manager) OnInstalled(id, name string) {
+	InvalidateSystemDetectCache()
 	_ = m.st.Update(func(st *Settings) {
 		es := st.Engines[id]
 		if es == nil || len(es.HiddenVersions) == 0 {

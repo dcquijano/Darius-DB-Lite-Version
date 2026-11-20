@@ -162,8 +162,7 @@ func isVersionHidden(p *Paths, engineID, name string) bool {
 	if p == nil || p.Root == "" {
 		return false
 	}
-	es := LoadSettings(p.Root).Engine(engineID)
-	for _, h := range es.HiddenVersions {
+	for _, h := range readHiddenVersions(p.Root, engineID) {
 		if strings.EqualFold(h, name) {
 			return true
 		}
@@ -209,12 +208,17 @@ func writeIfMissing(path, content string) error {
 }
 
 func waitFor(timeout time.Duration, fn func() bool) bool {
-	deadline := time.Now().Add(timeout)
+	start := time.Now()
+	deadline := start.Add(timeout)
 	for time.Now().Before(deadline) {
 		if fn() {
 			return true
 		}
-		time.Sleep(250 * time.Millisecond)
+		interval := 40 * time.Millisecond
+		if time.Since(start) >= time.Second {
+			interval = 125 * time.Millisecond
+		}
+		time.Sleep(interval)
 	}
 	return fn()
 }

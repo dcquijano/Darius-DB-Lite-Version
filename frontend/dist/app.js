@@ -617,7 +617,7 @@
     }
   }
 
-  function renderSqlTable(res) {
+  function renderSqlTable(res, renderLimit = 400) {
     const wrap = $("sqlResults");
     if (!res || !res.columns.length) {
       wrap.innerHTML = `<div class="empty-note">Empty result set</div>`;
@@ -625,34 +625,55 @@
     }
     const filter = ($("sqlRowFilter")?.value || "").trim().toLowerCase();
     const canRowCrud = !!state.sqlTable;
-    const indexedRows = res.rows
-      .map((row, idx) => ({ row, idx }))
-      .filter(({ row }) => {
-        if (!filter) return true;
-        return row.some((c) => c !== null && String(c).toLowerCase().includes(filter));
-      });
+    const indexedRows = [];
+    for (let idx = 0; idx < res.rows.length; idx++) {
+      const row = res.rows[idx];
+      if (filter && !row.some((c) => c !== null && String(c).toLowerCase().includes(filter))) {
+        continue;
+      }
+      indexedRows.push({ row, idx });
+    }
+
+    const total = indexedRows.length;
+    const limit = renderLimit > 0 ? Math.min(renderLimit, total) : total;
+    const visible = limit < total ? indexedRows.slice(0, limit) : indexedRows;
 
     const actHead = canRowCrud ? `<th class="row-acts-col">Actions</th>` : "";
     const thead = `<thead><tr>${actHead}${res.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>`;
-    const tbody = `<tbody>${indexedRows
-      .map(({ row, idx }) => {
-        const actCell = canRowCrud
-          ? `<td class="row-acts-col"><div class="row-acts">
+    const rowHtml = new Array(visible.length);
+    for (let i = 0; i < visible.length; i++) {
+      const { row, idx } = visible[i];
+      const actCell = canRowCrud
+        ? `<td class="row-acts-col"><div class="row-acts">
               <button type="button" class="row-btn show" data-row-act="show" data-row-idx="${idx}" title="Show full row details">Show</button>
               <button type="button" class="row-btn edit" data-row-act="edit" data-row-idx="${idx}" title="Edit this row">Edit</button>
               <button type="button" class="row-btn del" data-row-act="delete" data-row-idx="${idx}" title="Delete this row">Delete</button>
             </div></td>`
-          : "";
-        return `<tr data-row-idx="${idx}">${actCell}${row
-          .map((cell) =>
-            cell === null
-              ? `<td class="null-val">NULL</td>`
-              : `<td title="${esc(cell)}">${esc(cell)}</td>`
-          )
-          .join("")}</tr>`;
-      })
-      .join("")}</tbody>`;
-    wrap.innerHTML = `<table class="data-table">${thead}${tbody}</table>`;
+        : "";
+      let cells = "";
+      for (let c = 0; c < row.length; c++) {
+        const cell = row[c];
+        cells += cell === null ? `<td class="null-val">NULL</td>` : `<td title="${esc(cell)}">${esc(cell)}</td>`;
+      }
+      rowHtml[i] = `<tr data-row-idx="${idx}">${actCell}${cells}</tr>`;
+    }
+    const moreBar =
+      limit < total
+        ? `<div class="result-meta-bar" style="margin-top:8px;justify-content:space-between;align-items:center;">
+            <span>Showing first ${limit} of ${total} rows for fast rendering</span>
+            <span style="display:flex;gap:6px;">
+              <button type="button" class="btn xs" id="btnSqlRenderMore">Show +400 More</button>
+              <button type="button" class="btn xs primary" id="btnSqlRenderAll">Render All (${total})</button>
+            </span>
+          </div>`
+        : "";
+    wrap.innerHTML = `<table class="data-table">${thead}<tbody>${rowHtml.join("")}</tbody></table>${moreBar}`;
+    if (limit < total) {
+      const moreBtn = $("btnSqlRenderMore");
+      const allBtn = $("btnSqlRenderAll");
+      if (moreBtn) moreBtn.onclick = () => renderSqlTable(res, limit + 400);
+      if (allBtn) allBtn.onclick = () => renderSqlTable(res, total);
+    }
   }
 
   function buildRowKeyMap(rowIdx) {
@@ -2244,8 +2265,12 @@ try {
     $("btnMetaCreateRow").onclick = () => openRowFormModal("create");
     $("btnSqlShowAll").onclick = triggerShowAll;
     $("btnMetaShowAll").onclick = triggerShowAll;
+    let sqlFilterTimer = null;
     $("sqlRowFilter").addEventListener("input", () => {
-      if (state.sqlLastResult) renderSqlTable(state.sqlLastResult);
+      clearTimeout(sqlFilterTimer);
+      sqlFilterTimer = setTimeout(() => {
+        if (state.sqlLastResult) renderSqlTable(state.sqlLastResult);
+      }, 120);
     });
 
     $("sqlResults").addEventListener("click", async (e) => {
@@ -2725,19 +2750,21 @@ try {
 
     renderDashboard();
 
-    // Non-blocking live announcement & GitHub commit check on startup
-    api().CheckSystemUpdate().then((up) => {
-      if (!up) return;
-      if ($("announceBodyText") && up.announcement) {
-        $("announceBodyText").textContent = up.announcement;
-      }
-      if ($("announceUpdateInfo") && up.latestCommitSha) {
-        $("announceUpdateInfo").textContent = `Latest GitHub Update [${up.latestCommitSha}]: ${up.latestCommitMsg} (${up.latestCommitDate})`;
-      }
-      if (up.fetchOk && up.hasUpdate && $("btnAnnounceSysUpdate")) {
-        $("btnAnnounceSysUpdate").textContent = `⬆️ Update to ${up.latestVersion}`;
-      }
-    }).catch(() => {});
+    // Non-blocking live announcement & GitHub commit check on startup (deferred so Dashboard paints immediately)
+    setTimeout(() => {
+      api().CheckSystemUpdate().then((up) => {
+        if (!up) return;
+        if ($("announceBodyText") && up.announcement) {
+          $("announceBodyText").textContent = up.announcement;
+        }
+        if ($("announceUpdateInfo") && up.latestCommitSha) {
+          $("announceUpdateInfo").textContent = `Latest GitHub Update [${up.latestCommitSha}]: ${up.latestCommitMsg} (${up.latestCommitDate})`;
+        }
+        if (up.fetchOk && up.hasUpdate && $("btnAnnounceSysUpdate")) {
+          $("btnAnnounceSysUpdate").textContent = `⬆️ Update to ${up.latestVersion}`;
+        }
+      }).catch(() => { });
+    }, 400);
 
     onEvent("status", (list) => {
       const prev = getStatus(state.dbEngine)?.state;

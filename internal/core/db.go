@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -21,9 +22,7 @@ const (
 	maxCellLen  = 64 * 1024
 )
 
-func openSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
-	var db *sql.DB
-	var err error
+func sqlDriverAndDSN(engine string, s EngineSettings, dbName string) (driverName, dsn string, err error) {
 	switch engine {
 	case "mariadb", "mysql":
 		cfg := mysql.NewConfig()
@@ -39,7 +38,7 @@ func openSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
 		cfg.AllowCleartextPasswords = true
 		cfg.TLSConfig = "preferred"
 		cfg.Params = map[string]string{"charset": "utf8mb4"}
-		db, err = sql.Open("mysql", cfg.FormatDSN())
+		return "mysql", cfg.FormatDSN(), nil
 	case "postgresql":
 		if dbName == "" {
 			dbName = "postgres"
@@ -51,10 +50,18 @@ func openSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
 			Path:     "/" + dbName,
 			RawQuery: "sslmode=disable&connect_timeout=5",
 		}
-		db, err = sql.Open("postgres", u.String())
+		return "postgres", u.String(), nil
 	default:
-		return nil, fmt.Errorf("%s is not a SQL engine", engine)
+		return "", "", fmt.Errorf("%s is not a SQL engine", engine)
 	}
+}
+
+func openSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
+	driverName, dsn, err := sqlDriverAndDSN(engine, s, dbName)
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +71,79 @@ func openSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
 		return nil, fmt.Errorf("cannot connect to %s on port %d: %v", engine, s.Port, err)
 	}
 	return db, nil
+}
+
+type sqlPoolEntry struct {
+	engine string
+	dbName string
+	db     *sql.DB
+}
+
+var (
+	sqlPoolMu sync.Mutex
+	sqlPools  = map[string]sqlPoolEntry{}
+)
+
+// pooledSQL returns a reusable *sql.DB connection pool for interactive browser/CRUD queries.
+// Callers must NOT call db.Close() on the returned pool.
+func pooledSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
+	driverName, dsn, err := sqlDriverAndDSN(engine, s, dbName)
+	if err != nil {
+		return nil, err
+	}
+	key := engine + "|" + dsn
+
+	sqlPoolMu.Lock()
+	if entry, ok := sqlPools[key]; ok && entry.db != nil {
+		sqlPoolMu.Unlock()
+		return entry.db, nil
+	}
+	sqlPoolMu.Unlock()
+
+	db, err := sql.Open(driverName, dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
+	db.SetConnMaxIdleTime(2 * time.Minute)
+	db.SetConnMaxLifetime(10 * time.Minute)
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("cannot connect to %s on port %d: %v", engine, s.Port, err)
+	}
+
+	sqlPoolMu.Lock()
+	if prev, ok := sqlPools[key]; ok && prev.db != nil {
+		sqlPoolMu.Unlock()
+		_ = db.Close()
+		return prev.db, nil
+	}
+	sqlPools[key] = sqlPoolEntry{engine: engine, dbName: dbName, db: db}
+	sqlPoolMu.Unlock()
+	return db, nil
+}
+
+// CloseSQLPools closes cached SQL connection pools for the given engine (and optional database name).
+func CloseSQLPools(engine, dbName string) {
+	var toClose []*sql.DB
+	sqlPoolMu.Lock()
+	for k, entry := range sqlPools {
+		if engine != "" && entry.engine != engine {
+			continue
+		}
+		if dbName != "" && !strings.EqualFold(entry.dbName, dbName) {
+			continue
+		}
+		if entry.db != nil {
+			toClose = append(toClose, entry.db)
+		}
+		delete(sqlPools, k)
+	}
+	sqlPoolMu.Unlock()
+	for _, db := range toClose {
+		_ = db.Close()
+	}
 }
 
 type QueryResult struct {
@@ -131,11 +211,10 @@ func ListDatabases(engine string, s EngineSettings) ([]string, error) {
 	if engine == "mssql" {
 		return mssqlListDatabases(s)
 	}
-	db, err := openSQL(engine, s, "")
+	db, err := pooledSQL(engine, s, "")
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	q := "SHOW DATABASES"
 	if engine == "postgresql" {
 		q = "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1"
@@ -160,11 +239,10 @@ func ListTables(engine string, s EngineSettings, dbName string) ([]TableInfo, er
 	if engine == "mssql" {
 		return mssqlListTables(s, dbName)
 	}
-	db, err := openSQL(engine, s, dbName)
+	db, err := pooledSQL(engine, s, dbName)
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	var rows *sql.Rows
 	if isMy(engine) {
 		rows, err = db.Query("SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME", dbName)
@@ -236,11 +314,10 @@ func RunQueryWithLimit(engine string, s EngineSettings, dbName, q string, limit 
 	if engine == "mssql" {
 		return mssqlRunQueryWithLimit(s, dbName, q, limit)
 	}
-	db, err := openSQL(engine, s, dbName)
+	db, err := pooledSQL(engine, s, dbName)
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	start := time.Now()
 	res := &QueryResult{Columns: []string{}, Rows: [][]*string{}}
 
@@ -316,11 +393,10 @@ func CreateDatabase(engine string, s EngineSettings, name, user, password string
 	if user != "" && !nameRe.MatchString(user) {
 		return errors.New("user name may only contain letters, digits, _ $ -")
 	}
-	db, err := openSQL(engine, s, "")
+	db, err := pooledSQL(engine, s, "")
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	if isMy(engine) {
 		if _, err := db.Exec("CREATE DATABASE " + quoteIdent(engine, name) + " CHARACTER SET utf8mb4"); err != nil {
@@ -371,11 +447,11 @@ func DropDatabase(engine string, s EngineSettings, name string) error {
 	if systemDBs[strings.ToLower(name)] {
 		return fmt.Errorf("%q is a system database and cannot be dropped here", name)
 	}
-	db, err := openSQL(engine, s, "")
+	CloseSQLPools(engine, name)
+	db, err := pooledSQL(engine, s, "")
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 	if engine == "postgresql" {
 		if _, err := db.Exec("DROP DATABASE " + quoteIdent(engine, name) + " WITH (FORCE)"); err == nil {
 			return nil
@@ -422,11 +498,10 @@ func DescribeTable(engine string, s EngineSettings, dbName, tableName string) ([
 	if engine == "mssql" {
 		return mssqlDescribeTable(s, dbName, schema, table)
 	}
-	db, err := openSQL(engine, s, dbName)
+	db, err := pooledSQL(engine, s, dbName)
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 
 	var rows *sql.Rows
 	if isMy(engine) {
@@ -528,11 +603,10 @@ func InsertRow(engine string, s EngineSettings, dbName, tableName string, values
 	if engine == "mssql" {
 		return mssqlInsertRow(s, dbName, schema, table, values)
 	}
-	db, err := openSQL(engine, s, dbName)
+	db, err := pooledSQL(engine, s, dbName)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	colNames := sortedKeys(values)
 	var cols []string
@@ -571,11 +645,10 @@ func UpdateRow(engine string, s EngineSettings, dbName, tableName string, keys, 
 	if engine == "mssql" {
 		return mssqlUpdateRow(s, dbName, schema, table, keys, updates, hasPK)
 	}
-	db, err := openSQL(engine, s, dbName)
+	db, err := pooledSQL(engine, s, dbName)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	updNames := sortedKeys(updates)
 	var setParts []string
@@ -628,11 +701,10 @@ func DeleteRow(engine string, s EngineSettings, dbName, tableName string, keys m
 	if engine == "mssql" {
 		return mssqlDeleteRow(s, dbName, schema, table, keys, hasPK)
 	}
-	db, err := openSQL(engine, s, dbName)
+	db, err := pooledSQL(engine, s, dbName)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	whereSQL, args := buildWhereClause(engine, keys, 1)
 	qt := qualifiedTable(engine, schema, table)
@@ -731,11 +803,10 @@ func CreateTable(engine string, s EngineSettings, dbName, tableName string, cols
 		_, err := mssqlRunQuery(s, dbName, q+";")
 		return err
 	}
-	db, err := openSQL(engine, s, dbName)
+	db, err := pooledSQL(engine, s, dbName)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 	_, err = db.Exec(q)
 	return err
 }
@@ -751,11 +822,10 @@ func DropTable(engine string, s EngineSettings, dbName, tableName string) error 
 		_, err := mssqlRunQuery(s, dbName, q+";")
 		return err
 	}
-	db, err := openSQL(engine, s, dbName)
+	db, err := pooledSQL(engine, s, dbName)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 	_, err = db.Exec(q)
 	return err
 }

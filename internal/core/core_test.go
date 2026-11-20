@@ -332,3 +332,61 @@ func TestTableAndWhereHelpers(t *testing.T) {
 	}
 }
 
+func TestLoadSettingsNoDirtyRewriteAndHiddenVersions(t *testing.T) {
+	dir := t.TempDir()
+	st := LoadSettings(dir)
+	if err := st.Update(func(s *Settings) {
+		s.Engines["php"].HiddenVersions = []string{"php-8.4.0"}
+	}); err != nil {
+		t.Fatalf("Save initial settings: %v", err)
+	}
+
+	settingsPath := filepath.Join(dir, "settings.json")
+	past := time.Now().Add(-1 * time.Hour)
+	if err := os.Chtimes(settingsPath, past, past); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	infoBefore, err := os.Stat(settingsPath)
+	if err != nil {
+		t.Fatalf("Stat before: %v", err)
+	}
+
+	_ = LoadSettings(dir)
+	infoAfter, err := os.Stat(settingsPath)
+	if err != nil {
+		t.Fatalf("Stat after: %v", err)
+	}
+	if !infoAfter.ModTime().Equal(infoBefore.ModTime()) {
+		t.Fatalf("LoadSettings rewrote unchanged settings.json (before=%v after=%v)", infoBefore.ModTime(), infoAfter.ModTime())
+	}
+
+	hidden := readHiddenVersions(dir, "php")
+	if len(hidden) != 1 || hidden[0] != "php-8.4.0" {
+		t.Fatalf("readHiddenVersions got %v", hidden)
+	}
+	if !isVersionHidden(&Paths{Root: dir}, "php", "PHP-8.4.0") {
+		t.Fatal("expected php-8.4.0 to be hidden")
+	}
+}
+
+func TestWaitForFastPoll(t *testing.T) {
+	calls := 0
+	start := time.Now()
+	ok := waitFor(time.Second, func() bool {
+		calls++
+		return calls >= 2
+	})
+	elapsed := time.Since(start)
+	if !ok {
+		t.Fatal("expected waitFor to return true")
+	}
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("expected fast polling under 200ms, took %v", elapsed)
+	}
+}
+
+func TestSQLPoolCloseAndCacheInvalidate(t *testing.T) {
+	InvalidateSystemDetectCache()
+	CloseSQLPools("mysql", "")
+}
+

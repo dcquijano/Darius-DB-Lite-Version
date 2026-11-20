@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -138,8 +139,54 @@ func (m *mssqlEngine) PidOf(p *Paths, inst Installation) int {
 
 var dottedVerRe = regexp.MustCompile(`\d+\.\d+(?:\.\d+){0,2}`)
 
+var (
+	sysMSSQLMu      sync.Mutex
+	sysMSSQLCached  Installation
+	sysMSSQLFound   bool
+	sysMSSQLChecked time.Time
+
+	sysLocalDBMu      sync.Mutex
+	sysLocalDBCached  string
+	sysLocalDBChecked time.Time
+
+	sysSqlcmdMu      sync.Mutex
+	sysSqlcmdCached  string
+	sysSqlcmdChecked time.Time
+)
+
+const sysDetectCacheTTL = 60 * time.Second
+
+// InvalidateSystemDetectCache clears cached system-wide engine detection results (MSSQL / PHP).
+func InvalidateSystemDetectCache() {
+	sysMSSQLMu.Lock()
+	sysMSSQLChecked = time.Time{}
+	sysMSSQLMu.Unlock()
+
+	sysLocalDBMu.Lock()
+	sysLocalDBChecked = time.Time{}
+	sysLocalDBMu.Unlock()
+
+	sysSqlcmdMu.Lock()
+	sysSqlcmdChecked = time.Time{}
+	sysSqlcmdMu.Unlock()
+
+	sysPHPMu.Lock()
+	sysPHPChecked = time.Time{}
+	sysPHPMu.Unlock()
+}
+
 // detectSystemMSSQL checks if SQL Server 2025 (17.x) LocalDB or sqlcmd is installed on Windows.
 func detectSystemMSSQL() (Installation, bool) {
+	sysMSSQLMu.Lock()
+	if !sysMSSQLChecked.IsZero() && time.Since(sysMSSQLChecked) < sysDetectCacheTTL {
+		inst, ok := sysMSSQLCached, sysMSSQLFound
+		sysMSSQLMu.Unlock()
+		return inst, ok
+	}
+	sysMSSQLMu.Unlock()
+
+	var inst Installation
+	var ok bool
 	if localDB := findSqlLocalDB(); localDB != "" {
 		ver := "17.0.1000.7"
 		cmd := exec.Command(localDB, "versions")
@@ -149,52 +196,90 @@ func detectSystemMSSQL() (Installation, bool) {
 				ver = m
 			}
 		}
-		return Installation{
+		inst = Installation{
 			Engine:  "mssql",
 			Name:    "mssql-2025-" + ver,
 			Version: ver,
 			Dir:     filepath.Dir(localDB),
-		}, true
-	}
-	if sc := findSystemSqlcmd(); sc != "" {
-		return Installation{
+		}
+		ok = true
+	} else if sc := findSystemSqlcmd(); sc != "" {
+		inst = Installation{
 			Engine:  "mssql",
 			Name:    "mssql-2025-17.0.1000.7",
 			Version: "17.0.1000.7",
 			Dir:     filepath.Dir(sc),
-		}, true
+		}
+		ok = true
 	}
-	return Installation{}, false
+
+	sysMSSQLMu.Lock()
+	sysMSSQLCached, sysMSSQLFound, sysMSSQLChecked = inst, ok, time.Now()
+	sysMSSQLMu.Unlock()
+	return inst, ok
 }
 
 func findSqlLocalDB() string {
-	if p, err := exec.LookPath("SqlLocalDB.exe"); err == nil {
+	sysLocalDBMu.Lock()
+	if !sysLocalDBChecked.IsZero() && time.Since(sysLocalDBChecked) < sysDetectCacheTTL {
+		p := sysLocalDBCached
+		sysLocalDBMu.Unlock()
 		return p
 	}
-	for _, ver := range []string{"170", "160", "150", "140", "130"} {
-		p := filepath.Join(`C:\Program Files\Microsoft SQL Server`, ver, `Tools\Binn\SqlLocalDB.exe`)
-		if fileExists(p) {
-			return p
-		}
-	}
-	return ""
-}
+	sysLocalDBMu.Unlock()
 
-func findSystemSqlcmd() string {
-	if p, err := exec.LookPath("sqlcmd.exe"); err == nil {
-		return p
-	}
-	for _, ver := range []string{"180", "170", "160", "150"} {
-		for _, base := range []string{
-			filepath.Join(`C:\Program Files\Microsoft SQL Server\Client SDK\ODBC`, ver, `Tools\Binn\SQLCMD.EXE`),
-			filepath.Join(`C:\Program Files\Microsoft SQL Server`, ver, `Tools\Binn\SQLCMD.EXE`),
-		} {
-			if fileExists(base) {
-				return base
+	found := ""
+	if p, err := exec.LookPath("SqlLocalDB.exe"); err == nil {
+		found = p
+	} else {
+		for _, ver := range []string{"170", "160", "150", "140", "130"} {
+			p := filepath.Join(`C:\Program Files\Microsoft SQL Server`, ver, `Tools\Binn\SqlLocalDB.exe`)
+			if fileExists(p) {
+				found = p
+				break
 			}
 		}
 	}
-	return ""
+
+	sysLocalDBMu.Lock()
+	sysLocalDBCached, sysLocalDBChecked = found, time.Now()
+	sysLocalDBMu.Unlock()
+	return found
+}
+
+func findSystemSqlcmd() string {
+	sysSqlcmdMu.Lock()
+	if !sysSqlcmdChecked.IsZero() && time.Since(sysSqlcmdChecked) < sysDetectCacheTTL {
+		p := sysSqlcmdCached
+		sysSqlcmdMu.Unlock()
+		return p
+	}
+	sysSqlcmdMu.Unlock()
+
+	found := ""
+	if p, err := exec.LookPath("sqlcmd.exe"); err == nil {
+		found = p
+	} else {
+		for _, ver := range []string{"180", "170", "160", "150"} {
+			for _, base := range []string{
+				filepath.Join(`C:\Program Files\Microsoft SQL Server\Client SDK\ODBC`, ver, `Tools\Binn\SQLCMD.EXE`),
+				filepath.Join(`C:\Program Files\Microsoft SQL Server`, ver, `Tools\Binn\SQLCMD.EXE`),
+			} {
+				if fileExists(base) {
+					found = base
+					break
+				}
+			}
+			if found != "" {
+				break
+			}
+		}
+	}
+
+	sysSqlcmdMu.Lock()
+	sysSqlcmdCached, sysSqlcmdChecked = found, time.Now()
+	sysSqlcmdMu.Unlock()
+	return found
 }
 
 func findSqlcmd() string {

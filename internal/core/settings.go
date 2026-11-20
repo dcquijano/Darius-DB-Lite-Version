@@ -58,29 +58,56 @@ func LoadSettings(root string) *SettingsStore {
 	if b, err := os.ReadFile(st.path); err == nil {
 		loaded := DefaultSettings()
 		if json.Unmarshal(b, loaded) == nil {
+			dirty := false
 			// merge so new engines/fields get defaults
 			def := DefaultSettings()
 			for id, es := range def.Engines {
 				if loaded.Engines[id] == nil {
 					loaded.Engines[id] = es
+					dirty = true
 				}
 			}
-			if ms := loaded.Engines["mssql"]; ms != nil {
+			if ms := loaded.Engines["mssql"]; ms != nil && (ms.User != "" || ms.Password != "") {
 				ms.User = ""
 				ms.Password = ""
+				dirty = true
 			}
 			// Auto-migrate legacy MySQL port 3307 -> standard 3306 so Laravel / PHP apps connect on 3306 out of the box
 			if my := loaded.Engines["mysql"]; my != nil && my.Port == 3307 {
 				ma := loaded.Engines["mariadb"]
 				if ma == nil || ma.Version == "" {
 					my.Port = 3306
+					dirty = true
 				}
 			}
 			st.s = loaded
-			_ = st.saveLocked()
+			if dirty {
+				_ = st.saveLocked()
+			}
 		}
 	}
 	return st
+}
+
+// readHiddenVersions reads hidden versions for an engine directly from settings.json without writing back to disk.
+func readHiddenVersions(root, engineID string) []string {
+	if root == "" {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(root, "settings.json"))
+	if err != nil {
+		return nil
+	}
+	var raw struct {
+		Engines map[string]EngineSettings `json:"engines"`
+	}
+	if json.Unmarshal(b, &raw) != nil {
+		return nil
+	}
+	if es, ok := raw.Engines[engineID]; ok {
+		return es.HiddenVersions
+	}
+	return nil
 }
 
 // Get returns a deep copy of the settings.

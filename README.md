@@ -19,8 +19,19 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 ### Database Manager, SQL Browser & Row CRUD
 ![Darius DB Database Manager](example/database-manager.png)
 
-### GitHub System Version Updater
-![Darius DB System Version Updater](example/system-updater.png)
+| Show Row Details | Edit Row | Create Row |
+|---|---|---|
+| ![Show Row](example/database-show-row.png) | ![Edit Row](example/database-edit-row.png) | ![Create Row](example/database-create-row.png) |
+
+### Single / Selected-Table Export & Multi-Format Import
+| Export (`.sql` / `.csv`) | Import (`.sql` / `.csv` / `.bak`) |
+|---|---|
+| ![Export Database](example/database-export.png) | ![Import Database](example/database-import.png) |
+
+### Settings & GitHub System Version Updater
+| Settings | GitHub System Updater |
+|---|---|
+| ![Settings](example/settings.png) | ![System Updater](example/system-updater.png) |
 
 ---
 

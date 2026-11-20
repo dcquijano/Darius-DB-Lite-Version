@@ -1,6 +1,6 @@
 # Darius DB (Lite Version 0.1.3) — System Examples & Screenshots
 
-Visual showcase of **Darius DB (Lite Version 0.1.3)** running on Windows.
+Visual showcase of **Darius DB (Lite Version 0.1.3)** in action on Windows.
 
 ---
 
@@ -12,15 +12,46 @@ Manage **Apache 2.4**, **PHP (8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **Post
 
 ---
 
-## 2. Database Manager, SQL Browser & Full CRUD
+## 2. Database Manager & Fast SQL Browser
 
-Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** with `.sql` / `.csv` / `.bak` **Import**, single/selected-table or full-database **Export**, inline **Show / Edit / Delete / + Create** row CRUD, and fast **Show All** table rendering (`1.1 ms` query speed).
+Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** with instant query execution (`1.1 ms`), inline filtering, and full table/row actions.
 
 ![Darius DB Database Manager and SQL Browser](database-manager.png)
 
 ---
 
-## 3. Live GitHub System Version Updater
+## 3. Row CRUD (Show, Edit & Create)
+
+### Show Row Details (with Field Copy & Copy JSON)
+![Show Row Details](database-show-row.png)
+
+### Edit Row
+![Edit Row](database-edit-row.png)
+
+### Create New Row
+![Create New Row](database-create-row.png)
+
+---
+
+## 4. Database Export & Import
+
+### Export (Entire Database, Single Table, or Selected Tables as `.sql` or `.csv`)
+![Database Export Modal](database-export.png)
+
+### Import (`.sql`, `.csv`, `.bak`, `.backup`)
+![Database Import Modal](database-import.png)
+
+---
+
+## 5. Settings (Ports, Credentials & Windows Integration)
+
+Configure ports, default database credentials, Start All selection, close-to-tray behavior, and auto-start options saved cleanly to `settings.json`.
+
+![Darius DB Settings](settings.png)
+
+---
+
+## 6. Live GitHub System Version Updater
 
 Check online for new versions/builds, sync release announcements and commit history directly from GitHub, and perform 1-click in-place upgrades with automatic restart (`data/` and `www/` preserved).
 

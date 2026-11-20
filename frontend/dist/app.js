@@ -1753,6 +1753,7 @@
       try {
         const msg = await api().ApplySystemUpdateFromFileDialog();
         if (msg) {
+          setFetchProgress("success", 100, "✅ Update Started — Restarting Darius DB...", esc(msg));
           $("sysUpStatusMsg").textContent = msg;
           toast(msg, "ok");
         }
@@ -1769,13 +1770,16 @@
       const btn = $("btnSysUpRunUrl");
       btn.disabled = true;
       btn.textContent = "Downloading...";
+      setFetchProgress("loading", 45, "⏳ Downloading & installing update...", "Downloading binary and preparing automatic restart...");
       try {
         const msg = await api().ApplySystemUpdateFromURL(url);
         if (msg) {
+          setFetchProgress("success", 100, "✅ Update Complete — Restarting Darius DB...", esc(msg));
           $("sysUpStatusMsg").textContent = msg;
           toast(msg, "ok");
         }
       } catch (e) {
+        setFetchProgress("error", 100, "⚠️ Update Failed", esc(errMsg(e)));
         toast(errMsg(e), "err");
       } finally {
         btn.disabled = false;

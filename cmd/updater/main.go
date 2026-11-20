@@ -298,6 +298,7 @@ func main() {
 
 	if silent {
 		paths := core.NewPaths(installDir)
+		updated := false
 		if localFile != "" {
 			if _, err := core.ApplySystemUpdateFromFile(paths, localFile); err != nil {
 				os.Exit(1)
@@ -314,12 +315,14 @@ func main() {
 			if _, err := core.ApplySystemUpdateFromFile(paths, pkgPath); err != nil {
 				os.Exit(1)
 			}
-			return
+			updated = true
 		}
-		info, _ := core.CheckSystemUpdate(installedVer, savedToken)
-		if info != nil && info.FetchOK && info.HasUpdate {
-			if _, err := core.ApplySystemUpdateWithFallback(paths, info.DirectSetupURL, info.FallbackSetupURL, savedToken); err != nil {
-				os.Exit(1)
+		if !updated {
+			info, _ := core.CheckSystemUpdate(installedVer, savedToken)
+			if info != nil && info.FetchOK && info.HasUpdate {
+				if _, err := core.ApplySystemUpdateWithFallback(paths, info.DirectSetupURL, info.FallbackSetupURL, savedToken); err != nil {
+					os.Exit(1)
+				}
 			}
 		}
 		return
@@ -1001,17 +1004,20 @@ func applyLocalPackageWorker(pkgPath string) {
 			return
 		}
 		newVer := detectInstalledVersion(up.installDir)
-		finishApply(fmt.Sprintf("Successfully updated Darius DB at %s to Lite Version %s! All data/ and www/ files were preserved.", up.installDir, newVer), "", false)
+		postProgress(96, "Restarting Darius DB...", "Launching updated Darius DB ("+newVer+")...")
+		time.Sleep(400 * time.Millisecond)
+		launchInstalledDariusDB(up.installDir)
+		finishApply(fmt.Sprintf("Successfully updated Darius DB at %s to Lite Version %s and restarted it! All data/ and www/ files were preserved.", up.installDir, newVer), "", true)
 		return
 	}
 
-	// Portable .zip update via core helper
+	// Portable .zip update via core helper (also restarts Darius DB automatically)
 	msg, err := core.ApplySystemUpdateFromFile(paths, pkgPath)
 	if err != nil {
 		finishApply("", err.Error(), false)
 		return
 	}
-	finishApply(msg, "", false)
+	finishApply(msg, "", true)
 }
 
 func finishApply(okMsg, errMsg string, exitNow bool) {

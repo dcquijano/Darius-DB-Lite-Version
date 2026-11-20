@@ -731,18 +731,19 @@ Remove-Item -Recurse -Force '%s' -ErrorAction SilentlyContinue`,
 	launcher := filepath.Join(p.Root, "DariusDB-Launcher.exe")
 	mainExe := filepath.Join(p.Root, "DariusDB.exe")
 	psContent := fmt.Sprintf(`$ProgressPreference = 'SilentlyContinue'
-Start-Sleep -Milliseconds 1500
+Start-Sleep -Milliseconds 1200
 $rootClean = '%s'.TrimEnd('\').ToLower()
-Get-Process -Name "DariusDB","DariusDB-Launcher","DariusDB-Updater" -ErrorAction SilentlyContinue | ForEach-Object {
-    try {
-        if (-not $_.Path -or $_.Path.ToLower().StartsWith($rootClean)) {
-            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-        }
-    } catch {}
+for ($i = 0; $i -lt 15; $i++) {
+    $procs = Get-Process -Name "DariusDB","DariusDB-Launcher","DariusDB-Updater" -ErrorAction SilentlyContinue | Where-Object {
+        -not $_.Path -or $_.Path.ToLower().StartsWith($rootClean)
+    }
+    if (-not $procs) { break }
+    $procs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 400
 }
-Start-Sleep -Milliseconds 700
 %s
 Remove-Item -Force '%s' -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 400
 if (Test-Path -LiteralPath '%s') {
     Start-Process -FilePath '%s' -WorkingDirectory '%s'
 } elseif (Test-Path -LiteralPath '%s') {

@@ -528,7 +528,15 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 		}
 	}()
 
-	restored, err := RestoreDatabase(p, dstEngine, dstCfg, dumpPath, dstDB)
+	restored, err := RestoreDatabaseWithProgress(p, dstEngine, dstCfg, dumpPath, dstDB, func(done, total int64) {
+		if total > 0 {
+			pct := 56 + int(done*42/total)
+			if pct > 98 {
+				pct = 98
+			}
+			report(pct, "running", "Importing into target...", fmt.Sprintf("Importing %s / %s into %q...", formatByteSize(done), formatByteSize(total), dstDB))
+		}
+	})
 	close(impDone)
 	if err != nil {
 		outErr := fmt.Errorf("import into %q failed: %w", dstDB, err)

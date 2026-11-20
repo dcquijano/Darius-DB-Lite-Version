@@ -4,9 +4,12 @@ package core
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +43,11 @@ func DeriveDBNameFromFile(filePath string) string {
 // RestoreDatabase restores a .bak, .sql, or .backup/.dump file into targetDB.
 // Returns the target database name that was restored.
 func RestoreDatabase(p *Paths, engine string, s EngineSettings, filePath, targetDB string) (string, error) {
+	return RestoreDatabaseWithProgress(p, engine, s, filePath, targetDB, nil)
+}
+
+// RestoreDatabaseWithProgress behaves like RestoreDatabase while streaming byte progress for large imports.
+func RestoreDatabaseWithProgress(p *Paths, engine string, s EngineSettings, filePath, targetDB string, onBytes func(done, total int64)) (string, error) {
 	filePath = strings.TrimSpace(filePath)
 	if filePath == "" {
 		return "", errors.New("no backup or SQL file selected")
@@ -71,7 +79,7 @@ func RestoreDatabase(p *Paths, engine string, s EngineSettings, filePath, target
 		if ext == ".bak" {
 			return "", fmt.Errorf(".bak is a Microsoft SQL Server backup format — switch to the MS SQL Server tab to restore %s", filepath.Base(filePath))
 		}
-		return targetDB, mysqlImportSQL(p, engine, s, filePath, targetDB)
+		return targetDB, mysqlImportSQLWithProgress(p, engine, s, filePath, targetDB, st.Size(), onBytes)
 
 	case "postgresql":
 		if ext == ".bak" {
@@ -452,52 +460,117 @@ func valAt(row []*string, idx int) string {
 
 // ---------------------------------------------------------------- MariaDB / MySQL (.sql)
 
+type countingProgressReader struct {
+	r        io.Reader
+	total    int64
+	read     int64
+	lastEmit time.Time
+	onBytes  func(done, total int64)
+}
+
+func (c *countingProgressReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if n > 0 {
+		c.read += int64(n)
+		if c.onBytes != nil && (time.Since(c.lastEmit) >= 250*time.Millisecond || err == io.EOF) {
+			c.lastEmit = time.Now()
+			c.onBytes(c.read, c.total)
+		}
+	}
+	return n, err
+}
+
+func findMySQLClientTool(p *Paths, engine string, s EngineSettings, names ...string) string {
+	candidates := []string{engine}
+	if engine == "mysql" {
+		candidates = append(candidates, "mariadb")
+	} else if engine == "mariadb" {
+		candidates = append(candidates, "mysql")
+	}
+	for _, cand := range candidates {
+		ver := ""
+		if cand == engine {
+			ver = s.Version
+		}
+		if inst, ok := FindInstallation(p, cand, ver); ok {
+			for _, n := range names {
+				full := filepath.Join(inst.Dir, "bin", n)
+				if fileExists(full) {
+					return full
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func isMySQLBinaryCol(dbType string) bool {
+	up := strings.ToUpper(dbType)
+	return strings.Contains(up, "BLOB") || strings.Contains(up, "BINARY")
+}
+
 func mysqlImportSQL(p *Paths, engine string, s EngineSettings, sqlPath, targetDB string) error {
+	var total int64
+	if st, err := os.Stat(sqlPath); err == nil {
+		total = st.Size()
+	}
+	return mysqlImportSQLWithProgress(p, engine, s, sqlPath, targetDB, total, nil)
+}
+
+func mysqlImportSQLWithProgress(p *Paths, engine string, s EngineSettings, sqlPath, targetDB string, totalBytes int64, onBytes func(done, total int64)) error {
 	if !nameRe.MatchString(targetDB) {
 		return errors.New("database name may only contain letters, digits, _ $ -")
 	}
 	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
 	isRemote := !strings.EqualFold(host, "127.0.0.1") && !strings.EqualFold(host, "localhost")
-	if !isRemote || !strings.EqualFold(targetDB, s.DefaultDB) {
-		if db, err := openSQL(engine, s, ""); err == nil {
+	if db, err := openSQL(engine, s, ""); err == nil {
+		if !isRemote || !strings.EqualFold(targetDB, s.DefaultDB) {
 			_, _ = db.Exec("CREATE DATABASE IF NOT EXISTS " + quoteIdent(engine, targetDB) + " CHARACTER SET utf8mb4")
-			db.Close()
 		}
+		if !isRemote {
+			_, _ = db.Exec("SET GLOBAL max_allowed_packet=268435456")
+		}
+		db.Close()
 	}
 
-	// Prefer native client binary if installed for large dump streaming
-	if inst, ok := FindInstallation(p, engine, s.Version); ok {
-		cli := filepath.Join(inst.Dir, "bin", "mariadb.exe")
-		if !fileExists(cli) {
-			cli = filepath.Join(inst.Dir, "bin", "mysql.exe")
+	// Prefer native client binary with --binary-mode=1 and --max-allowed-packet=256M for fast BLOB-safe streaming
+	if cli := findMySQLClientTool(p, engine, s, "mariadb.exe", "mysql.exe"); cli != "" {
+		f, err := os.Open(sqlPath)
+		if err != nil {
+			return err
 		}
-		if fileExists(cli) {
-			f, err := os.Open(sqlPath)
-			if err != nil {
-				return err
+		defer f.Close()
+		if totalBytes <= 0 {
+			if st, serr := f.Stat(); serr == nil {
+				totalBytes = st.Size()
 			}
-			defer f.Close()
-			args := []string{
-				"-h", host,
-				"-P", fmt.Sprint(s.Port),
-				"-u", fallbackStr(s.User, "root"),
-				"--default-character-set=utf8mb4",
-				targetDB,
-			}
-			if s.Password != "" {
-				args = append([]string{"-p" + s.Password}, args...)
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, cli, args...)
-			hideWindow(cmd)
+		}
+		args := []string{
+			"-h", host,
+			"-P", fmt.Sprint(s.Port),
+			"-u", fallbackStr(s.User, "root"),
+			"--binary-mode=1",
+			"--max-allowed-packet=256M",
+			"--default-character-set=utf8mb4",
+			targetDB,
+		}
+		if s.Password != "" {
+			args = append([]string{"-p" + s.Password}, args...)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, cli, args...)
+		hideWindow(cmd)
+		if onBytes != nil && totalBytes > 0 {
+			cmd.Stdin = &countingProgressReader{r: f, total: totalBytes, onBytes: onBytes}
+		} else {
 			cmd.Stdin = f
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("%s", strings.TrimSpace(string(out)))
-			}
-			return nil
 		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		}
+		return nil
 	}
 
 	// Fallback: execute via Go SQL driver (MultiStatements=true)
@@ -515,80 +588,150 @@ func mysqlImportSQL(p *Paths, engine string, s EngineSettings, sqlPath, targetDB
 }
 
 func mysqlBackupSQL(p *Paths, engine string, s EngineSettings, dbName, outPath string) error {
-	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
-	if inst, ok := FindInstallation(p, engine, s.Version); ok {
-		dump := filepath.Join(inst.Dir, "bin", "mariadb-dump.exe")
-		if !fileExists(dump) {
-			dump = filepath.Join(inst.Dir, "bin", "mysqldump.exe")
-		}
-		if fileExists(dump) {
-			args := []string{
-				"-h", host,
-				"-P", fmt.Sprint(s.Port),
-				"-u", fallbackStr(s.User, "root"),
-				"--routines",
-				"--events",
-				"--single-transaction",
-				"--result-file=" + outPath,
-				dbName,
-			}
-			if s.Password != "" {
-				args = append([]string{"-p" + s.Password}, args...)
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, dump, args...)
-			hideWindow(cmd)
-			if out, err := cmd.CombinedOutput(); err == nil {
-				return nil
-			} else if !strings.EqualFold(host, "127.0.0.1") {
-				// Retry with pure-Go export if remote cloud server rejects mysqldump flags/GTID/TLS
-				_ = out
-			} else {
-				return fmt.Errorf("%s", strings.TrimSpace(string(out)))
-			}
-		}
-	}
+	return mysqlExportTablesSQLWithProgress(p, engine, s, dbName, nil, true, true, outPath, true, nil)
+}
 
-	// Fallback pure-Go SQL dump
+func mysqlWriteGoDump(engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, onTable func(idx, total int, tblName string)) error {
 	db, err := openSQL(engine, s, dbName)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	tables, err := ListTables(engine, s, dbName)
+	allTables, err := ListTables(engine, s, dbName)
 	if err != nil {
 		return err
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) SQL Dump\n-- Engine: %s  Database: %s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", engine, dbName)
+	selected := map[string]bool{}
 	for _, t := range tables {
-		var tbl, createSQL string
-		if err := db.QueryRow("SHOW CREATE TABLE "+quoteIdent(engine, t.Name)).Scan(&tbl, &createSQL); err == nil {
-			fmt.Fprintf(&b, "DROP TABLE IF EXISTS %s;\n%s;\n\n", quoteIdent(engine, t.Name), createSQL)
-		}
-		if strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
+		selected[strings.ToLower(strings.TrimSpace(t))] = true
+	}
+	var todo []TableInfo
+	for _, t := range allTables {
+		if len(selected) > 0 && !selected[strings.ToLower(t.Name)] {
 			continue
 		}
-		res, err := RunQuery(engine, s, dbName, "SELECT * FROM "+quoteIdent(engine, t.Name))
-		if err == nil && len(res.Rows) > 0 {
-			for _, row := range res.Rows {
-				var vals []string
-				for _, cell := range row {
-					if cell == nil {
-						vals = append(vals, "NULL")
-					} else {
-						vals = append(vals, quoteStr(engine, *cell))
-					}
-				}
-				fmt.Fprintf(&b, "INSERT INTO %s VALUES (%s);\n", quoteIdent(engine, t.Name), strings.Join(vals, ", "))
-			}
-			b.WriteString("\n")
-		}
+		todo = append(todo, t)
 	}
-	b.WriteString("SET FOREIGN_KEY_CHECKS=1;\n")
-	return os.WriteFile(outPath, []byte(b.String()), 0o644)
+
+	f, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	bw := bufio.NewWriterSize(f, 256*1024)
+	defer bw.Flush()
+
+	fmt.Fprintf(bw, "-- Darius DB (Lite Version 0.1.4) Binary-Safe SQL Export\n-- Engine: %s  Database: %s\n\nSET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\nSET UNIQUE_CHECKS=0;\nSET AUTOCOMMIT=0;\n\n", engine, dbName)
+
+	for i, t := range todo {
+		if onTable != nil {
+			onTable(i+1, len(todo), t.Name)
+		}
+		qt := quoteIdent(engine, t.Name)
+		if includeSchema {
+			var tbl, createSQL string
+			if err := db.QueryRow("SHOW CREATE TABLE "+qt).Scan(&tbl, &createSQL); err == nil {
+				fmt.Fprintf(bw, "DROP TABLE IF EXISTS %s;\n%s;\n\n", qt, createSQL)
+			}
+		}
+		if !includeData || strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
+			continue
+		}
+
+		rows, err := db.Query("SELECT * FROM " + qt)
+		if err != nil {
+			return fmt.Errorf("query %s: %w", t.Name, err)
+		}
+		colTypes, _ := rows.ColumnTypes()
+		cols, _ := rows.Columns()
+		binCols := make([]bool, len(cols))
+		for cIdx, ct := range colTypes {
+			if ct != nil && isMySQLBinaryCol(ct.DatabaseTypeName()) {
+				binCols[cIdx] = true
+			}
+		}
+
+		raw := make([]sql.RawBytes, len(cols))
+		ptrs := make([]interface{}, len(cols))
+		for idx := range raw {
+			ptrs[idx] = &raw[idx]
+		}
+
+		var colNames []string
+		for _, c := range cols {
+			colNames = append(colNames, quoteIdent(engine, c))
+		}
+		insertHead := fmt.Sprintf("INSERT INTO %s (%s) VALUES\n", qt, strings.Join(colNames, ", "))
+
+		var batchBuf strings.Builder
+		batchRows := 0
+		flushBatch := func() error {
+			if batchRows == 0 {
+				return nil
+			}
+			_, werr := bw.WriteString(insertHead)
+			if werr == nil {
+				_, werr = bw.WriteString(batchBuf.String())
+			}
+			if werr == nil {
+				_, werr = bw.WriteString(";\n")
+			}
+			batchBuf.Reset()
+			batchRows = 0
+			return werr
+		}
+
+		for rows.Next() {
+			if err := rows.Scan(ptrs...); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan %s: %w", t.Name, err)
+			}
+			if batchRows > 0 {
+				batchBuf.WriteString(",\n")
+			}
+			batchBuf.WriteByte('(')
+			for cIdx, b := range raw {
+				if cIdx > 0 {
+					batchBuf.WriteString(", ")
+				}
+				if b == nil {
+					batchBuf.WriteString("NULL")
+				} else if binCols[cIdx] {
+					if len(b) == 0 {
+						batchBuf.WriteString("''")
+					} else {
+						batchBuf.WriteString("0x")
+						batchBuf.WriteString(hex.EncodeToString(b))
+					}
+				} else {
+					batchBuf.WriteByte('\'')
+					batchBuf.WriteString(sqlEscape(string(b)))
+					batchBuf.WriteByte('\'')
+				}
+			}
+			batchBuf.WriteByte(')')
+			batchRows++
+			if batchBuf.Len() >= 256*1024 || batchRows >= 250 {
+				if err := flushBatch(); err != nil {
+					rows.Close()
+					return err
+				}
+			}
+		}
+		if rerr := rows.Err(); rerr != nil {
+			rows.Close()
+			return rerr
+		}
+		rows.Close()
+		if err := flushBatch(); err != nil {
+			return err
+		}
+		_, _ = bw.WriteString("\n")
+	}
+
+	_, _ = bw.WriteString("COMMIT;\nSET AUTOCOMMIT=1;\nSET UNIQUE_CHECKS=1;\nSET FOREIGN_KEY_CHECKS=1;\n")
+	return bw.Flush()
 }
 
 // ---------------------------------------------------------------- PostgreSQL (.sql & .backup/.dump)
@@ -1026,12 +1169,12 @@ func ExportDatabaseSelectionWithProgress(p *Paths, engine string, s EngineSettin
 			report(pct, "running", fmt.Sprintf("Exporting table (%d/%d)...", idx, total), fmt.Sprintf("Exporting %s from %q...", tblName, dbName))
 		}
 	}
-	if len(tables) == 0 && includeSchema && includeData && ext != "csv" && engine != "mssql" {
+	if len(tables) == 0 && includeSchema && includeData && ext != "csv" && engine != "mssql" && engine != "mysql" && engine != "mariadb" {
 		err = BackupDatabase(p, engine, s, dbName, outPath)
 	} else {
 		switch engine {
 		case "mariadb", "mysql":
-			err = mysqlExportTablesSQL(p, engine, s, dbName, tables, includeSchema, includeData, outPath)
+			err = mysqlExportTablesSQLWithProgress(p, engine, s, dbName, tables, includeSchema, includeData, outPath, len(tables) == 0, onTbl)
 		case "postgresql":
 			err = postgresExportTablesSQL(p, s, dbName, tables, includeSchema, includeData, outPath)
 		case "mssql":
@@ -1351,94 +1494,49 @@ func restoreDatabaseFromZip(p *Paths, engine string, s EngineSettings, zipPath, 
 }
 
 func mysqlExportTablesSQL(p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	return mysqlExportTablesSQLWithProgress(p, engine, s, dbName, tables, includeSchema, includeData, outPath, len(tables) == 0, nil)
+}
+
+func mysqlExportTablesSQLWithProgress(p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, includeRoutines bool, onTable func(idx, total int, tblName string)) error {
 	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
-	if inst, ok := FindInstallation(p, engine, s.Version); ok {
-		dump := filepath.Join(inst.Dir, "bin", "mariadb-dump.exe")
-		if !fileExists(dump) {
-			dump = filepath.Join(inst.Dir, "bin", "mysqldump.exe")
+	if dump := findMySQLClientTool(p, engine, s, "mariadb-dump.exe", "mysqldump.exe"); dump != "" {
+		args := []string{
+			"-h", host,
+			"-P", fmt.Sprint(s.Port),
+			"-u", fallbackStr(s.User, "root"),
+			"--single-transaction",
+			"--hex-blob",
+			"--extended-insert",
+			"--quick",
+			"--default-character-set=utf8mb4",
+			"--max-allowed-packet=256M",
 		}
-		if fileExists(dump) {
-			args := []string{
-				"-h", host,
-				"-P", fmt.Sprint(s.Port),
-				"-u", fallbackStr(s.User, "root"),
-				"--single-transaction",
-			}
-			if len(tables) == 0 {
-				args = append(args, "--routines", "--events")
-			}
-			if !includeSchema {
-				args = append(args, "--no-create-info")
-			}
-			if !includeData {
-				args = append(args, "--no-data")
-			}
-			args = append(args, "--result-file="+outPath, dbName)
-			args = append(args, tables...)
-			if s.Password != "" {
-				args = append([]string{"-p" + s.Password}, args...)
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, dump, args...)
-			hideWindow(cmd)
-			if out, err := cmd.CombinedOutput(); err == nil {
-				return nil
-			} else if strings.EqualFold(host, "127.0.0.1") {
-				return fmt.Errorf("%s", strings.TrimSpace(string(out)))
-			}
+		if includeRoutines && len(tables) == 0 {
+			args = append(args, "--routines", "--events")
+		}
+		if !includeSchema {
+			args = append(args, "--no-create-info")
+		}
+		if !includeData {
+			args = append(args, "--no-data")
+		}
+		args = append(args, "--result-file="+outPath, dbName)
+		args = append(args, tables...)
+		if s.Password != "" {
+			args = append([]string{"-p" + s.Password}, args...)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, dump, args...)
+		hideWindow(cmd)
+		if out, err := cmd.CombinedOutput(); err == nil {
+			return nil
+		} else if strings.EqualFold(host, "127.0.0.1") {
+			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
 		}
 	}
 
-	// Fallback pure-Go selective SQL dump
-	db, err := openSQL(engine, s, dbName)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	allTables, err := ListTables(engine, s, dbName)
-	if err != nil {
-		return err
-	}
-	selected := map[string]bool{}
-	for _, t := range tables {
-		selected[strings.ToLower(strings.TrimSpace(t))] = true
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) SQL Export\n-- Engine: %s  Database: %s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", engine, dbName)
-	for _, t := range allTables {
-		if len(selected) > 0 && !selected[strings.ToLower(t.Name)] {
-			continue
-		}
-		if includeSchema {
-			var tbl, createSQL string
-			if err := db.QueryRow("SHOW CREATE TABLE "+quoteIdent(engine, t.Name)).Scan(&tbl, &createSQL); err == nil {
-				fmt.Fprintf(&b, "DROP TABLE IF EXISTS %s;\n%s;\n\n", quoteIdent(engine, t.Name), createSQL)
-			}
-		}
-		if !includeData || strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
-			continue
-		}
-		res, err := RunQueryAll(engine, s, dbName, "SELECT * FROM "+quoteIdent(engine, t.Name))
-		if err == nil && len(res.Rows) > 0 {
-			for _, row := range res.Rows {
-				var vals []string
-				for _, cell := range row {
-					if cell == nil {
-						vals = append(vals, "NULL")
-					} else {
-						vals = append(vals, quoteStr(engine, *cell))
-					}
-				}
-				fmt.Fprintf(&b, "INSERT INTO %s VALUES (%s);\n", quoteIdent(engine, t.Name), strings.Join(vals, ", "))
-			}
-			b.WriteString("\n")
-		}
-	}
-	b.WriteString("SET FOREIGN_KEY_CHECKS=1;\n")
-	return os.WriteFile(outPath, []byte(b.String()), 0o644)
+	return mysqlWriteGoDump(engine, s, dbName, tables, includeSchema, includeData, outPath, onTable)
 }
 
 func postgresExportTablesSQL(p *Paths, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {

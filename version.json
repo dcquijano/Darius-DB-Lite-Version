@@ -1,7 +1,7 @@
 {
   "name": "Darius DB (Lite Version 0.1.4)",
   "version": "0.1.4",
-  "build": "202611201835",
+  "build": "202611201845",
   "channel": "Lite Version",
   "releasedAt": "2026-11-20",
   "author": "Darius Cumpio",
@@ -10,8 +10,9 @@
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.4/DariusDB-0.1.4-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.4.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Auto-starts local MySQL/MariaDB/PostgreSQL/MS SQL services when syncing (with MySQL ↔ MariaDB port 3306 compatibility), fixes dark input styling, Daily Auto-Sync & 2:00 AM Auto-Backup (7-day purge)!",
+  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Fixed slow MySQL imports (batched multi-row INSERTs + autocommit=0) & ASCII '\\0' binary BLOB error (--hex-blob + 0x hex export + --binary-mode=1 + real MB streaming % progress), Daily Auto-Sync & 2:00 AM Auto-Backup!",
   "changelog": [
+    "Fixed slow MySQL Sync/Backup & BLOB ASCII '\\0' error: added --hex-blob + hex (0x...) BLOB encoding without 64KB truncation, multi-row batched INSERTs (250 rows/256KB batches with AUTOCOMMIT=0) turning 350s imports into seconds, NUL-safe sqlEscape, --binary-mode=1 + --max-allowed-packet=256M, and live MB streaming progress",
     "Auto-start local DB engine during Sync & 2:00 AM Auto-Sync/Backup: prevents 'connection refused on port 3306' when Dashboard services are OFF, automatically falls back between wire-compatible MySQL/MariaDB on port 3306, and fixes dark-mode input autofill background",
     "Fixed MS SQL Server Msg 8106 on Sync: reconciles SET IDENTITY_INSERT against existing target database identity properties (prevents Msg 8106 on non-identity targets and Msg 544 on identity targets) and pauses triggers during sync",
     "Added Daily Auto-Sync (Pull Cloud → Local) & Daily 2:00 AM Auto-Backup (.zip snapshots) with automatic 1-Week (7-Day) Snapshot Purge, Snapshot Manager, Windows Task Scheduler integration, and live per-table MS SQL export progress",

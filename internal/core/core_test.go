@@ -577,3 +577,17 @@ func TestReconcileMSSQLIdentityInserts(t *testing.T) {
 	}
 }
 
+func TestMySQLBinaryAndNulEscaping(t *testing.T) {
+	if !isMySQLBinaryCol("LONGBLOB") || !isMySQLBinaryCol("varbinary") || isMySQLBinaryCol("VARCHAR") {
+		t.Fatal("unexpected binary column detection")
+	}
+	raw := "abc\x00def'g\\h\r\n\x1a"
+	esc := sqlEscape(raw)
+	if strings.ContainsRune(esc, '\x00') || strings.ContainsRune(esc, '\n') || strings.ContainsRune(esc, '\r') || strings.ContainsRune(esc, '\x1a') {
+		t.Fatalf("expected NUL and control characters escaped in MySQL literal, got %q", esc)
+	}
+	if !strings.Contains(esc, `\0`) || !strings.Contains(esc, `\\`) || !strings.Contains(esc, `''`) {
+		t.Fatalf("expected \\0, \\\\, '' escapes, got %q", esc)
+	}
+}
+

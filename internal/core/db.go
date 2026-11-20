@@ -246,10 +246,18 @@ func quoteStr(engine, s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
-// sqlEscape escapes a MySQL string literal body.
+var mysqlStrReplacer = strings.NewReplacer(
+	`\`, `\\`,
+	`'`, `''`,
+	"\x00", `\0`,
+	"\n", `\n`,
+	"\r", `\r`,
+	"\x1a", `\Z`,
+)
+
+// sqlEscape escapes a MySQL string literal body safely (including NUL, CR, LF, and Ctrl+Z).
 func sqlEscape(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	return strings.ReplaceAll(s, "'", "''")
+	return mysqlStrReplacer.Replace(s)
 }
 
 func ListDatabases(engine string, s EngineSettings) ([]string, error) {

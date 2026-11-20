@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -382,7 +383,9 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 		recordErr(code, err)
 	}
 
-	// 3. Check GitHub Releases API in case a tagged release has a direct Setup .exe / Portable .zip asset
+	// 3. Check GitHub Releases API in case a newer version tag was published with release assets
+	var relSetupURL, relZipURL string
+	var relVer string
 	var ghRel struct {
 		TagName     string `json:"tag_name"`
 		PublishedAt string `json:"published_at"`
@@ -396,9 +399,8 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 	if code, err := getJSONNoCache(client, defaultGitHubRelURL, tok, "application/vnd.github+json", &ghRel); err == nil && ghRel.TagName != "" {
 		gotRelease = true
 		sources = append(sources, "releases")
-		relVer := parseVersion(ghRel.TagName)
+		relVer = parseVersion(ghRel.TagName)
 		if relVer != "" && compareVersions(relVer, info.LatestVersion) >= 0 {
-			info.LatestVersion = relVer
 			for _, a := range ghRel.Assets {
 				low := strings.ToLower(a.Name)
 				dlURL := a.BrowserDownloadURL
@@ -406,9 +408,18 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 					dlURL = a.URL
 				}
 				if strings.HasSuffix(low, ".exe") && strings.Contains(low, "setup") {
-					info.DirectSetupURL = dlURL
+					relSetupURL = dlURL
 				} else if strings.HasSuffix(low, ".zip") && strings.Contains(low, "portable") {
-					info.DirectZipURL = dlURL
+					relZipURL = dlURL
+				}
+			}
+			if compareVersions(relVer, info.LatestVersion) > 0 {
+				info.LatestVersion = relVer
+				if relSetupURL != "" {
+					info.DirectSetupURL = relSetupURL
+				}
+				if relZipURL != "" {
+					info.DirectZipURL = relZipURL
 				}
 			}
 		}
@@ -417,15 +428,29 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 		recordErr(code, err)
 	}
 
-	// Ensure a fallback raw setup URL is available whenever we know the latest version
-	if info.FallbackSetupURL == "" && info.LatestVersion != "" {
+	// For same-version builds pushed to main (e.g. build 2026112013xx on v0.1.3),
+	// main/installer/DariusDB-Setup-<ver>.exe always reflects the newest pushed binaries immediately,
+	// whereas tagged GitHub Release assets update later via CI. Prefer main when same version.
+	if info.LatestVersion != "" {
+		var mainSetupURL string
 		if tok != "" {
-			info.FallbackSetupURL = fmt.Sprintf(
+			mainSetupURL = fmt.Sprintf(
 				"https://api.github.com/repos/%s/%s/contents/installer/DariusDB-Setup-%s.exe",
 				defaultRepoOwner, defaultRepoName, info.LatestVersion,
 			)
 		} else {
-			info.FallbackSetupURL = fmt.Sprintf("%s/DariusDB-Setup-%s.exe", defaultRawInstallerBase, info.LatestVersion)
+			mainSetupURL = fmt.Sprintf("%s/DariusDB-Setup-%s.exe", defaultRawInstallerBase, info.LatestVersion)
+		}
+		if compareVersions(relVer, info.LatestVersion) > 0 && relSetupURL != "" {
+			info.DirectSetupURL = relSetupURL
+			info.FallbackSetupURL = mainSetupURL
+		} else {
+			info.DirectSetupURL = mainSetupURL
+			if relSetupURL != "" {
+				info.FallbackSetupURL = relSetupURL
+			} else if info.FallbackSetupURL == "" {
+				info.FallbackSetupURL = mainSetupURL
+			}
 		}
 	}
 	if info.DirectSetupURL == "" && info.FallbackSetupURL != "" {
@@ -586,6 +611,14 @@ func ApplySystemUpdateFromURL(p *Paths, downloadURL string, tokens ...string) (s
 		if tok != "" {
 			targetURL = resolveGitHubReleaseDownloadURL(client, downloadURL, tok)
 		}
+		// Bust CDN caches when fetching directly from raw.githubusercontent.com
+		if strings.Contains(strings.ToLower(targetURL), "raw.githubusercontent.com") {
+			sep := "?"
+			if strings.Contains(targetURL, "?") {
+				sep = "&"
+			}
+			targetURL = fmt.Sprintf("%s%st=%d", targetURL, sep, time.Now().UnixMilli())
+		}
 		req, err := http.NewRequest("GET", targetURL, nil)
 		if err != nil {
 			return "", err
@@ -739,31 +772,44 @@ Remove-Item -Recurse -Force '%s' -ErrorAction SilentlyContinue`,
 
 	launcher := filepath.Join(p.Root, "DariusDB-Launcher.exe")
 	mainExe := filepath.Join(p.Root, "DariusDB.exe")
+	logPath := filepath.Join(stageDir, "update.log")
 	psContent := fmt.Sprintf(`$ProgressPreference = 'SilentlyContinue'
-Start-Sleep -Milliseconds 1200
+$logFile = '%s'
+function Log($m) { Add-Content -LiteralPath $logFile -Value ("[" + (Get-Date -Format 'HH:mm:ss') + "] " + $m) -ErrorAction SilentlyContinue }
+Log "Starting in-place update in %s"
+Start-Sleep -Milliseconds 900
 $rootClean = '%s'.TrimEnd('\').ToLower()
-for ($i = 0; $i -lt 15; $i++) {
+for ($i = 0; $i -lt 20; $i++) {
     $procs = Get-Process -Name "DariusDB","DariusDB-Launcher","DariusDB-Updater" -ErrorAction SilentlyContinue | Where-Object {
         -not $_.Path -or $_.Path.ToLower().StartsWith($rootClean)
     }
     if (-not $procs) { break }
-    $procs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Milliseconds 400
+    if ($i -ge 2) {
+        $procs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    }
+    Start-Sleep -Milliseconds 350
 }
+Start-Sleep -Milliseconds 300
 %s
 Remove-Item -Force '%s' -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 400
 if (Test-Path -LiteralPath '%s') {
-    Start-Process -FilePath '%s' -WorkingDirectory '%s'
+    Log "Relaunching DariusDB.exe --show --updated"
+    Start-Process -FilePath '%s' -ArgumentList '--show','--updated' -WorkingDirectory '%s' -WindowStyle Normal
 } elseif (Test-Path -LiteralPath '%s') {
-    Start-Process -FilePath '%s' -WorkingDirectory '%s'
+    Log "Relaunching DariusDB-Launcher.exe --show --updated"
+    Start-Process -FilePath '%s' -ArgumentList '--show','--updated' -WorkingDirectory '%s' -WindowStyle Normal
+} else {
+    Log "ERROR: DariusDB.exe not found after update"
 }
 `,
+		escPS(logPath),
+		escPS(p.Root),
 		escPS(p.Root),
 		actionBlock,
 		escPS(stagedPath),
-		escPS(launcher), escPS(launcher), escPS(p.Root),
 		escPS(mainExe), escPS(mainExe), escPS(p.Root),
+		escPS(launcher), escPS(launcher), escPS(p.Root),
 	)
 
 	if err := os.WriteFile(scriptPath, []byte(strings.ReplaceAll(psContent, "\n", "\r\n")), 0o644); err != nil {
@@ -772,7 +818,8 @@ if (Test-Path -LiteralPath '%s') {
 
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
 	cmd.Dir = stageDir
-	hideWindow(cmd)
+	// Use CreateNoWindow without HideWindow so child Start-Process -WindowStyle Normal keeps a visible window
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("failed to start updater helper: %w", err)
 	}

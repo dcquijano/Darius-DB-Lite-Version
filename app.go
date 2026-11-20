@@ -60,8 +60,10 @@ type App struct {
 	term     *core.Terminal
 	tr       *tray.Tray
 
-	mu       sync.Mutex
-	quitting bool
+	mu          sync.Mutex
+	quitting    bool
+	forceShow   bool
+	justUpdated bool
 }
 
 func NewApp(paths *core.Paths, st *core.SettingsStore) *App {
@@ -95,6 +97,17 @@ func (a *App) startup(ctx context.Context) {
 
 	if a.settings.Get().AutoStartServices {
 		go func() { _ = a.mgr.StartAll() }()
+	}
+}
+
+func (a *App) domReady(ctx context.Context) {
+	if a.forceShow || a.justUpdated {
+		runtime.WindowUnminimise(ctx)
+		runtime.WindowShow(ctx)
+		go core.ForceShowWindow(AppName)
+	}
+	if a.justUpdated {
+		runtime.EventsEmit(ctx, "app-updated", core.CLIAppBuild)
 	}
 }
 

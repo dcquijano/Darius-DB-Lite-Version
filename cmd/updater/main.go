@@ -888,6 +888,14 @@ func downloadUpdateWithProgress(rawURL, token string) (string, error) {
 	}
 	dest := filepath.Join(stageDir, "DariusDB-Downloaded-Update"+ext)
 
+	if strings.Contains(strings.ToLower(rawURL), "raw.githubusercontent.com") {
+		sep := "?"
+		if strings.Contains(rawURL, "?") {
+			sep = "&"
+		}
+		rawURL = fmt.Sprintf("%s%st=%d", rawURL, sep, time.Now().UnixMilli())
+	}
+
 	postProgress(10, "Downloading update package...", "Downloading: "+rawURL)
 	client := &http.Client{Timeout: 10 * time.Minute}
 	req, err := http.NewRequest("GET", rawURL, nil)
@@ -1032,15 +1040,15 @@ func finishApply(okMsg, errMsg string, exitNow bool) {
 }
 
 func launchInstalledDariusDB(installDir string) {
-	exe := filepath.Join(installDir, "DariusDB-Launcher.exe")
+	exe := filepath.Join(installDir, "DariusDB.exe")
 	if !fileExists(exe) {
-		exe = filepath.Join(installDir, "DariusDB.exe")
+		exe = filepath.Join(installDir, "DariusDB-Launcher.exe")
 	}
 	if !fileExists(exe) {
 		winui.MessageBox("Darius DB Updater", "Could not find DariusDB.exe in "+installDir, winui.MBOK|winui.MBIconWarning)
 		return
 	}
-	cmd := exec.Command(exe)
+	cmd := exec.Command(exe, "--show", "--updated")
 	cmd.Dir = installDir
 	_ = cmd.Start()
 }

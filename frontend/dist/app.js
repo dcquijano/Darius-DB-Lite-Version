@@ -1497,25 +1497,32 @@
     const closeSysUpdater = () => ($("modalSysUpdater").hidden = true);
     const applyUpdateInfoToUI = (up) => {
       latestUpdateInfo = up;
-      $("sysUpCurVer").textContent = `Darius DB (Lite Version ${up.currentVersion})`;
-      $("sysUpLatVer").textContent = `Lite Version ${up.latestVersion}`;
+      $("sysUpCurVer").textContent = `Darius DB (Lite Version ${up.currentVersion})${up.currentBuild ? " · Build " + up.currentBuild : ""}`;
+      $("sysUpLatVer").textContent = `Lite Version ${up.latestVersion}${up.latestBuild ? " · Build " + up.latestBuild : ""}`;
       const badge = $("sysUpBadge");
       if (up.fetchOk === false) {
         badge.className = "pill warn";
         badge.textContent = "Fetch Failed";
       } else if (up.hasUpdate) {
         badge.className = "pill warn";
-        badge.textContent = `Update Available (${up.latestVersion})`;
+        badge.textContent = up.latestBuild ? `Update Ready (${up.latestBuild})` : `Update Available (${up.latestVersion})`;
       } else {
         badge.className = "pill running";
         badge.textContent = up.latestCommitSha ? `Synced (${up.latestCommitSha})` : "Up to Date";
       }
+      if ($("btnAnnounceSysUpdate")) {
+        $("btnAnnounceSysUpdate").textContent = up.fetchOk && up.hasUpdate
+          ? `⬆️ Update to ${up.latestVersion}${up.latestBuild ? " (" + up.latestBuild + ")" : ""}`
+          : "⬆️ System Updater";
+      }
       if ($("sysUpReadyBar")) {
-        const showReady = !!(up.fetchOk !== false && up.hasUpdate && (up.directSetupUrl || up.fallbackSetupUrl || up.directZipUrl));
+        const hasPkg = !!(up.directSetupUrl || up.fallbackSetupUrl || up.directZipUrl);
+        const showReady = up.fetchOk !== false && hasPkg && up.hasUpdate;
         $("sysUpReadyBar").hidden = !showReady;
         if (showReady) {
-          $("sysUpReadyTitle").textContent = `🎉 Darius DB Lite Version ${up.latestVersion} is Available!`;
-          $("sysUpReadySub").textContent = `Upgrade from v${up.currentVersion} → v${up.latestVersion} in-place (keeps data/ and www/ safe).`;
+          $("sysUpReadyTitle").textContent = `🎉 Update Ready: Lite Version ${up.latestVersion}${up.latestBuild ? " (Build " + up.latestBuild + ")" : ""}!`;
+          $("sysUpReadySub").textContent = `Upgrade build ${up.currentBuild || up.currentVersion} → ${up.latestBuild || up.latestVersion} in-place and restart visibly (keeps data/ and www/ safe).`;
+          if ($("btnSysUpInstallNow")) $("btnSysUpInstallNow").textContent = "⬆️ Update & Reboot Now";
         }
       }
       if ($("sysUpTokenBox")) {
@@ -1582,21 +1589,30 @@
             toast(up.fetchError || "Failed to fetch update from GitHub", "err");
           }
         } else if (showLoadingBanner) {
+          const buildSummary = up.latestBuild
+            ? `Build <code>${esc(up.currentBuild || "-")}</code> → GitHub Build <code>${esc(up.latestBuild)}</code>`
+            : `Latest Release: <strong>Lite Version ${esc(up.latestVersion)}</strong>`;
           setFetchProgress(
             "success",
             100,
             up.hasUpdate
-              ? `🎉 Update Available: Lite Version ${up.latestVersion}!`
-              : "✅ Successfully Checked Online GitHub Release!",
-            `Latest Release: <strong>Lite Version ${esc(up.latestVersion)}</strong>` +
+              ? `🎉 New Build Found (${esc(up.latestBuild || up.latestVersion)}) — Click "Fetch Latest from GitHub" to Update & Reboot!`
+              : "✅ Online Check Complete — Running Latest Build!",
+            buildSummary +
             (up.latestCommitSha
               ? ` · Commit <code>${esc(up.latestCommitSha)}</code>: "${esc(up.latestCommitMsg)}"`
               : "")
           );
+          if (!up.hasUpdate && $("sysUpReadyBar") && (up.directSetupUrl || up.fallbackSetupUrl || up.directZipUrl)) {
+            $("sysUpReadyBar").hidden = false;
+            $("sysUpReadyTitle").textContent = `✅ Up to Date (Build ${up.currentBuild || up.currentVersion})`;
+            $("sysUpReadySub").textContent = "You already have the latest GitHub build. Use Reinstall & Reboot only if you want to refresh binaries.";
+            if ($("btnSysUpInstallNow")) $("btnSysUpInstallNow").textContent = "🔄 Reinstall & Reboot";
+          }
           toast(
             up.hasUpdate
-              ? `🎉 Update available: Darius DB Lite Version ${up.latestVersion}!`
-              : `✅ Successfully checked online release (Lite Version ${up.latestVersion})`,
+              ? `🎉 New update ready (${up.latestBuild || up.latestVersion})! Click Fetch Latest from GitHub to auto-update & reboot.`
+              : `✅ Check Online complete — up to date (Build ${up.currentBuild || up.latestVersion})`,
             "ok"
           );
         }
@@ -1653,31 +1669,37 @@
             setFetchProgress(
               "loading",
               82,
-              `🎉 Update Found (Lite Version ${esc(up.latestVersion)}) — Downloading & Updating...`,
-              "Step 3/3: Downloading latest Darius DB installer and restarting automatically..."
+              `🎉 Update Found (Build ${esc(up.latestBuild || up.latestVersion)}) — Downloading & Rebooting...`,
+              "Step 3/3: Downloading latest Darius DB installer and rebooting with window visible..."
             );
-            btn.textContent = "⏳ Updating & Restarting...";
+            btn.textContent = "⏳ Updating & Rebooting...";
             const msg = await api().ApplySystemUpdateAuto(primary, fallback);
-            setFetchProgress("success", 100, "✅ Update Downloaded — Restarting Darius DB...", esc(msg || "Restarting..."));
+            setFetchProgress("success", 100, "✅ Update Staged — Rebooting Darius DB...", esc(msg || "Rebooting..."));
             if (msg) toast(msg, "ok");
             return;
           }
           setFetchProgress(
             "success",
             100,
-            "✅ Successfully Fetched Latest Updates from GitHub!",
-            `Synced <strong>Darius DB (Lite Version ${esc(up.latestVersion)})</strong>` +
+            `✅ Already on Latest GitHub Build (${esc(up.currentBuild || up.latestVersion)})!`,
+            `Installed Build <code>${esc(up.currentBuild || "-")}</code> matches GitHub Build <code>${esc(up.latestBuild || "-")}</code>` +
             (up.latestCommitSha
-              ? ` · Latest Commit <code>${esc(up.latestCommitSha)}</code>: <strong>${esc(
+              ? ` · Commit <code>${esc(up.latestCommitSha)}</code>: <strong>${esc(
                 up.latestCommitMsg
               )}</strong> (${esc(up.latestCommitDate)})`
               : " · Engine catalog &amp; version.json synced!")
           );
-          btn.textContent = "✅ Successfully Fetched!";
+          if ($("sysUpReadyBar") && (up.directSetupUrl || up.fallbackSetupUrl || up.directZipUrl)) {
+            $("sysUpReadyBar").hidden = false;
+            $("sysUpReadyTitle").textContent = `✅ Already on Latest Build (${up.currentBuild || up.currentVersion})`;
+            $("sysUpReadySub").textContent = "No reboot needed — click Reinstall & Reboot only if you want to refresh executables.";
+            if ($("btnSysUpInstallNow")) $("btnSysUpInstallNow").textContent = "🔄 Reinstall & Reboot";
+          }
+          btn.textContent = "✅ Already Latest!";
           toast(
             up.latestCommitSha
-              ? `✅ Successfully fetched latest GitHub update [${up.latestCommitSha}]: ${up.latestCommitMsg}`
-              : "✅ Successfully fetched latest version.json and catalog from GitHub!",
+              ? `✅ Already on latest GitHub build [${up.latestCommitSha}]: ${up.latestCommitMsg}`
+              : "✅ Already running the latest Darius DB version from GitHub!",
             "ok"
           );
           setTimeout(() => {
@@ -2804,6 +2826,10 @@ try {
 
     onEvent("navigate", (tab) => {
       if (tab) switchTab(tab);
+    });
+
+    onEvent("app-updated", (build) => {
+      toast(`✅ Darius DB updated and restarted cleanly (Build ${build || state.info?.version || ""})!`, "ok");
     });
   }
 

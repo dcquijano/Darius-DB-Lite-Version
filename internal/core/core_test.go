@@ -390,3 +390,12 @@ func TestSQLPoolCloseAndCacheInvalidate(t *testing.T) {
 	CloseSQLPools("mysql", "")
 }
 
+func TestAcquireSingleInstanceReturnsTrueFirstTime(t *testing.T) {
+	dir := t.TempDir()
+	h, ok := AcquireSingleInstanceWithWait(dir, 50*time.Millisecond)
+	if !ok {
+		t.Fatal("expected AcquireSingleInstanceWithWait to succeed on fresh root")
+	}
+	ReleaseSingleInstance(h)
+}
+

@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log"
 	"os"
+	"time"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -27,7 +28,25 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--mailpit" {
 		os.Exit(core.RunBuiltInMailpit(os.Args[2:]))
 	}
-	mutex, ok := core.AcquireSingleInstance(root)
+
+	var forceShow, justUpdated, reqMinimized bool
+	for _, arg := range os.Args[1:] {
+		switch arg {
+		case "--minimized", "-m":
+			reqMinimized = true
+		case "--show":
+			forceShow = true
+		case "--updated":
+			justUpdated = true
+			forceShow = true
+		}
+	}
+
+	var mutexWait time.Duration
+	if justUpdated || forceShow {
+		mutexWait = 8 * time.Second
+	}
+	mutex, ok := core.AcquireSingleInstanceWithWait(root, mutexWait)
 	if !ok {
 		return
 	}
@@ -39,14 +58,11 @@ func main() {
 	}
 	st := core.LoadSettings(root)
 
-	startHidden := st.Get().StartMinimized
-	for _, arg := range os.Args[1:] {
-		if arg == "--minimized" || arg == "-m" {
-			startHidden = true
-		}
-	}
+	startHidden := !forceShow && (st.Get().StartMinimized || reqMinimized)
 
 	app := NewApp(paths, st)
+	app.forceShow = forceShow
+	app.justUpdated = justUpdated
 
 	err := wails.Run(&options.App{
 		Title:            "Darius DB (Lite Version 0.1.3)",
@@ -60,6 +76,7 @@ func main() {
 			Assets: assets,
 		},
 		OnStartup:     app.startup,
+		OnDomReady:    app.domReady,
 		OnBeforeClose: app.beforeClose,
 		OnShutdown:    app.shutdown,
 		Bind: []interface{}{

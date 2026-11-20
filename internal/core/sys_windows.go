@@ -137,7 +137,41 @@ var (
 	procRegisterWindowMsgW  = user32Sys.NewProc("RegisterWindowMessageW")
 	procCreateIconFromResEx = user32Sys.NewProc("CreateIconFromResourceEx")
 	procSetClassLongPtrW    = user32Sys.NewProc("SetClassLongPtrW")
+	procShowWindow          = user32Sys.NewProc("ShowWindow")
+	procSetForegroundWindow = user32Sys.NewProc("SetForegroundWindow")
+	procBringWindowToTop    = user32Sys.NewProc("BringWindowToTop")
+	procIsIconic            = user32Sys.NewProc("IsIconic")
 )
+
+// ForceShowWindow locates the top-level window matching windowTitle and brings it
+// visibly to the foreground (restoring from hidden/minimized state if needed).
+func ForceShowWindow(windowTitle string) {
+	if windowTitle == "" {
+		return
+	}
+	titlePtr, err := windows.UTF16PtrFromString(windowTitle)
+	if err != nil {
+		return
+	}
+	const (
+		swShow    = 5
+		swRestore = 9
+	)
+	for i := 0; i < 60; i++ {
+		hwnd, _, _ := procFindWindowW.Call(0, uintptr(unsafe.Pointer(titlePtr)))
+		if hwnd != 0 {
+			if iconic, _, _ := procIsIconic.Call(hwnd); iconic != 0 {
+				procShowWindow.Call(hwnd, swRestore)
+			} else {
+				procShowWindow.Call(hwnd, swShow)
+			}
+			procBringWindowToTop.Call(hwnd)
+			procSetForegroundWindow.Call(hwnd)
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
 
 // ApplyWindowIconFromPNG sets both the window instance icon (WM_SETICON) and
 // window class icon (GCL_HICON / GCL_HICONSM) for the top-level window matching
@@ -210,28 +244,41 @@ func InstanceTag(root string) string {
 // If another instance is already running for this root, it signals that
 // instance's tray window to show itself and returns (0, false).
 func AcquireSingleInstance(root string) (windows.Handle, bool) {
+	return AcquireSingleInstanceWithWait(root, 0)
+}
+
+// AcquireSingleInstanceWithWait acquires the single-instance mutex, optionally
+// waiting up to waitTimeout for a previous instance to finish exiting (used after update-reboots).
+func AcquireSingleInstanceWithWait(root string, waitTimeout time.Duration) (windows.Handle, bool) {
 	tag := InstanceTag(root)
 	name, _ := windows.UTF16PtrFromString("Local\\DariusDB-" + tag)
-	h, err := windows.CreateMutex(nil, false, name)
-	if err == windows.ERROR_ALREADY_EXISTS {
-		if h != 0 {
-			windows.CloseHandle(h)
-		}
-		cls, _ := windows.UTF16PtrFromString("DariusDBTray-" + tag)
-		hwnd, _, _ := procFindWindowW.Call(uintptr(unsafe.Pointer(cls)), 0)
-		if hwnd != 0 {
-			msgName, _ := windows.UTF16PtrFromString("DariusDBShow-" + tag)
-			msg, _, _ := procRegisterWindowMsgW.Call(uintptr(unsafe.Pointer(msgName)))
-			if msg != 0 {
-				procPostMessageW.Call(hwnd, msg, 0, 0)
+	deadline := time.Now().Add(waitTimeout)
+	for {
+		h, err := windows.CreateMutex(nil, false, name)
+		if err == windows.ERROR_ALREADY_EXISTS {
+			if h != 0 {
+				windows.CloseHandle(h)
 			}
+			if waitTimeout > 0 && time.Now().Before(deadline) {
+				time.Sleep(150 * time.Millisecond)
+				continue
+			}
+			cls, _ := windows.UTF16PtrFromString("DariusDBTray-" + tag)
+			hwnd, _, _ := procFindWindowW.Call(uintptr(unsafe.Pointer(cls)), 0)
+			if hwnd != 0 {
+				msgName, _ := windows.UTF16PtrFromString("DariusDBShow-" + tag)
+				msg, _, _ := procRegisterWindowMsgW.Call(uintptr(unsafe.Pointer(msgName)))
+				if msg != 0 {
+					procPostMessageW.Call(hwnd, msg, 0, 0)
+				}
+			}
+			return 0, false
 		}
-		return 0, false
+		if err != nil {
+			return 0, true // don't block startup if mutex unexpectedly fails
+		}
+		return h, true
 	}
-	if err != nil {
-		return 0, true // don't block startup if mutex unexpectedly fails
-	}
-	return h, true
 }
 
 func ReleaseSingleInstance(h windows.Handle) {

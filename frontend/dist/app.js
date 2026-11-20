@@ -189,6 +189,41 @@
 
     renderActiveDownloads();
 
+    const engSettings = state.settings?.engines || {};
+    const autoRunOn = !!state.settings?.autoStartServices;
+    const isAutoEng = (id) => !!engSettings[id]?.enabled;
+    const autoNames = visibleStatuses
+      .filter((s) => (s.installations && s.installations.length > 0) && isAutoEng(s.engine))
+      .map((s) => (s.engine === "apache" ? "Apache" : s.name));
+
+    const autoRunPillsHtml = visibleStatuses
+      .map((s) => {
+        const inst = s.installations && s.installations.length > 0;
+        const on = isAutoEng(s.engine);
+        const lbl = s.engine === "apache" ? "Apache+PHP" : s.name;
+        return `<button type="button" class="auto-pill ${on ? "on" : ""}" data-act="toggleauto" data-engine="${s.engine}" ${!inst ? "disabled" : ""} title="${!inst ? esc(s.name) + " is not installed" : (on ? "Remove " : "Add ") + esc(s.name) + " to Auto Run & Start All"}">⚡ ${esc(lbl)}</button>`;
+      })
+      .join("");
+
+    const autoRunBarHtml = `
+      <div class="auto-run-bar">
+        <div class="auto-run-left">
+          <button type="button" class="auto-pill master ${autoRunOn ? "on" : ""}" data-act="toggleautorun" title="Automatically start checked services when Darius DB opens">
+            ${autoRunOn ? "⚡ Auto Run: ON" : "⭘ Auto Run: OFF"}
+          </button>
+          <span class="muted" style="font-size:11.5px">
+            ${autoNames.length ? "Selected: <strong>" + esc(autoNames.join(" + ")) + "</strong>" : "No services selected"}
+          </span>
+        </div>
+        <div class="auto-run-pills">${autoRunPillsHtml}</div>
+        <div class="auto-run-presets">
+          <button type="button" class="btn xs ghost" data-preset-auto="mysql" title="Auto run MySQL only">MySQL</button>
+          <button type="button" class="btn xs ghost" data-preset-auto="mysql+apache" title="Auto run MySQL + Apache (PHP)">MySQL + Apache</button>
+          <button type="button" class="btn xs ghost" data-preset-auto="running" title="Auto run whichever services are currently ON">Use Running</button>
+          <button type="button" class="btn xs ghost" data-preset-auto="none" title="Turn off all auto-run selections">Clear</button>
+        </div>
+      </div>`;
+
     const rowsHtml = visibleStatuses
       .map((s) => {
         const isApache = s.engine === "apache";
@@ -270,7 +305,11 @@
         const displayName = isApache ? "Apache" : s.name;
         const portDisplay = isMailpit ? `1025/${s.port}` : `${s.port}`;
 
-        // Right column: Reload (just like 5th picture) + subtle quick actions
+        // Right column: Reload + quick Auto-Run toggle + actions
+        const autoOn = isAutoEng(s.engine);
+        const autoRowBtn = installed
+          ? `<button type="button" class="auto-pill ${autoOn ? "on" : ""}" data-act="toggleauto" data-engine="${s.engine}" title="${autoOn ? "Auto Run ON (click to disable)" : "Auto Run OFF (click to include in Auto Run & Start All)"}">⚡ Auto${autoOn ? ": ON" : ""}</button>`
+          : "";
         let rightActions = "";
         if (!installed) {
           rightActions = `<button class="btn xs primary" data-act="install" data-engine="${s.engine}">Install</button>`;
@@ -278,6 +317,7 @@
           const reloadBtn = `<button type="button" class="svc-reload-link" data-act="${running ? "restart" : "start"}" data-engine="${s.engine}" ${busy ? "disabled" : ""} title="${running ? "Reload " + esc(s.name) : "Start " + esc(s.name)}">Reload</button>`;
           if (isApache) {
             rightActions = `
+              ${autoRowBtn}
               ${reloadBtn}
               <button class="btn xs accent" data-act="opensite" data-engine="apache" data-port="${s.port}">Open Web ↗</button>
               <button class="btn xs" data-act="deploysite" data-engine="apache" title="Deploy website .zip or index.html to www/">Deploy .zip</button>
@@ -288,6 +328,7 @@
               <button class="btn xs ghost" data-act="repair" data-engine="apache">Repair</button>`;
           } else if (isMailpit) {
             rightActions = `
+              ${autoRowBtn}
               ${reloadBtn}
               ${running ? `<button class="btn xs accent" data-act="opensite" data-engine="mailpit" data-port="${s.port}">Inbox ↗</button>` : ""}
               <button class="btn xs ghost" data-act="uri" data-engine="mailpit" title="Copy SMTP &amp; Web Inbox URL">SMTP</button>
@@ -296,6 +337,7 @@
               <button class="btn xs ghost" data-act="repair" data-engine="mailpit">Repair</button>`;
           } else {
             rightActions = `
+              ${autoRowBtn}
               ${reloadBtn}
               ${running ? `<button class="btn xs accent" data-act="browse" data-engine="${s.engine}">Browse</button>` : ""}
               <button class="btn xs ghost" data-act="uri" data-engine="${s.engine}" title="Copy connection string">URI</button>
@@ -379,7 +421,7 @@
         </div>
       </div>`;
 
-    $("serviceGrid").innerHTML = `<div class="svc-list-panel">${rowsHtml}</div>${stackGuideHtml}`;
+    $("serviceGrid").innerHTML = `${autoRunBarHtml}<div class="svc-list-panel">${rowsHtml}</div>${stackGuideHtml}`;
   }
 
   function renderActiveDownloads() {
@@ -2039,12 +2081,65 @@
     $("btnRunRepair").onclick = runRepairAction;
 
     $("serviceGrid").addEventListener("click", async (e) => {
+      const presetBtn = e.target.closest("[data-preset-auto]");
+      if (presetBtn) {
+        const mode = presetBtn.dataset.presetAuto;
+        const map = { apache: false, php: false, mariadb: false, mysql: false, postgresql: false, mssql: false, redis: false, mailpit: false };
+        let autoOn = true;
+        if (mode === "mysql") {
+          map.mysql = true;
+        } else if (mode === "mysql+apache") {
+          map.mysql = true;
+          map.apache = true;
+          map.php = true;
+        } else if (mode === "running") {
+          let any = false;
+          for (const st of state.statuses || []) {
+            if (st.state === "running" && st.engine !== "php") {
+              map[st.engine] = true;
+              any = true;
+            }
+          }
+          if (!any) {
+            toast("No services are currently running on Dashboard", "info");
+            return;
+          }
+        } else if (mode === "none") {
+          autoOn = false;
+        }
+        try {
+          state.settings = await api().SetAutoRunConfig(autoOn, map);
+          renderDashboard();
+          if (state.tab === "settings") renderSettings();
+          const chosen = Object.keys(map).filter((k) => k !== "php" && map[k]);
+          toast(autoOn ? `Auto Run set: ${chosen.join(" + ").toUpperCase()} (ON)` : "Auto Run turned OFF", "ok");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+        return;
+      }
+
       const btn = e.target.closest("[data-act]");
       if (!btn) return;
       const eng = btn.dataset.engine;
       const act = btn.dataset.act;
       try {
-        if (act === "start") await api().Start(eng);
+        if (act === "toggleautorun") {
+          const nextOn = !state.settings?.autoStartServices;
+          state.settings = await api().SetAutoRunConfig(nextOn, {});
+          renderDashboard();
+          if (state.tab === "settings") renderSettings();
+          toast(nextOn ? "⚡ Auto Run on Open turned ON" : "Auto Run on Open turned OFF", "ok");
+        } else if (act === "toggleauto") {
+          const curOn = !!state.settings?.engines?.[eng]?.enabled;
+          const nextOn = !curOn;
+          const patch = { [eng]: nextOn };
+          const shouldAutoStart = nextOn ? true : !!state.settings?.autoStartServices;
+          state.settings = await api().SetAutoRunConfig(shouldAutoStart, patch);
+          renderDashboard();
+          if (state.tab === "settings") renderSettings();
+          toast(`${eng.toUpperCase()} ${nextOn ? "added to" : "removed from"} Auto Run`, "ok");
+        } else if (act === "start") await api().Start(eng);
         else if (act === "stop") await api().Stop(eng);
         else if (act === "restart") await api().Restart(eng);
         else if (act === "repair") openRepairModal(eng, true);

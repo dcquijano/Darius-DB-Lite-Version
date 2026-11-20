@@ -662,6 +662,9 @@ func (a *App) SaveSettings(s core.Settings) error {
 	if s.CloudConnections == nil {
 		s.CloudConnections = prev.CloudConnections
 	}
+	if s.Schedules == nil {
+		s.Schedules = prev.Schedules
+	}
 	if err := a.settings.Replace(s); err != nil {
 		return err
 	}
@@ -672,6 +675,29 @@ func (a *App) SaveSettings(s core.Settings) error {
 	}
 	a.emitStatus()
 	return nil
+}
+
+// SetAutoRunConfig updates whether Darius DB auto-starts enabled services on launch
+// and which individual engines are included in Auto Run & Start All.
+func (a *App) SetAutoRunConfig(autoStartServices bool, enabledEngines map[string]bool) (core.Settings, error) {
+	err := a.settings.Update(func(s *core.Settings) {
+		s.AutoStartServices = autoStartServices
+		for id, on := range enabledEngines {
+			if es := s.Engines[id]; es != nil {
+				es.Enabled = on
+			}
+		}
+		if ap := s.Engines["apache"]; ap != nil {
+			if ph := s.Engines["php"]; ph != nil {
+				ph.Enabled = ap.Enabled
+			}
+		}
+	})
+	if err != nil {
+		return core.Settings{}, err
+	}
+	a.emitStatus()
+	return a.settings.Get(), nil
 }
 
 // ---------------------------------------------------------------- Database Browser (Local & Cloud)

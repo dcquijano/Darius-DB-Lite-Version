@@ -55,3 +55,10 @@ func TestSettingsGitHubTokenRoundTrip(t *testing.T) {
 		t.Fatalf("expected saved token, got %q", got)
 	}
 }
+
+func TestBuildCandidateTokensDeduplicates(t *testing.T) {
+	toks := buildCandidateTokens("tok_a", "tok_b", "tok_a", "  ")
+	if len(toks) < 2 || toks[0] != "tok_a" || toks[1] != "tok_b" {
+		t.Fatalf("unexpected candidate tokens order: %v", toks)
+	}
+}

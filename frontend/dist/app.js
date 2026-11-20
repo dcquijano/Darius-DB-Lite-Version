@@ -1496,8 +1496,8 @@
           $("sysUpReadySub").textContent = `Upgrade from v${up.currentVersion} → v${up.latestVersion} in-place (keeps data/ and www/ safe).`;
         }
       }
-      if ($("sysUpTokenBox") && up.repoPrivateHint) {
-        $("sysUpTokenBox").hidden = false;
+      if ($("sysUpTokenBox")) {
+        $("sysUpTokenBox").hidden = !up.repoPrivateHint;
       }
       if ($("sysUpCommitBar")) {
         if (up.fetchOk === false && up.fetchError) {
@@ -1515,7 +1515,7 @@
         .map((item) => `<li>${esc(item)}</li>`)
         .join("");
       const bestUrl = up.directSetupUrl || up.fallbackSetupUrl || up.directZipUrl || "";
-      if (bestUrl && !$("sysUpDirectUrl").value) {
+      if (bestUrl) {
         $("sysUpDirectUrl").value = bestUrl;
       }
       if ($("announceUpdateInfo") && up.latestCommitSha) {
@@ -1701,6 +1701,18 @@
         try {
           await api().SaveGitHubToken(tok);
           toast(tok ? "Saved GitHub Token locally in settings.json — retrying fetch..." : "Cleared saved GitHub Token", "ok");
+          await refreshSystemUpdateModal(true);
+        } catch (e) {
+          toast(errMsg(e), "err");
+        }
+      };
+    }
+    if ($("btnSysUpClearToken")) {
+      $("btnSysUpClearToken").onclick = async () => {
+        try {
+          $("sysUpGithubToken").value = "";
+          await api().SaveGitHubToken("");
+          toast("Cleared saved token — retrying with Windows Git credentials...", "info");
           await refreshSystemUpdateModal(true);
         } catch (e) {
           toast(errMsg(e), "err");

@@ -66,7 +66,10 @@ func RefreshCatalog(p *Paths, customURL string) (Catalog, error) {
 func RefreshCatalogWithToken(p *Paths, customURL, githubToken string) (Catalog, error) {
 	base := LoadCatalog(p)
 	client := &http.Client{Timeout: 12 * time.Second}
-	tok := resolveGitHubToken(githubToken)
+	tokens := buildCandidateTokens(githubToken)
+	if len(tokens) == 0 {
+		tokens = []string{""}
+	}
 
 	merge := func(engine string, entry CatalogEntry) {
 		if entry.Version == "" || entry.URL == "" {
@@ -90,21 +93,28 @@ func RefreshCatalogWithToken(p *Paths, customURL, githubToken string) (Catalog, 
 		accept string
 	}
 	sources := []catSource{{defaultRemoteCatalogURL, ""}, {defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json"}}
-	if tok != "" {
+	if tokens[0] != "" {
 		sources = []catSource{{defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json"}, {defaultRemoteCatalogURL, ""}}
 	}
 	if strings.TrimSpace(customURL) != "" {
 		sources = append([]catSource{{strings.TrimSpace(customURL), ""}}, sources...)
 	}
-	for _, s := range sources {
-		var rem Catalog
-		if _, err := getJSONNoCache(client, s.url, tok, s.accept, &rem); err == nil && len(rem) > 0 {
-			for eng, entries := range rem {
-				for _, e := range entries {
-					merge(eng, e)
-				}
-			}
+	fetchedCat := false
+	for _, tok := range tokens {
+		if fetchedCat {
 			break
+		}
+		for _, s := range sources {
+			var rem Catalog
+			if _, err := getJSONNoCache(client, s.url, tok, s.accept, &rem); err == nil && len(rem) > 0 {
+				for eng, entries := range rem {
+					for _, e := range entries {
+						merge(eng, e)
+					}
+				}
+				fetchedCat = true
+				break
+			}
 		}
 	}
 

@@ -115,6 +115,28 @@ func isGitHubHost(rawURL string) bool {
 	return strings.Contains(low, "github.com") || strings.Contains(low, "githubusercontent.com")
 }
 
+// buildCandidateTokens returns distinct non-empty GitHub tokens in priority order:
+// explicit/env tokens first, followed by Windows Git Credential Manager fallback.
+func buildCandidateTokens(tokens ...string) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(t string) {
+		t = strings.TrimSpace(t)
+		if t != "" && !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	for _, t := range tokens {
+		add(t)
+	}
+	for _, envKey := range []string{"DARIUSDB_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"} {
+		add(os.Getenv(envKey))
+	}
+	add(resolveGitCredentialToken())
+	return out
+}
+
 func getJSONNoCache(client *http.Client, rawURL, token, accept string, dest interface{}) (int, error) {
 	reqURL := rawURL
 	// Bust CDN caches on raw.githubusercontent.com; keep GitHub REST API URLs clean
@@ -162,7 +184,29 @@ func CheckSystemUpdate(currentVersion string, tokens ...string) (*SystemUpdateIn
 	if currentVersion == "" {
 		currentVersion = CLIAppVersion
 	}
-	tok := resolveGitHubToken(tokens...)
+	candidateTokens := buildCandidateTokens(tokens...)
+	// Try candidate tokens (plus anonymous "" last if none worked)
+	tokenAttempts := append([]string(nil), candidateTokens...)
+	if len(tokenAttempts) == 0 {
+		tokenAttempts = []string{""}
+	}
+
+	var bestInfo *SystemUpdateInfo
+	for i, tok := range tokenAttempts {
+		info := checkSystemUpdateWithToken(currentVersion, tok)
+		if info.FetchOK {
+			return info, nil
+		}
+		bestInfo = info
+		// Only try next candidate token on auth/visibility errors (401/403/404)
+		if !info.RepoPrivateHint || i == len(tokenAttempts)-1 {
+			break
+		}
+	}
+	return bestInfo, nil
+}
+
+func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 
 	info := &SystemUpdateInfo{
 		Name:           "Darius DB (Lite Version " + currentVersion + ")",
@@ -415,7 +459,7 @@ func CheckSystemUpdate(currentVersion string, tokens ...string) (*SystemUpdateIn
 	}
 
 	info.HasUpdate = compareVersions(info.LatestVersion, info.CurrentVersion) > 0
-	return info, nil
+	return info
 }
 
 // SyncFromGitHub fetches the newest version.json, recent commits, and catalog.json
@@ -464,6 +508,41 @@ func ApplySystemUpdateWithFallback(p *Paths, primaryURL, fallbackURL string, tok
 	return "", err
 }
 
+// resolveGitHubReleaseDownloadURL converts a GitHub web release download URL
+// (github.com/<owner>/<repo>/releases/download/<tag>/<file>) into its GitHub API
+// asset URL (api.github.com/repos/<owner>/<repo>/releases/assets/<id>) so private repo
+// downloads succeed reliably with Bearer auth.
+func resolveGitHubReleaseDownloadURL(client *http.Client, rawURL, tok string) string {
+	const marker = "github.com/"
+	low := strings.ToLower(rawURL)
+	idx := strings.Index(low, marker)
+	if idx < 0 || !strings.Contains(low, "/releases/download/") {
+		return rawURL
+	}
+	rest := rawURL[idx+len(marker):]
+	parts := strings.Split(rest, "/")
+	// Expected: owner / repo / releases / download / tag / filename
+	if len(parts) < 6 || !strings.EqualFold(parts[2], "releases") || !strings.EqualFold(parts[3], "download") {
+		return rawURL
+	}
+	owner, repo, tag, assetName := parts[0], parts[1], parts[4], parts[5]
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/tags/%s", owner, repo, tag)
+	var rel struct {
+		Assets []struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"assets"`
+	}
+	if _, err := getJSONNoCache(client, apiURL, tok, "application/vnd.github+json", &rel); err == nil {
+		for _, a := range rel.Assets {
+			if strings.EqualFold(a.Name, assetName) && a.URL != "" {
+				return a.URL
+			}
+		}
+	}
+	return rawURL
+}
+
 // ApplySystemUpdateFromURL downloads a Darius DB Setup .exe or Portable .zip from downloadURL
 // into %TEMP%\DariusDB-Update\ and launches the in-place system update.
 func ApplySystemUpdateFromURL(p *Paths, downloadURL string, tokens ...string) (string, error) {
@@ -471,9 +550,14 @@ func ApplySystemUpdateFromURL(p *Paths, downloadURL string, tokens ...string) (s
 	if downloadURL == "" {
 		return "", errors.New("no direct download URL provided — download DariusDB-Setup.exe from GitHub/Google Drive or pick a local file")
 	}
-	tok := resolveGitHubToken(tokens...)
-	if tok == "" && p != nil {
-		tok = resolveGitHubToken(LoadSettings(p.Root).Get().GitHubToken)
+	var savedTok string
+	if p != nil {
+		savedTok = LoadSettings(p.Root).Get().GitHubToken
+	}
+	allToks := append(append([]string(nil), tokens...), savedTok)
+	candidateTokens := buildCandidateTokens(allToks...)
+	if len(candidateTokens) == 0 {
+		candidateTokens = []string{""}
 	}
 
 	stageDir := filepath.Join(os.TempDir(), "DariusDB-Update")
@@ -487,53 +571,76 @@ func ApplySystemUpdateFromURL(p *Paths, downloadURL string, tokens ...string) (s
 	dest := filepath.Join(stageDir, "DariusDB-System-Update"+ext)
 
 	client := &http.Client{Timeout: 10 * time.Minute}
-	req, err := http.NewRequest("GET", downloadURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.3")
-	if strings.Contains(strings.ToLower(downloadURL), "api.github.com/repos/") {
-		if strings.Contains(strings.ToLower(downloadURL), "/contents/") {
-			req.Header.Set("Accept", "application/vnd.github.raw+json")
-		} else {
-			req.Header.Set("Accept", "application/octet-stream")
+	var lastErr error
+	for _, tok := range candidateTokens {
+		targetURL := downloadURL
+		if tok != "" {
+			targetURL = resolveGitHubReleaseDownloadURL(client, downloadURL, tok)
 		}
-	}
-	if tok != "" && isGitHubHost(downloadURL) {
-		req.Header.Set("Authorization", "Bearer "+tok)
-	}
+		req, err := http.NewRequest("GET", targetURL, nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.3")
+		if strings.Contains(strings.ToLower(targetURL), "api.github.com/repos/") {
+			if strings.Contains(strings.ToLower(targetURL), "/contents/") {
+				req.Header.Set("Accept", "application/vnd.github.raw+json")
+			} else {
+				req.Header.Set("Accept", "application/octet-stream")
+			}
+		}
+		if tok != "" && isGitHubHost(targetURL) {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("download failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == 404 && isGitHubHost(downloadURL) && tok == "" {
-		return "", errors.New("GitHub returned HTTP 404 for the update binary — either the repository is Private (make it Public or save a GitHub Token) or the release asset is not uploaded yet")
-	}
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("download returned HTTP %d", resp.StatusCode)
-	}
-	ct := strings.ToLower(resp.Header.Get("Content-Type"))
-	if strings.Contains(ct, "text/html") {
-		return "", errors.New("the URL points to a web page (e.g. Google Drive folder view) rather than a direct .exe/.zip binary — download the file first, then click 'Select Setup .exe / Portable .zip & Update Now'")
-	}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("download failed: %w", err)
+			continue
+		}
+		if resp.StatusCode == 404 || resp.StatusCode == 401 || resp.StatusCode == 403 {
+			code := resp.StatusCode
+			resp.Body.Close()
+			if code == 404 && isGitHubHost(targetURL) && tok == "" {
+				lastErr = errors.New("GitHub returned HTTP 404 for the update binary — either the repository is Private (make it Public or save a GitHub Token) or the release asset is not uploaded yet")
+			} else {
+				lastErr = fmt.Errorf("download returned HTTP %d", code)
+			}
+			continue
+		}
+		if resp.StatusCode != 200 {
+			code := resp.StatusCode
+			resp.Body.Close()
+			return "", fmt.Errorf("download returned HTTP %d", code)
+		}
+		ct := strings.ToLower(resp.Header.Get("Content-Type"))
+		if strings.Contains(ct, "text/html") {
+			resp.Body.Close()
+			return "", errors.New("the URL points to a web page (e.g. Google Drive folder view) rather than a direct .exe/.zip binary — download the file first, then click 'Select Setup .exe / Portable .zip & Update Now'")
+		}
 
-	out, err := os.Create(dest)
-	if err != nil {
-		return "", err
+		out, err := os.Create(dest)
+		if err != nil {
+			resp.Body.Close()
+			return "", err
+		}
+		n, cerr := io.Copy(out, resp.Body)
+		out.Close()
+		resp.Body.Close()
+		if cerr != nil {
+			_ = os.Remove(dest)
+			return "", cerr
+		}
+		if n < 64*1024 {
+			_ = os.Remove(dest)
+			return "", fmt.Errorf("downloaded file is too small (%d bytes) — verify the direct download URL", n)
+		}
+		return ApplySystemUpdateFromFile(p, dest)
 	}
-	n, cerr := io.Copy(out, resp.Body)
-	out.Close()
-	if cerr != nil {
-		_ = os.Remove(dest)
-		return "", cerr
+	if lastErr != nil {
+		return "", lastErr
 	}
-	if n < 64*1024 {
-		_ = os.Remove(dest)
-		return "", fmt.Errorf("downloaded file is too small (%d bytes) — verify the direct download URL", n)
-	}
-	return ApplySystemUpdateFromFile(p, dest)
+	return "", errors.New("download failed")
 }
 
 func validateUpdateBinary(filePath, ext string) error {

@@ -385,7 +385,14 @@ func TestCloudConnectionWithProgress(c CloudConnection, emit func(CloudSyncProgr
 	addr := net.JoinHostPort(nc.Host, strconv.Itoa(nc.Port))
 
 	report(25, "running", fmt.Sprintf("Testing TCP reachability (%s)...", addr), "Checking firewall / network route to remote server")
-	tcpConn, dialErr := net.DialTimeout("tcp", addr, 6*time.Second)
+	var tcpConn net.Conn
+	var dialErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		tcpConn, dialErr = net.DialTimeout("tcp", addr, 3500*time.Millisecond)
+		if dialErr == nil || !strings.Contains(strings.ToLower(dialErr.Error()), "timeout") {
+			break
+		}
+	}
 	if dialErr != nil {
 		lat := time.Since(start).Milliseconds()
 		msg := dialErr.Error()

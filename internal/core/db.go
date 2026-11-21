@@ -43,7 +43,7 @@ func sqlDriverAndDSN(engine string, s EngineSettings, dbName string) (driverName
 			dbName = s.DefaultDB
 		}
 		cfg.DBName = dbName
-		cfg.Timeout = 8 * time.Second
+		cfg.Timeout = 4 * time.Second
 		cfg.ReadTimeout = 120 * time.Second
 		cfg.MultiStatements = true
 		cfg.AllowNativePasswords = true
@@ -93,7 +93,7 @@ func sqlDriverAndDSN(engine string, s EngineSettings, dbName string) (driverName
 			User:     url.UserPassword(s.User, s.Password),
 			Host:     net.JoinHostPort(host, strconv.Itoa(port)),
 			Path:     "/" + dbName,
-			RawQuery: fmt.Sprintf("sslmode=%s&connect_timeout=8", pgSSL),
+			RawQuery: fmt.Sprintf("sslmode=%s&connect_timeout=4", pgSSL),
 		}
 		return "postgres", u.String(), nil
 	default:
@@ -101,21 +101,54 @@ func sqlDriverAndDSN(engine string, s EngineSettings, dbName string) (driverName
 	}
 }
 
-func openSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
+func isRemoteHost(s EngineSettings) bool {
+	host := strings.TrimSpace(s.Host)
+	return host != "" && !strings.EqualFold(host, "127.0.0.1") && !strings.EqualFold(host, "localhost")
+}
+
+// openAndPingSQL opens and verifies a SQL connection pool, retrying once on remote TCP
+// dial timeouts so Dual-WAN load-balanced routers recover automatically when one WAN stalls.
+func openAndPingSQL(engine string, s EngineSettings, dbName string, maxOpen, maxIdle int, idleTime, lifetime time.Duration) (*sql.DB, string, error) {
 	driverName, dsn, err := sqlDriverAndDSN(engine, s, dbName)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	db, err := sql.Open(driverName, dsn)
-	if err != nil {
-		return nil, err
+	attempts := 1
+	if isRemoteHost(s) {
+		attempts = 3
 	}
-	db.SetMaxOpenConns(1)
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("cannot connect to %s on port %d: %v", engine, s.Port, err)
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		db, err := sql.Open(driverName, dsn)
+		if err != nil {
+			return nil, dsn, err
+		}
+		db.SetMaxOpenConns(maxOpen)
+		if maxIdle > 0 {
+			db.SetMaxIdleConns(maxIdle)
+		}
+		if idleTime > 0 {
+			db.SetConnMaxIdleTime(idleTime)
+		}
+		if lifetime > 0 {
+			db.SetConnMaxLifetime(lifetime)
+		}
+		if err := db.Ping(); err == nil {
+			return db, dsn, nil
+		} else {
+			_ = db.Close()
+			lastErr = err
+			if !strings.Contains(strings.ToLower(err.Error()), "timeout") {
+				break
+			}
+		}
 	}
-	return db, nil
+	return nil, dsn, fmt.Errorf("cannot connect to %s on port %d: %v", engine, s.Port, lastErr)
+}
+
+func openSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
+	db, _, err := openAndPingSQL(engine, s, dbName, 1, 0, 0, 0)
+	return db, err
 }
 
 type sqlPoolEntry struct {
@@ -132,7 +165,7 @@ var (
 // pooledSQL returns a reusable *sql.DB connection pool for interactive browser/CRUD queries.
 // Callers must NOT call db.Close() on the returned pool.
 func pooledSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
-	driverName, dsn, err := sqlDriverAndDSN(engine, s, dbName)
+	_, dsn, err := sqlDriverAndDSN(engine, s, dbName)
 	if err != nil {
 		return nil, err
 	}
@@ -145,17 +178,9 @@ func pooledSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) 
 	}
 	sqlPoolMu.Unlock()
 
-	db, err := sql.Open(driverName, dsn)
+	db, _, err := openAndPingSQL(engine, s, dbName, 4, 2, 2*time.Minute, 10*time.Minute)
 	if err != nil {
 		return nil, err
-	}
-	db.SetMaxOpenConns(4)
-	db.SetMaxIdleConns(2)
-	db.SetConnMaxIdleTime(2 * time.Minute)
-	db.SetConnMaxLifetime(10 * time.Minute)
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("cannot connect to %s on port %d: %v", engine, s.Port, err)
 	}
 
 	sqlPoolMu.Lock()

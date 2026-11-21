@@ -59,6 +59,17 @@ Connect and manage **cPanel / Plesk / Hostinger (MySQL)**, **MonsterASP.NET / Sm
 ### Add Cloud Database (Quick URI / ADO.NET Auto-Fill)
 ![Add Cloud Database Modal](cloud-add-database.jpg)
 
+### New Daily Auto-Sync & 2:00 AM Auto-Backup Schedule
+![New Daily Auto-Sync and 2:00 AM Auto-Backup Modal](cloud-auto-sync-schedule.png)
+
+### Windows Task Scheduler (2:00 AM Auto-Wake)
+![Registered Daily 2:00 AM Windows Task Scheduler Job](cloud-win-2am-task.png)
+
+### Snapshot Purge (`> 7 Days`) & `backups/` Snapshot Folder
+![Purge Snapshots Notification](cloud-purge-snapshots.png)
+
+![Backups Snapshot Folder](cloud-backups-folder.png)
+
 ---
 
 ## 6. Portable Engine Versions, Config & Logs, and Built-in Terminal

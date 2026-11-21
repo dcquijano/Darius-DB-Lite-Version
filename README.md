@@ -29,9 +29,13 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 | ![Export Database](example/database-export.png) | ![Backup ZIP](example/database-backup-zip.jpg) | ![Import Database](example/database-import.jpg) | ![Restore .bak](example/database-restore-bak.jpg) |
 
 ### Cloud Databases & 2:00 AM Auto-Sync / Backup
-| Cloud Databases & Daily Scheduler | Add Cloud DB (URI / ADO.NET Parse) |
-|---|---|
-| ![Cloud Databases](example/cloud-databases.jpg) | ![Add Cloud Database](example/cloud-add-database.jpg) |
+| Cloud Databases & Daily Scheduler | Add Cloud DB (URI / ADO.NET Parse) | New 2:00 AM Auto-Sync & Backup |
+|---|---|---|
+| ![Cloud Databases](example/cloud-databases.jpg) | ![Add Cloud Database](example/cloud-add-database.jpg) | ![2:00 AM Schedule](example/cloud-auto-sync-schedule.png) |
+
+| Windows 2:00 AM Scheduled Task | 7-Day Snapshot Purge | `backups/` Snapshot Folder |
+|---|---|---|
+| ![Win 2 AM Task](example/cloud-win-2am-task.png) | ![Purge Snapshots](example/cloud-purge-snapshots.png) | ![Backups Folder](example/cloud-backups-folder.png) |
 
 ### Versions Manager, Config & Logs, and Built-in Terminal
 | Portable Engine Versions | Config & Logs Editor | Built-in Multi-Mode Terminal |

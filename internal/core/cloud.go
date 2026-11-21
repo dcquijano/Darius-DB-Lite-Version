@@ -253,7 +253,35 @@ func ParseCloudURI(raw string) (*CloudConnection, error) {
 		return &c, nil
 	}
 
-	u, err := url.Parse(raw)
+	// Handle DB URIs whose password contains unescaped '@', '#', or '%' (common in cPanel / MonsterASP passwords).
+	var parsedUser, parsedPass string
+	hasCustomUserInfo := false
+	parseTarget := raw
+	if schemeSep := strings.Index(raw, "://"); schemeSep > 0 {
+		schemePart := raw[:schemeSep]
+		restPart := raw[schemeSep+3:]
+		if lastAt := strings.LastIndexByte(restPart, '@'); lastAt > 0 {
+			userInfo := restPart[:lastAt]
+			hostPart := restPart[lastAt+1:]
+			if colon := strings.IndexByte(userInfo, ':'); colon >= 0 {
+				parsedUser = userInfo[:colon]
+				parsedPass = userInfo[colon+1:]
+			} else {
+				parsedUser = userInfo
+			}
+			// PathUnescape preserves literal '+' (unlike QueryUnescape) and decodes %7B -> '{', etc.
+			if uDec, uErr := url.PathUnescape(parsedUser); uErr == nil {
+				parsedUser = uDec
+			}
+			if pDec, pErr := url.PathUnescape(parsedPass); pErr == nil {
+				parsedPass = pDec
+			}
+			hasCustomUserInfo = true
+			parseTarget = schemePart + "://" + hostPart
+		}
+	}
+
+	u, err := url.Parse(parseTarget)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URI: %w", err)
 	}
@@ -278,7 +306,9 @@ func ParseCloudURI(raw string) (*CloudConnection, error) {
 		port = 3306
 	}
 	var user, pass string
-	if u.User != nil {
+	if hasCustomUserInfo {
+		user, pass = parsedUser, parsedPass
+	} else if u.User != nil {
 		user = u.User.Username()
 		pass, _ = u.User.Password()
 	}
@@ -358,8 +388,12 @@ func TestCloudConnectionWithProgress(c CloudConnection, emit func(CloudSyncProgr
 	tcpConn, dialErr := net.DialTimeout("tcp", addr, 6*time.Second)
 	if dialErr != nil {
 		lat := time.Since(start).Milliseconds()
-		report(100, "error", fmt.Sprintf("TCP connection failed (%d ms)", lat), dialErr.Error())
-		return &CloudTestResult{OK: false, LatencyMs: lat, Message: dialErr.Error()}, dialErr
+		msg := dialErr.Error()
+		if strings.Contains(strings.ToLower(msg), "timeout") {
+			msg = fmt.Sprintf("cannot connect to %s on port %d: %s — Server or firewall did not respond. If using cPanel/hosting, check if cPHulk/CSF firewall temporarily rate-limited your IP after failed logins (wait 5–15 min) or if outbound port %d is blocked by your ISP/router.", nc.Engine, nc.Port, msg, nc.Port)
+		}
+		report(100, "error", fmt.Sprintf("TCP connection failed (%d ms)", lat), msg)
+		return &CloudTestResult{OK: false, LatencyMs: lat, Message: msg}, errors.New(msg)
 	}
 	_ = tcpConn.Close()
 
@@ -408,16 +442,19 @@ func TestCloudConnectionWithProgress(c CloudConnection, emit func(CloudSyncProgr
 	lat := time.Since(start).Milliseconds()
 	if err != nil {
 		errStr := err.Error()
-		if strings.Contains(errStr, "1045") || strings.Contains(strings.ToLower(errStr), "access denied") {
+		lowErr := strings.ToLower(errStr)
+		if strings.Contains(errStr, "1045") || strings.Contains(lowErr, "access denied") {
 			clientIP := ""
 			if parts := strings.Split(errStr, "@'"); len(parts) > 1 {
 				clientIP = strings.Split(parts[1], "'")[0]
 			}
-			hint := "In cPanel → 'Remote MySQL®', whitelist your public IP (or '%') to allow remote connections. Also verify username and password have ALL PRIVILEGES in cPanel → 'MySQL® Databases'."
+			hint := "In cPanel → 'Remote MySQL®', add '%' wildcard (or your public IP) to allowed hosts. Also verify username and password have ALL PRIVILEGES in cPanel → 'MySQL® Databases'."
 			if clientIP != "" {
-				hint = fmt.Sprintf("In cPanel → 'Remote MySQL®', add your client IP '%s' (or '%%') to allowed hosts. Also verify user and password have ALL PRIVILEGES in cPanel → 'MySQL® Databases'.", clientIP)
+				hint = fmt.Sprintf("In cPanel → 'Remote MySQL®', add '%%' wildcard (or client IP '%s') to allowed hosts. Also verify user and password have ALL PRIVILEGES in cPanel → 'MySQL® Databases'.", clientIP)
 			}
 			errStr = fmt.Sprintf("%s (%s)", errStr, hint)
+		} else if strings.Contains(lowErr, "timeout") {
+			errStr = fmt.Sprintf("%s — Server or firewall timed out on port %d. If using cPanel/hosting, cPHulk or CSF firewall may have temporarily blocked your IP after repeated failed logins (wait 5–15 min) or your ISP/router is blocking port %d.", errStr, nc.Port, nc.Port)
 		}
 		report(100, "error", fmt.Sprintf("Database handshake failed (%d ms)", lat), errStr)
 		return &CloudTestResult{OK: false, LatencyMs: lat, Message: errStr}, errors.New(errStr)

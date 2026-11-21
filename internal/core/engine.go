@@ -179,11 +179,56 @@ func FindInstallation(p *Paths, engineID, name string) (Installation, bool) {
 	return Installation{}, false
 }
 
+// runCmdCapture runs cmd hidden with stdout/stderr redirected to a temp file (rather than
+// an OS pipe) so background daemons spawned by helpers like pg_ctl.exe cannot stall
+// cmd.Wait() by inheriting pipe handles. Cancelling ctx terminates cmd's process tree.
+func runCmdCapture(ctx context.Context, cmd *exec.Cmd, onStarted func(*exec.Cmd)) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	hideWindow(cmd)
+	tmpFile, err := os.CreateTemp("", "dariusdb-cmd-*.tmp")
+	if err != nil {
+		return cmd.CombinedOutput()
+	}
+	tmpPath := tmpFile.Name()
+	cmd.Stdout = tmpFile
+	cmd.Stderr = tmpFile
+	if startErr := cmd.Start(); startErr != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		return nil, startErr
+	}
+	if onStarted != nil {
+		onStarted(cmd)
+	}
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- cmd.Wait()
+	}()
+	var waitErr error
+	select {
+	case waitErr = <-waitCh:
+	case <-ctx.Done():
+		if cmd.Process != nil {
+			killProcessTree(cmd.Process.Pid)
+		}
+		select {
+		case waitErr = <-waitCh:
+		case <-time.After(2 * time.Second):
+		}
+		waitErr = ctx.Err()
+	}
+	_ = tmpFile.Close()
+	out, _ := os.ReadFile(tmpPath)
+	_ = os.Remove(tmpPath)
+	return out, waitErr
+}
+
 // runQuiet runs a helper command hidden, appending its output to the log.
 func runQuiet(ctx context.Context, logf func(string), name string, args ...string) error {
-	cmd := exec.CommandContext(ctx, name, args...)
-	hideWindow(cmd)
-	out, err := cmd.CombinedOutput()
+	cmd := exec.Command(name, args...)
+	out, err := runCmdCapture(ctx, cmd, nil)
 	if s := strings.TrimSpace(string(out)); s != "" && logf != nil {
 		logf(s)
 	}

@@ -351,8 +351,10 @@ func (m *Manager) Start(id string) error {
 	}
 	if spec.Detached {
 		cmd := spec.Cmd
-		hideWindow(cmd)
-		out, err := cmd.CombinedOutput()
+		out, err := runCmdCapture(ctx, cmd, func(c *exec.Cmd) {
+			m.set(id, func(s *service) { s.cmd = c })
+		})
+		m.set(id, func(s *service) { s.cmd = nil })
 		if s := strings.TrimSpace(string(out)); s != "" {
 			logf(s)
 		}
@@ -497,17 +499,31 @@ func (m *Manager) Stop(id string) error {
 		return err
 	}
 	// Signal any in-progress Start() Prepare / wait loop to abort immediately
+	var cancelStartInst Installation
+	var wasStarting bool
+	var startingCmd *exec.Cmd
 	m.mu.Lock()
 	if s := m.svc[id]; s != nil {
 		s.stopReq = true
+		wasStarting = s.state == StateStarting
+		cancelStartInst = s.inst
+		startingCmd = s.cmd
 		if s.cancelStart != nil {
 			s.cancelStart()
 		}
-		if s.state == StateStarting && s.pid > 0 {
+		if wasStarting && s.pid > 0 {
 			killProcessTree(s.pid)
 		}
 	}
 	m.mu.Unlock()
+	if wasStarting {
+		if startingCmd != nil && startingCmd.Process != nil {
+			killProcessTree(startingCmd.Process.Pid)
+		}
+		if cancelStartInst.Dir != "" && !strings.EqualFold(filepath.Clean(cancelStartInst.Dir), filepath.Clean(m.p.Root)) {
+			killProcessesInDir(cancelStartInst.Dir)
+		}
+	}
 
 	op := m.ops[id]
 	op.Lock()
@@ -553,7 +569,9 @@ func (m *Manager) Stop(id string) error {
 		}
 		waitFor(2*time.Second, func() bool { return (pid <= 0 || !processAlive(pid)) && !portInUse(es.Port) })
 	} else {
-		gone := waitFor(6*time.Second, func() bool { return (pid <= 0 || !processAlive(pid)) && (id != "postgresql" || !portInUse(es.Port)) })
+		gone := waitFor(6*time.Second, func() bool {
+			return (pid <= 0 || !processAlive(pid)) && (id != "postgresql" || (!portInUse(es.Port) && !hasProcessInDir(inst.Dir)))
+		})
 		if !gone {
 			logf("server did not stop in time - killing process tree")
 			if pid > 0 {

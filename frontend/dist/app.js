@@ -4724,6 +4724,7 @@ try {
         const m1045 = raw.match(/Access denied for user\s+['"]?([^'"@]+)['"]?@['"]?([^'"\s)]+)['"]?/i);
         const portVal = Number($("cloudPort")?.value) || 0;
         const isCpanelPort = portVal === 2083 || portVal === 2082 || portVal === 2086 || portVal === 2087 || raw.includes("2083") || raw.includes("2082");
+        const isTimeout = /i\/o timeout|timed out/i.test(raw);
 
         if (mode === "error" && isCpanelPort) {
           sub.innerHTML = `<div style="color:var(--red);font-weight:600;margin-bottom:6px">${esc(raw)}</div>
@@ -4740,8 +4741,18 @@ try {
               <strong style="color:var(--accent)">💡 How to Fix cPanel Error 1045 (Access Denied):</strong>
               <ol style="margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
                 <li>Log in to your cPanel dashboard and open <strong>Remote MySQL®</strong>.</li>
-                <li>Add your client IP to allowed hosts: <code style="font-weight:700;color:var(--accent);user-select:all">${esc(clientIp)}</code> <button type="button" class="btn xs ghost" style="padding:1px 6px;font-size:11px" onclick="window.__copyText && window.__copyText('${esc(clientIp)}', 'Copied ${esc(clientIp)} to clipboard')">Copy IP</button> (or enter <code>%</code> wildcard to allow all remote hosts).</li>
+                <li>Add <code style="font-weight:700;color:var(--accent)">%</code> (wildcard — <strong>recommended</strong> if your router/ISP switches public IPs) <button type="button" class="btn xs accent" style="padding:1px 6px;font-size:11px" onclick="window.__copyText && window.__copyText('%', 'Copied % wildcard to clipboard')">Copy %</button> or your current IP <code style="font-weight:700;color:var(--accent);user-select:all">${esc(clientIp)}</code> <button type="button" class="btn xs ghost" style="padding:1px 6px;font-size:11px" onclick="window.__copyText && window.__copyText('${esc(clientIp)}', 'Copied ${esc(clientIp)} to clipboard')">Copy IP</button> to allowed hosts.</li>
                 <li>Under cPanel → <strong>MySQL® Databases</strong>, ensure user <strong>${esc(user)}</strong> exists, click <strong>👁️ Show password</strong> above to verify password, and verify it is added to the database with <strong>ALL PRIVILEGES</strong>.</li>
+              </ol>
+            </div>`;
+        } else if (mode === "error" && isTimeout) {
+          sub.innerHTML = `<div style="color:var(--red);font-weight:600;margin-bottom:6px">${esc(raw)}</div>
+            <div style="padding:8px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;line-height:1.45;color:var(--text)">
+              <strong style="color:var(--warn)">⏱️ Connection Timed Out (Firewall / Network Block):</strong>
+              <ol style="margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
+                <li><strong>cPanel / Hosting Firewall (CSF / cPHulk):</strong> Repeated failed logins (Error 1045) trigger a temporary IP block (usually 5–15 minutes). Wait a few minutes or check from cPanel.</li>
+                <li><strong>Outbound Port Block:</strong> Confirm your ISP, router, or VPN allows outbound connections on port <strong>${esc(String(portVal || 3306))}</strong>.</li>
+                <li>Verify <strong>Host</strong> and <strong>Port</strong> match your provider's remote database endpoint.</li>
               </ol>
             </div>`;
         } else {

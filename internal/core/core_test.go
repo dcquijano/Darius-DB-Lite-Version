@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -841,6 +842,15 @@ func TestCloudConnectionCpanelPortCheck(t *testing.T) {
 	if parsed.Port != 3306 || parsed.Password != "pass{123" || parsed.PanelURL != "https://64.251.21.13:2083" {
 		t.Fatalf("unexpected ParseCloudURI cPanel normalization: %+v", parsed)
 	}
+
+	// Unescaped '@' and '#' and literal '+' inside password
+	parsedAt, perr2 := ParseCloudURI("mysql://surelifenet12:i@NDU+ob#WU@fiNq8J@64.251.21.13:3306/surelifenet12_surelifetest")
+	if perr2 != nil {
+		t.Fatalf("ParseCloudURI with '@' and '#' failed: %v", perr2)
+	}
+	if parsedAt.User != "surelifenet12" || parsedAt.Password != "i@NDU+ob#WU@fiNq8J" || parsedAt.Host != "64.251.21.13" || parsedAt.Port != 3306 || parsedAt.Database != "surelifenet12_surelifetest" {
+		t.Fatalf("unexpected ParseCloudURI '@' result: %+v", parsedAt)
+	}
 }
 
 func TestPostgresPrepareAndRepairRestoresMissingConf(t *testing.T) {
@@ -913,6 +923,34 @@ func TestPostgresPrepareAndRepairRestoresMissingConf(t *testing.T) {
 	}
 	if b, err := os.ReadFile(confPath); err != nil || !strings.Contains(string(b), "listen_addresses") {
 		t.Fatalf("expected regenerated postgresql.conf after ResetConfigs=true, got %q err=%v", string(b), err)
+	}
+}
+
+func TestRunCmdCaptureCancelsPromptly(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	// Use cmd /c ping as a slow child that would otherwise block for 10+ seconds
+	cmd := exec.Command("cmd", "/c", "echo starting && ping -n 20 127.0.0.1 >nul")
+	var startedPID int
+	start := time.Now()
+	out, err := runCmdCapture(ctx, cmd, func(c *exec.Cmd) {
+		if c.Process != nil {
+			startedPID = c.Process.Pid
+		}
+	})
+	elapsed := time.Since(start)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v (out=%q)", err, string(out))
+	}
+	if startedPID == 0 {
+		t.Fatal("expected onStarted callback to receive running cmd PID")
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("expected cancelled runCmdCapture to abort promptly, took %v", elapsed)
+	}
+	if !strings.Contains(string(out), "starting") {
+		t.Fatalf("expected partial output captured before cancellation, got %q", string(out))
 	}
 }
 

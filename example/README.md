@@ -78,7 +78,7 @@ Connect and manage **cPanel / Plesk / Hostinger (MySQL)**, **MonsterASP.NET / Sm
 
 Configure ports, default database credentials, Start All selection, close-to-tray behavior, and auto-start options saved cleanly to `settings.json`.
 
-![Darius DB Settings](settings.png)
+![Darius DB Settings](settings.jpg)
 
 ---
 

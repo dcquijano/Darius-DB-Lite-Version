@@ -41,7 +41,7 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 ### Settings & GitHub System Version Updater
 | Settings | GitHub System Updater |
 |---|---|
-| ![Settings](example/settings.png) | ![System Updater](example/system-updater.png) |
+| ![Settings](example/settings.jpg) | ![System Updater](example/system-updater.png) |
 
 ---
 

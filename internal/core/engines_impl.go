@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -180,7 +181,7 @@ func (pg *postgres) ConfigFile(p *Paths, inst Installation) string {
 func (pg *postgres) Prepare(ctx context.Context, p *Paths, inst Installation, s EngineSettings, logf func(string)) error {
 	data := pg.DataDir(p, inst)
 	if fileExists(filepath.Join(data, "PG_VERSION")) {
-		return nil
+		return ensurePostgresConfFiles(data, inst.Dir, logf)
 	}
 	if dirExists(data) && !dirEmpty(data) {
 		return fmt.Errorf("data folder %s exists but is not a valid PostgreSQL data folder", data)
@@ -200,6 +201,40 @@ func (pg *postgres) Prepare(ctx context.Context, p *Paths, inst Installation, s 
 		args = append(args, "--pwfile="+pw)
 	}
 	return runQuiet(ctx, logf, filepath.Join(inst.Dir, "bin", "initdb.exe"), args...)
+}
+
+// ensurePostgresConfFiles restores missing or empty postgresql.conf, pg_hba.conf, or
+// pg_ident.conf inside an already-initialized PostgreSQL cluster directory (PG_VERSION present)
+// using the installation's share/*.sample templates or safe defaults.
+func ensurePostgresConfFiles(dataDir, instDir string, logf func(string)) error {
+	defaults := map[string]string{
+		"postgresql.conf": "# Darius DB - PostgreSQL default configuration\r\nlisten_addresses = 'localhost'\r\nmax_connections = 100\r\n",
+		"pg_hba.conf":     "# TYPE  DATABASE        USER            ADDRESS                 METHOD\r\nhost    all             all             127.0.0.1/32            trust\r\nhost    all             all             ::1/128                 trust\r\n",
+		"pg_ident.conf":   "# MAPNAME       SYSTEM-USERNAME         PG-USERNAME\r\n",
+	}
+	for _, name := range []string{"postgresql.conf", "pg_hba.conf", "pg_ident.conf"} {
+		target := filepath.Join(dataDir, name)
+		if st, err := os.Stat(target); err == nil && st.Size() > 0 {
+			continue
+		}
+		if logf != nil {
+			logf("Restoring missing PostgreSQL config file: " + target)
+		}
+		sample := filepath.Join(instDir, "share", name+".sample")
+		if b, err := os.ReadFile(sample); err == nil && len(bytes.TrimSpace(b)) > 0 {
+			if name == "pg_hba.conf" {
+				b = append(b, []byte("\r\nhost    all             all             127.0.0.1/32            trust\r\nhost    all             all             ::1/128                 trust\r\n")...)
+			}
+			if err := os.WriteFile(target, b, 0o644); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.WriteFile(target, []byte(defaults[name]), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (pg *postgres) Start(p *Paths, inst Installation, s EngineSettings) (*StartSpec, error) {

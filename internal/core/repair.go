@@ -383,7 +383,7 @@ func (m *Manager) repairSingleEngine(id string, opts RepairOptions, usedPorts ma
 		return
 	}
 	cat := eng.Name()
-	resetConfig := opts.ResetConfigs || opts.Target == id
+	resetConfig := opts.ResetConfigs
 
 	// A. Clear stuck service states (error, or wedged starting/stopping with dead PID)
 	m.mu.Lock()

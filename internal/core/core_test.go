@@ -835,5 +835,78 @@ func TestCloudConnectionCpanelPortCheck(t *testing.T) {
 	}
 }
 
+func TestPostgresPrepareAndRepairRestoresMissingConf(t *testing.T) {
+	root := t.TempDir()
+	p := NewPaths(root)
+	if err := p.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+
+	pgBin := filepath.Join(p.EngineBin("postgresql"), "postgresql-18.7", "bin")
+	pgShare := filepath.Join(p.EngineBin("postgresql"), "postgresql-18.7", "share")
+	if err := os.MkdirAll(pgBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(pgShare, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pgBin, "pg_ctl.exe"), []byte("stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pgBin, "postgres.exe"), []byte("stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pgShare, "postgresql.conf.sample"), []byte("# sample\nlisten_addresses = 'localhost'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pgData := filepath.Join(p.Data, "postgresql-18")
+	if err := os.MkdirAll(pgData, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pgData, "PG_VERSION"), []byte("18\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate Repair having renamed postgresql.conf -> .bak or deleting postgresql.conf
+	if err := os.WriteFile(filepath.Join(pgData, "postgresql.conf.bak"), []byte("# old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st := LoadSettings(root)
+	_ = st.Update(func(s *Settings) {
+		s.Engines["postgresql"].Version = "postgresql-18.7"
+	})
+	mgr := NewManagerWithOptions(p, st, nil, true)
+
+	// Repair without ResetConfigs must restore missing postgresql.conf from sample
+	if _, err := mgr.RepairWithOptions(RepairOptions{Target: "postgresql", ResetConfigs: false}); err != nil {
+		t.Fatalf("RepairWithOptions failed: %v", err)
+	}
+	confPath := filepath.Join(pgData, "postgresql.conf")
+	if b, err := os.ReadFile(confPath); err != nil || !strings.Contains(string(b), "listen_addresses") {
+		t.Fatalf("expected restored postgresql.conf, got %q err=%v", string(b), err)
+	}
+
+	// Custom setting must NOT be wiped when ResetConfigs is false
+	custom := "# custom\nmax_connections = 250\n"
+	if err := os.WriteFile(confPath, []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.RepairWithOptions(RepairOptions{Target: "postgresql", ResetConfigs: false}); err != nil {
+		t.Fatalf("second RepairWithOptions failed: %v", err)
+	}
+	if b, err := os.ReadFile(confPath); err != nil || string(b) != custom {
+		t.Fatalf("expected custom postgresql.conf preserved when ResetConfigs=false, got %q err=%v", string(b), err)
+	}
+
+	// ResetConfigs=true must back up postgresql.conf AND regenerate a working one
+	if _, err := mgr.RepairWithOptions(RepairOptions{Target: "postgresql", ResetConfigs: true}); err != nil {
+		t.Fatalf("RepairWithOptions(ResetConfigs=true) failed: %v", err)
+	}
+	if b, err := os.ReadFile(confPath); err != nil || !strings.Contains(string(b), "listen_addresses") {
+		t.Fatalf("expected regenerated postgresql.conf after ResetConfigs=true, got %q err=%v", string(b), err)
+	}
+}
+
 
 

@@ -128,9 +128,9 @@ func (m *mssqlEngine) PidOf(p *Paths, inst Installation) int {
 		cmd := exec.Command(localDB, "info", mssqlInstance)
 		hideWindow(cmd)
 		if out, err := cmd.CombinedOutput(); err == nil {
-			if strings.Contains(strings.ToLower(string(out)), "state:") &&
-				strings.Contains(strings.ToLower(string(out)), "running") {
-				if pid := findProcessPID("sqlservr.exe"); pid > 0 {
+			low := strings.ToLower(string(out))
+			if strings.Contains(low, "state:") && strings.Contains(low, "running") {
+				if pid := findLocalDBPID(); pid > 0 {
 					return pid
 				}
 			}
@@ -353,6 +353,90 @@ func autoProvisionSqlcmd(root string) string {
 			rc.Close()
 			if fileExists(destExe) {
 				return destExe
+			}
+		}
+	}
+	return ""
+}
+
+type localDBProcCandidate struct {
+	pid   int
+	path  string
+	alive bool
+}
+
+func selectBestLocalDBPID(cands []localDBProcCandidate) int {
+	bestLocalDB := 0
+	bestAccessible := 0
+	bestAlive := 0
+	for _, c := range cands {
+		if !c.alive || c.pid <= 0 {
+			continue
+		}
+		if c.pid > bestAlive {
+			bestAlive = c.pid
+		}
+		if c.path != "" {
+			if strings.Contains(strings.ToLower(c.path), "localdb") && c.pid > bestLocalDB {
+				bestLocalDB = c.pid
+			}
+			if c.pid > bestAccessible {
+				bestAccessible = c.pid
+			}
+		}
+	}
+	if bestLocalDB > 0 {
+		return bestLocalDB
+	}
+	if bestAccessible > 0 {
+		return bestAccessible
+	}
+	return bestAlive
+}
+
+func findLocalDBPID() int {
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return 0
+	}
+	defer windows.CloseHandle(snap)
+	var pe windows.ProcessEntry32
+	pe.Size = uint32(unsafe.Sizeof(pe))
+	if err := windows.Process32First(snap, &pe); err != nil {
+		return 0
+	}
+	var cands []localDBProcCandidate
+	for {
+		name := windows.UTF16ToString(pe.ExeFile[:])
+		if strings.EqualFold(name, "sqlservr.exe") {
+			pid := int(pe.ProcessID)
+			cands = append(cands, localDBProcCandidate{
+				pid:   pid,
+				path:  processPath(pid),
+				alive: processAlive(pid),
+			})
+		}
+		if err := windows.Process32Next(snap, &pe); err != nil {
+			break
+		}
+	}
+	return selectBestLocalDBPID(cands)
+}
+
+func findExistingSqlcmd() string {
+	if p := findSystemSqlcmd(); p != "" {
+		return p
+	}
+	root := ResolveRoot()
+	entries, _ := os.ReadDir(filepath.Join(root, "bin", "mssql"))
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		for _, rel := range []string{"sqlcmd.exe", filepath.Join("bin", "sqlcmd.exe")} {
+			cand := filepath.Join(root, "bin", "mssql", e.Name(), rel)
+			if fileExists(cand) {
+				return cand
 			}
 		}
 	}

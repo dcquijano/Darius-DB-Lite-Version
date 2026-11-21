@@ -629,3 +629,23 @@ func TestCloudSyncPreCancelledContext(t *testing.T) {
 	}
 }
 
+func TestSelectBestLocalDBPID(t *testing.T) {
+	// Skip inaccessible SYSTEM SQL Server service (e.g. PID 1700) and pick user LocalDB sqlservr.exe
+	got := selectBestLocalDBPID([]localDBProcCandidate{
+		{pid: 1700, path: "", alive: false},
+		{pid: 2400, path: `C:\Program Files\Microsoft SQL Server\MSSQL16.SQLEXPRESS\MSSQL\Binn\sqlservr.exe`, alive: true},
+		{pid: 18420, path: `C:\Program Files\Microsoft SQL Server\170\LocalDB\Binn\sqlservr.exe`, alive: true},
+	})
+	if got != 18420 {
+		t.Fatalf("expected LocalDB PID 18420, got %d", got)
+	}
+
+	gotFallback := selectBestLocalDBPID([]localDBProcCandidate{
+		{pid: 1700, path: "", alive: false},
+		{pid: 9100, path: "", alive: true},
+	})
+	if gotFallback != 9100 {
+		t.Fatalf("expected alive fallback PID 9100, got %d", gotFallback)
+	}
+}
+

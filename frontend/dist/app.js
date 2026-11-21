@@ -2123,6 +2123,7 @@
       if (!btn) return;
       const eng = btn.dataset.engine;
       const act = btn.dataset.act;
+      state.recentStartClick = state.recentStartClick || {};
       try {
         if (act === "toggleautorun") {
           const nextOn = !state.settings?.autoStartServices;
@@ -2139,8 +2140,16 @@
           renderDashboard();
           if (state.tab === "settings") renderSettings();
           toast(`${eng.toUpperCase()} ${nextOn ? "added to" : "removed from"} Auto Run`, "ok");
-        } else if (act === "start") await api().Start(eng);
-        else if (act === "stop") await api().Stop(eng);
+        } else if (act === "start") {
+          state.recentStartClick[eng] = Date.now();
+          await api().Start(eng);
+        } else if (act === "stop") {
+          const st = getStatus(eng);
+          if (st?.state === "starting" && Date.now() - (state.recentStartClick[eng] || 0) < 900) {
+            return;
+          }
+          await api().Stop(eng);
+        }
         else if (act === "restart") await api().Restart(eng);
         else if (act === "repair") openRepairModal(eng, true);
         else if (act === "install") {

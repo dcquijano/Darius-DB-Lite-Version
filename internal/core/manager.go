@@ -147,20 +147,57 @@ func (m *Manager) adopt() {
 }
 
 func (m *Manager) monitor() {
+	var lastMSSQLKeepAlive time.Time
 	for range time.Tick(2 * time.Second) {
 		changed := false
+		checkMSSQL := false
+		keepMSSQLWarm := false
+		var mssqlInst Installation
+		var mssqlSettings EngineSettings
+
 		m.mu.Lock()
 		for id, s := range m.svc {
 			if s.state == StateRunning && s.cmd == nil && !processAlive(s.pid) {
 				if id == "mssql" {
-					s.state, s.message, s.pid = StateStopped, "", 0
+					checkMSSQL = true
+					mssqlInst = s.inst
 				} else {
 					s.state, s.message, s.pid = StateStopped, "process exited", 0
+					changed = true
 				}
-				changed = true
+			}
+			if id == "mssql" && s.state == StateRunning && !s.stopReq && !checkMSSQL {
+				if time.Since(lastMSSQLKeepAlive) >= 2*time.Minute {
+					keepMSSQLWarm = true
+					lastMSSQLKeepAlive = time.Now()
+					mssqlSettings = m.st.Engine("mssql")
+				}
 			}
 		}
 		m.mu.Unlock()
+
+		if checkMSSQL {
+			if eng, err := GetEngine("mssql"); err == nil {
+				newPID := eng.PidOf(m.p, mssqlInst)
+				m.mu.Lock()
+				if ms := m.svc["mssql"]; ms != nil && ms.state == StateRunning {
+					if newPID > 0 && processAlive(newPID) && !ms.stopReq {
+						ms.pid = newPID
+					} else {
+						ms.state, ms.message, ms.pid = StateStopped, "", 0
+						changed = true
+					}
+				}
+				m.mu.Unlock()
+			}
+		}
+		if keepMSSQLWarm && findExistingSqlcmd() != "" {
+			go func(es EngineSettings) {
+				ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+				defer cancel()
+				_, _ = mssqlRunQueryCtx(ctx, es, "master", "SELECT 1;")
+			}(mssqlSettings)
+		}
 		if changed {
 			m.changed()
 		}
@@ -347,8 +384,15 @@ func (m *Manager) Start(id string) error {
 			return nil
 		}
 		pid := 0
-		waitFor(10*time.Second, func() bool { pid = eng.PidOf(m.p, inst); return pid > 0 && processAlive(pid) })
-		if pid == 0 {
+		ok := waitFor(10*time.Second, func() bool {
+			p2 := eng.PidOf(m.p, inst)
+			if p2 > 0 && processAlive(p2) {
+				pid = p2
+				return true
+			}
+			return false
+		})
+		if !ok || pid == 0 {
 			return fail(fmt.Errorf("%s did not start%s", eng.Name(), m.logTail(id)))
 		}
 		os.WriteFile(m.p.PidFile(id), []byte(strconv.Itoa(pid)), 0o644)

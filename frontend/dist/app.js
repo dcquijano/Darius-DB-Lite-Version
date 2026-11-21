@@ -3052,7 +3052,7 @@
     };
     $("btnOpenRepair").onclick = () => openRepairModal("all", false);
     if ($("btnRepairAllSystem")) {
-      $("btnRepairAllSystem").onclick = () => openRepairModal("all", true, { fixPorts: true, cleanCache: true, resetConfigs: false });
+      $("btnRepairAllSystem").onclick = () => openRepairModal("all", false, { fixPorts: true, cleanCache: true, resetConfigs: false });
     }
     $("btnCloseRepair").onclick = closeRepair;
     $("btnCancelRepair").onclick = closeRepair;

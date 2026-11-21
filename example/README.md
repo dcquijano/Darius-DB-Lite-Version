@@ -10,6 +10,12 @@ Manage **Apache 2.4**, **PHP (8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **Post
 
 ![Darius DB Services Dashboard](dashboard-overview.jpg)
 
+### Auto-Run Toggle Bar & Per-Service Auto Selection
+![Auto-Run Service Toggle Bar](dashboard-auto-run.png)
+
+### Self-Healing Repair & Diagnostics
+![Repair Darius DB Modal](repair-diagnostics.jpg)
+
 ---
 
 ## 2. Database Manager & Fast SQL Browser

@@ -13,8 +13,12 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 
 ## System Preview ([`example/`](example/))
 
-### Services Dashboard & Full-Stack Switcher
+### Services Dashboard, Auto-Run Bar & Repair Diagnostics
 ![Darius DB Services Dashboard](example/dashboard-overview.jpg)
+
+| Auto-Run Toggle & Per-Service Pills | Self-Healing Repair & Diagnostics |
+|---|---|
+| ![Auto-Run Bar](example/dashboard-auto-run.png) | ![Repair Modal](example/repair-diagnostics.jpg) |
 
 ### Database Manager, SQL Browser & Row CRUD
 ![Darius DB Database Manager](example/database-manager.jpg)

@@ -1,7 +1,7 @@
 {
   "name": "Darius DB (Lite Version 0.1.4)",
   "version": "0.1.4",
-  "build": "202611210955",
+  "build": "202611211000",
   "channel": "Lite Version",
   "releasedAt": "2026-11-21",
   "author": "Darius Cumpio",
@@ -10,8 +10,9 @@
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.4/DariusDB-0.1.4-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.4.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Fixed MS SQL Server toggle turning back OFF after start (skips elevated Windows SQL Server service PIDs & keeps LocalDB awake while turned ON) + Real-time Sync Cancel & Minimize!",
+  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Now displays the latest 10 GitHub pushes in Release Announcement & What's New, fixes MS SQL Server toggle turn-off bug, and adds Real-time Sync Cancel & Minimize!",
   "changelog": [
+    "Show latest 10 GitHub pushes in Release Announcement & What's New with expanded scrollable view in System Version Updater",
     "Fixed MS SQL Server Dashboard toggle turning back OFF right after starting: ignores inaccessible SYSTEM SQL Server service PIDs when locating LocalDB's sqlservr.exe, keeps LocalDB awake while switched ON (preventing idle auto-shutdown), and guards against accidental double-click stop while starting",
     "Added Real-Time Sync Cancel & Minimize while synchronizing: Cancel Sync now aborts active MS SQL, MySQL/MariaDB & PostgreSQL exports/imports immediately on the backend, and the new ─ Minimize button beside ✕ collapses Sync into a live floating progress bar so you can keep working and restore or cancel anytime",
     "Fixed MS SQL Server Sync & Export Msg 245 (multiline/tab text fields): escapes backslashes, CR/LF newlines, and tabs in sqlcmd queries and decodes them cleanly into single-line T-SQL CHAR(13)/CHAR(10)/CHAR(9) expressions so multi-line text never splits across rows/columns",

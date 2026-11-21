@@ -1757,7 +1757,12 @@
         }
       }
       $("sysUpAnnounceText").textContent = up.announcement || "";
-      $("sysUpChangelogList").innerHTML = (up.changelog || [])
+      const recent10 = (up.recentCommits || []).slice(0, 10);
+      const pushLines = recent10.map((c) => `[${c.sha}] ${c.message}${c.date ? ` (${c.date})` : ""}`);
+      const pushSet = new Set(pushLines.map((x) => x.toLowerCase()));
+      const extraNotes = (up.changelog || []).filter((item) => !pushSet.has(String(item).toLowerCase()));
+      const displayItems = pushLines.length ? [...pushLines, ...extraNotes] : (up.changelog || []);
+      $("sysUpChangelogList").innerHTML = displayItems
         .map((item) => `<li>${esc(item)}</li>`)
         .join("");
       if ($("announceBodyText") && up.announcement) {

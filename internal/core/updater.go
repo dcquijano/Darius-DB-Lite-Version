@@ -23,7 +23,7 @@ const (
 	defaultVersionJSONURL   = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/version.json"
 	defaultVersionAPIURL    = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/contents/version.json"
 	defaultGitHubRelURL     = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/releases/latest"
-	defaultGitHubCommitsURL = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/commits?per_page=8"
+	defaultGitHubCommitsURL = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/commits?per_page=10"
 	defaultDriveFolderURL   = "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing"
 	defaultRawInstallerBase = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer"
 )

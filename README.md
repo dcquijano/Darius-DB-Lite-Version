@@ -14,19 +14,19 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 ## System Preview ([`example/`](example/))
 
 ### Services Dashboard & Full-Stack Switcher
-![Darius DB Services Dashboard](example/dashboard-overview.png)
+![Darius DB Services Dashboard](example/dashboard-overview.jpg)
 
 ### Database Manager, SQL Browser & Row CRUD
-![Darius DB Database Manager](example/database-manager.png)
+![Darius DB Database Manager](example/database-manager.jpg)
 
 | Show Row Details | Edit Row | Create Row |
 |---|---|---|
 | ![Show Row](example/database-show-row.png) | ![Edit Row](example/database-edit-row.png) | ![Create Row](example/database-create-row.png) |
 
-### Single / Selected-Table Export & Multi-Format Import
-| Export (`.sql` / `.csv`) | Import (`.sql` / `.csv` / `.bak`) |
-|---|---|
-| ![Export Database](example/database-export.png) | ![Import Database](example/database-import.png) |
+### Export, Full `.zip` Backup & Multi-Format Import / `.bak` Restore
+| Export (`.sql` / `.csv`) | Full `.zip` Backup | Import (`.sql` / `.csv` / `.bak`) | Restore `.bak` (MS SQL) |
+|---|---|---|---|
+| ![Export Database](example/database-export.png) | ![Backup ZIP](example/database-backup-zip.jpg) | ![Import Database](example/database-import.jpg) | ![Restore .bak](example/database-restore-bak.jpg) |
 
 ### Settings & GitHub System Version Updater
 | Settings | GitHub System Updater |

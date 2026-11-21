@@ -6,17 +6,17 @@ Visual showcase of **Darius DB (Lite Version 0.1.4)** in action on Windows.
 
 ## 1. Unified Services Dashboard & PHP / Apache / DB Stack
 
-Manage **Apache 2.4**, **PHP (8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server 2025**, **Redis**, and **Mailpit** with one-click toggle switches, quick config/log/data shortcuts, announcement banner, and the live **Unified Full-Stack Diagram**.
+Manage **Apache 2.4**, **PHP (8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server 2025**, **Redis**, and **Mailpit** with one-click toggle switches, Auto-Run service presets, quick config/log/data shortcuts, live GitHub update announcements, and the **Unified Full-Stack Diagram**.
 
-![Darius DB Services Dashboard](dashboard-overview.png)
+![Darius DB Services Dashboard](dashboard-overview.jpg)
 
 ---
 
 ## 2. Database Manager & Fast SQL Browser
 
-Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, and **Redis** with instant query execution (`1.1 ms`), inline filtering, and full table/row actions.
+Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server** (local & Cloud), and **Redis** with live database/table counts, resizable & collapsible split panes, stretchable result columns, fast non-blocking loading, inline filtering, and full table/row actions.
 
-![Darius DB Database Manager and SQL Browser](database-manager.png)
+![Darius DB Database Manager and SQL Browser](database-manager.jpg)
 
 ---
 
@@ -33,13 +33,19 @@ Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS 
 
 ---
 
-## 4. Database Export & Import
+## 4. Database Export, Full `.zip` Backup & Import / Restore
 
-### Export (Entire Database, Single Table, or Selected Tables as `.sql` or `.csv`)
+### Export (Entire Database, Single Table, or Selected Tables as `.sql`, `.zip`, or `.csv`)
 ![Database Export Modal](database-export.png)
 
+### Full Database `.zip` Backup (SQL Dump + Table CSVs + `manifest.json`)
+![Full Database ZIP Backup](database-backup-zip.jpg)
+
 ### Import (`.sql`, `.csv`, `.bak`, `.backup`)
-![Database Import Modal](database-import.png)
+![Database Import Modal](database-import.jpg)
+
+### Restore `.bak` Backup or Import `.sql` / `.csv` (MS SQL Server)
+![Restore MS SQL .bak Backup Modal](database-restore-bak.jpg)
 
 ---
 

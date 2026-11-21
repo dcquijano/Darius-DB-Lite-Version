@@ -2962,19 +2962,49 @@
       }
     };
 
+    const healFrontendCaches = (cleanCache) => {
+      const uiFixes = [];
+      if (!cleanCache) return uiFixes;
+      invalidateSqlCache();
+      state.activeBackupBtn = null;
+      try {
+        const rawSplits = localStorage.getItem(SPLIT_PREFS_KEY);
+        if (rawSplits) {
+          const parsed = JSON.parse(rawSplits);
+          if (!parsed || typeof parsed !== "object") {
+            localStorage.removeItem(SPLIT_PREFS_KEY);
+            uiFixes.push("Cleared corrupted browser pane split layout");
+          }
+        }
+      } catch {
+        try { localStorage.removeItem(SPLIT_PREFS_KEY); } catch { }
+        uiFixes.push("Reset unreadable UI split layout storage");
+      }
+      reapplySplitters();
+      uiFixes.push("Cleared frontend SQL database/table/schema caches & verified UI layout");
+      return uiFixes;
+    };
+
     const closeRepair = () => ($("modalRepair").hidden = true);
     const runRepairAction = async () => {
       const target = $("repairTarget").value || "all";
       const resetCfg = !!$("repairResetCfg").checked;
+      const fixPorts = !!$("repairFixPorts")?.checked;
+      const cleanCache = $("repairCleanCache") ? !!$("repairCleanCache").checked : true;
       const btn = $("btnRunRepair");
       const box = $("repairReportBox");
       btn.disabled = true;
       btn.textContent = "Repairing...";
       box.hidden = false;
-      box.innerHTML = `<div class="muted">Running diagnostics &amp; repairing ${esc(target)}...</div>`;
+      box.innerHTML = `<div class="muted">Running full system diagnostics &amp; repairing ${esc(target)}...</div>`;
       try {
-        const rep = await api().Repair(target, resetCfg);
-        const rows = (rep.items || [])
+        const rep = api().RepairSystem
+          ? await api().RepairSystem({ target, resetConfigs: resetCfg, fixPorts, cleanCache, deepSystem: true })
+          : await api().Repair(target, resetCfg);
+        const uiFixes = healFrontendCaches(cleanCache);
+        const allItems = [...(rep.items || [])];
+        uiFixes.forEach((msg) => allItems.push({ category: "UI & Cache", action: msg, status: "fixed" }));
+        const rows = allItems
           .map((it) => {
             const pillClass = it.status === "fixed" ? "running" : it.status === "warn" ? "warn" : "accent";
             const badgeText = it.status === "fixed" ? "FIXED" : it.status === "warn" ? "WARN" : "OK";
@@ -2986,9 +3016,22 @@
           })
           .join("");
         box.innerHTML = `<div style="font-weight:600;margin-bottom:8px;color:var(--accent)">${esc(rep.summary)}</div>${rows}`;
-        state.statuses = (await api().Status()) || [];
+        const [statuses, settings, cloudProfiles, schedules] = await Promise.all([
+          api().Status().catch(() => state.statuses),
+          api().GetSettings().catch(() => state.settings),
+          api().CloudProfiles().catch(() => state.cloudProfiles),
+          api().Schedules().catch(() => state.schedules),
+        ]);
+        state.statuses = statuses || [];
+        state.settings = settings || state.settings;
+        state.cloudProfiles = cloudProfiles || [];
+        state.schedules = schedules || [];
+        updateCloudBadge();
         renderDashboard();
-        toast(rep.summary, rep.fixedCount > 0 ? "ok" : "info");
+        if (state.tab === "settings") loadSettingsForm();
+        if (state.tab === "cloud") renderCloudView();
+        if (state.tab === "database") await loadDbView(true);
+        toast(rep.summary, rep.warnCount > 0 ? "info" : rep.fixedCount > 0 ? "ok" : "info");
       } catch (e) {
         box.innerHTML = `<div style="color:var(--danger)">Repair error: ${esc(errMsg(e))}</div>`;
         toast(errMsg(e), "err");
@@ -2997,15 +3040,20 @@
         btn.textContent = "🔧 Run Repair Now";
       }
     };
-    const openRepairModal = (target = "all", autoRun = false) => {
+    const openRepairModal = (target = "all", autoRun = false, opts = {}) => {
       $("repairTarget").value = target || "all";
-      $("repairResetCfg").checked = false;
+      $("repairResetCfg").checked = !!opts.resetConfigs;
+      if ($("repairFixPorts")) $("repairFixPorts").checked = !!opts.fixPorts;
+      if ($("repairCleanCache")) $("repairCleanCache").checked = opts.cleanCache !== false;
       $("repairReportBox").hidden = !autoRun;
       if (!autoRun) $("repairReportBox").innerHTML = "";
       $("modalRepair").hidden = false;
       if (autoRun) runRepairAction();
     };
     $("btnOpenRepair").onclick = () => openRepairModal("all", false);
+    if ($("btnRepairAllSystem")) {
+      $("btnRepairAllSystem").onclick = () => openRepairModal("all", true, { fixPorts: true, cleanCache: true, resetConfigs: false });
+    }
     $("btnCloseRepair").onclick = closeRepair;
     $("btnCancelRepair").onclick = closeRepair;
     $("btnRunRepair").onclick = runRepairAction;

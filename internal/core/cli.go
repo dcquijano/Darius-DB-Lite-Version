@@ -24,7 +24,7 @@ const (
 )
 
 // CLIAppBuild identifies the build timestamp (overridden via -ldflags at build time).
-var CLIAppBuild = "202611211354"
+var CLIAppBuild = "202611211417"
 
 // RunCLI executes a CLI subcommand and returns an process exit code.
 func RunCLI(root string, args []string) int {
@@ -406,15 +406,27 @@ func RunCLI(root string, args []string) int {
 	case "repair", "fix", "doctor":
 		target := "all"
 		resetCfg := false
+		fixPorts := false
 		for _, a := range rest {
 			low := strings.ToLower(a)
-			if low == "--reset-config" || low == "--reset" || low == "-r" {
+			switch low {
+			case "--reset-config", "--reset", "-r":
 				resetCfg = true
-			} else {
+			case "--fix-ports", "--ports", "-p":
+				fixPorts = true
+			case "--deep", "--system":
+				fixPorts = true
+			default:
 				target = normalizeEngineArg(a)
 			}
 		}
-		rep, err := mgr.Repair(target, resetCfg)
+		rep, err := mgr.RepairWithOptions(RepairOptions{
+			Target:       target,
+			ResetConfigs: resetCfg,
+			FixPorts:     fixPorts,
+			CleanCache:   true,
+			DeepSystem:   true,
+		})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 1
@@ -866,7 +878,7 @@ Usage:
   darius versions [engine]                       List installed & downloadable engine versions
   darius install <engine> [version]              Download & install a portable engine version
   darius use <engine> <version>                  Switch active version of an engine
-  darius repair [all|<engine>] [--reset-config]  Repair directories, settings, configs, locks & PATH
+  darius repair [all|<engine>] [--reset-config] [--fix-ports]  Full system repair (folders, configs, locks, ports, caches & PATH)
   darius system-update [--apply] [--token=PAT]   Check GitHub & install Darius DB system updates
   darius path [--add|--remove]                   Register Darius DB CLI & DB tools in Windows PATH
   darius gui                                     Open or focus the Darius DB desktop GUI

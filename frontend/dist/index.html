@@ -136,8 +136,12 @@
               ⬆️ System Updater
             </button>
             <button class="btn accent" id="btnOpenRepair"
-              title="Diagnose &amp; repair corrupted configs, stale PID locks, LocalDB, and folders">
+              title="Diagnose &amp; repair folders, configs, stale locks, LocalDB, ports, caches &amp; PATH">
               🔧 Repair
+            </button>
+            <button class="btn accent" id="btnRepairAllSystem"
+              title="Run 1-click full system repair across all components, ports, locks, caches &amp; UI state">
+              🛠️ Repair All
             </button>
             <button class="btn primary" id="btnStartAll">
               <svg viewBox="0 0 24 24">
@@ -932,15 +936,16 @@
       </div>
       <div class="modal-body">
         <p class="muted" style="margin:0;font-size:12px">
-          Diagnoses and repairs missing portable folders (<code>www/</code>, <code>bin/</code>, <code>data/</code>,
-          <code>etc/</code>, <code>logs/</code>, <code>tmp/</code>), corrupted <code>settings.json</code> or engine
-          config files, stale PID locks (e.g. PostgreSQL <code>postmaster.pid</code>), and MS SQL Server LocalDB
-          instances — while keeping all your databases in <code>data/</code> untouched.
+          Diagnoses and fixes missing folders (<code>www/</code>, <code>bin/</code>, <code>data/</code>,
+          <code>etc/</code>, <code>logs/</code>, <code>backups/</code>, <code>tmp/</code>), corrupted
+          <code>settings.json</code> / Cloud profiles / Schedules / Mailpit inbox, oversized logs, stale PIDs &amp;
+          orphaned processes, incomplete data folders, Windows <code>PATH</code>, SQL caches, and MS SQL LocalDB —
+          while keeping valid databases in <code>data/</code> untouched.
         </p>
         <label class="field">
           <span>Target to Repair</span>
           <select id="repairTarget" class="input">
-            <option value="all">All Components &amp; Engines (Recommended)</option>
+            <option value="all">All System Components &amp; Engines (Recommended)</option>
             <option value="apache">Apache Web Server</option>
             <option value="php">PHP</option>
             <option value="mariadb">MariaDB</option>
@@ -950,6 +955,14 @@
             <option value="redis">Redis</option>
             <option value="mailpit">Mailpit</option>
           </select>
+        </label>
+        <label class="check-row" style="font-size:12px">
+          <input type="checkbox" id="repairFixPorts" />
+          <span>Auto-reassign ports blocked by external programs to the nearest free port</span>
+        </label>
+        <label class="check-row" style="font-size:12px">
+          <input type="checkbox" id="repairCleanCache" checked />
+          <span>Clear SQL/UI caches, reset stuck modals/sync state &amp; repair panel layout</span>
         </label>
         <label class="check-row" style="font-size:12px">
           <input type="checkbox" id="repairResetCfg" />

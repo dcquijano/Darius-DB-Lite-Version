@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -689,6 +690,92 @@ func TestParseMSSQLOutputAndTargetCache(t *testing.T) {
 	mssqlTargetMu.Unlock()
 	if !cleared {
 		t.Fatal("expected InvalidateMSSQLTargetCache to clear cache")
+	}
+}
+
+func TestRepairSystemFixesAllComponents(t *testing.T) {
+	root := t.TempDir()
+	p := NewPaths(root)
+	if err := p.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Corrupt settings.json, create leftover temp files, bad mailpit messages.json, and partial redis temp rdb
+	if err := os.WriteFile(filepath.Join(root, "settings.json"), []byte("{not-json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.Tmp, "dariusdb-mssql-123.sql"), []byte("SELECT 1;"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.Backups, "bad.zip.tmp"), []byte("partial"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.MkdirAll(filepath.Join(p.Data, "mailpit"), 0o755)
+	if err := os.WriteFile(filepath.Join(p.Data, "mailpit", "messages.json"), []byte("{bad"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.MkdirAll(filepath.Join(p.Data, "redis"), 0o755)
+	if err := os.WriteFile(filepath.Join(p.Data, "redis", "temp-99.rdb"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Fake installed MariaDB with broken config and incomplete data dir
+	mariaDir := filepath.Join(p.EngineBin("mariadb"), "mariadb-11.4.0")
+	_ = os.MkdirAll(filepath.Join(mariaDir, "bin"), 0o755)
+	_ = os.WriteFile(filepath.Join(mariaDir, "bin", "mariadbd.exe"), []byte("stub"), 0o644)
+	_ = os.MkdirAll(p.EngineEtc("mariadb"), 0o755)
+	_ = os.WriteFile(filepath.Join(p.EngineEtc("mariadb"), "my.ini"), []byte("corrupt"), 0o644)
+	partialData := filepath.Join(p.Data, "mariadb-11.4")
+	_ = os.MkdirAll(partialData, 0o755)
+	_ = os.WriteFile(filepath.Join(partialData, "partial.ibd"), []byte("partial"), 0o644)
+
+	st := LoadSettings(root)
+	mgr := NewManagerWithOptions(p, st, nil, true)
+	// Force wedged state and port conflict on redis
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	busyPort := ln.Addr().(*net.TCPAddr).Port
+	redisDir := filepath.Join(p.EngineBin("redis"), "redis-8.0.0")
+	_ = os.MkdirAll(redisDir, 0o755)
+	_ = os.WriteFile(filepath.Join(redisDir, "redis-server.exe"), []byte("stub"), 0o644)
+	_ = st.Update(func(s *Settings) {
+		s.Engines["redis"].Port = busyPort
+		s.Engines["redis"].Version = "redis-8.0.0"
+		s.Schedules = []BackupSyncSchedule{{Name: "Nightly", LocalEngine: "mssql", LocalDB: "hris", SyncTime: "bad", RetentionDays: 0}}
+	})
+	mgr.set("redis", func(s *service) { s.state = StateStarting; s.pid = 999999 })
+
+	rep, err := mgr.RepairWithOptions(RepairOptions{
+		Target:     "all",
+		FixPorts:   true,
+		CleanCache: true,
+		DeepSystem: true,
+	})
+	if err != nil {
+		t.Fatalf("RepairWithOptions failed: %v", err)
+	}
+	if rep.FixedCount < 6 {
+		t.Fatalf("expected multiple system issues fixed, got %d items=%+v", rep.FixedCount, rep.Items)
+	}
+	if fileExists(filepath.Join(p.Tmp, "dariusdb-mssql-123.sql")) || fileExists(filepath.Join(p.Backups, "bad.zip.tmp")) {
+		t.Fatal("expected temp files to be cleaned")
+	}
+	if b, err := os.ReadFile(filepath.Join(p.Data, "mailpit", "messages.json")); err != nil || strings.TrimSpace(string(b)) != "[]" {
+		t.Fatalf("expected repaired mailpit messages.json, got %q err=%v", string(b), err)
+	}
+	if fileExists(filepath.Join(p.Data, "redis", "temp-99.rdb")) {
+		t.Fatal("expected stale redis temp RDB removed")
+	}
+	if b, err := os.ReadFile(filepath.Join(p.EngineEtc("mariadb"), "my.ini")); err != nil || !strings.Contains(string(b), "[mysqld]") {
+		t.Fatalf("expected repaired mariadb my.ini, got %q err=%v", string(b), err)
+	}
+	if st.Engine("redis").Port == busyPort {
+		t.Fatalf("expected busy redis port %d to be reassigned", busyPort)
+	}
+	if gotSched := st.Get().Schedules; len(gotSched) != 1 || gotSched[0].SyncTime != "02:00" || gotSched[0].RetentionDays != 7 {
+		t.Fatalf("expected normalized schedule, got %+v", gotSched)
 	}
 }
 

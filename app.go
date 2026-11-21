@@ -1278,6 +1278,10 @@ func (a *App) Repair(target string, resetConfigs bool) (*core.RepairReport, erro
 	return a.mgr.Repair(target, resetConfigs)
 }
 
+func (a *App) RepairSystem(opts core.RepairOptions) (*core.RepairReport, error) {
+	return a.mgr.RepairWithOptions(opts)
+}
+
 func (a *App) DeployWebsiteDialog() (string, error) {
 	if a.ctx == nil {
 		return "", errors.New("window not ready")

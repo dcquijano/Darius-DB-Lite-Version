@@ -123,31 +123,48 @@ func killProcessTree(pid int) {
 	_ = killProcess(pid)
 }
 
-// killProcessesInDir terminates any running process whose executable lives inside dir.
-func killProcessesInDir(dir string) {
+// pidsInDir returns PIDs of running processes (excluding self) whose executable resides under dir.
+func pidsInDir(dir string) []int {
+	if strings.TrimSpace(dir) == "" {
+		return nil
+	}
 	prefix := strings.ToLower(filepath.Clean(dir)) + string(filepath.Separator)
 	selfPid := uint32(os.Getpid())
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
-		return
+		return nil
 	}
 	defer windows.CloseHandle(snap)
 	var pe windows.ProcessEntry32
 	pe.Size = uint32(unsafe.Sizeof(pe))
 	if err := windows.Process32First(snap, &pe); err != nil {
-		return
+		return nil
 	}
+	var out []int
 	for {
 		pid := pe.ProcessID
 		if pid != 0 && pid != selfPid {
 			p := strings.ToLower(filepath.Clean(processPath(int(pid))))
 			if p != "" && strings.HasPrefix(p, prefix) {
-				_ = killProcess(int(pid))
+				out = append(out, int(pid))
 			}
 		}
 		if err := windows.Process32Next(snap, &pe); err != nil {
 			break
 		}
+	}
+	return out
+}
+
+// hasProcessInDir reports whether any process whose executable resides under dir is alive.
+func hasProcessInDir(dir string) bool {
+	return len(pidsInDir(dir)) > 0
+}
+
+// killProcessesInDir terminates any running process whose executable lives inside dir.
+func killProcessesInDir(dir string) {
+	for _, pid := range pidsInDir(dir) {
+		_ = killProcess(pid)
 	}
 }
 

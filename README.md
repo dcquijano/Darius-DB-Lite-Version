@@ -28,6 +28,16 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 |---|---|---|---|
 | ![Export Database](example/database-export.png) | ![Backup ZIP](example/database-backup-zip.jpg) | ![Import Database](example/database-import.jpg) | ![Restore .bak](example/database-restore-bak.jpg) |
 
+### Cloud Databases & 2:00 AM Auto-Sync / Backup
+| Cloud Databases & Daily Scheduler | Add Cloud DB (URI / ADO.NET Parse) |
+|---|---|
+| ![Cloud Databases](example/cloud-databases.jpg) | ![Add Cloud Database](example/cloud-add-database.jpg) |
+
+### Versions Manager, Config & Logs, and Built-in Terminal
+| Portable Engine Versions | Config & Logs Editor | Built-in Multi-Mode Terminal |
+|---|---|---|
+| ![Versions Manager](example/versions-manager.png) | ![Config and Logs](example/config-logs.png) | ![Built-in Terminal](example/terminal.png) |
+
 ### Settings & GitHub System Version Updater
 | Settings | GitHub System Updater |
 |---|---|

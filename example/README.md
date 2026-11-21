@@ -49,7 +49,32 @@ Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS 
 
 ---
 
-## 5. Settings (Ports, Credentials & Windows Integration)
+## 5. Cloud Databases, Provider Presets & 2:00 AM Auto-Sync / Backup
+
+Connect and manage **cPanel / Plesk / Hostinger (MySQL)**, **MonsterASP.NET / SmarterASP (MS SQL)**, **Supabase / Neon (PostgreSQL)**, **Aiven / TiDB / PlanetScale**, **AWS RDS / Azure SQL**, and **Redis Cloud**, complete with URI/ADO.NET quick-parse, live Local ↔ Cloud sync, and daily **2:00 AM Auto-Sync & `.zip` Auto-Backup** with 7-day retention purge.
+
+### Cloud Databases & Auto-Sync Scheduler
+![Cloud Databases and Scheduler](cloud-databases.jpg)
+
+### Add Cloud Database (Quick URI / ADO.NET Auto-Fill)
+![Add Cloud Database Modal](cloud-add-database.jpg)
+
+---
+
+## 6. Portable Engine Versions, Config & Logs, and Built-in Terminal
+
+### Portable Versions Manager (Apache, PHP, MariaDB, MySQL, PostgreSQL, MS SQL, Redis, Mailpit)
+![Portable Engine Versions Manager](versions-manager.png)
+
+### Config & Service Log Editor
+![Config and Logs Editor](config-logs.png)
+
+### Built-in Multi-Mode Terminal (Shell, MariaDB, MySQL, PostgreSQL, MS SQL, Redis CLI)
+![Built-in Multi-Mode Terminal](terminal.png)
+
+---
+
+## 7. Settings (Ports, Credentials & Windows Integration)
 
 Configure ports, default database credentials, Start All selection, close-to-tray behavior, and auto-start options saved cleanly to `settings.json`.
 
@@ -57,7 +82,7 @@ Configure ports, default database credentials, Start All selection, close-to-tra
 
 ---
 
-## 6. Live GitHub System Version Updater
+## 8. Live GitHub System Version Updater
 
 Check online for new versions/builds, sync release announcements and commit history directly from GitHub, and perform 1-click in-place upgrades with automatic restart (`data/` and `www/` preserved).
 

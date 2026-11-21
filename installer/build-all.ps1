@@ -29,12 +29,15 @@ try {
 
     Remove-Item -Recurse -Force "dist\*", "installer\*.exe", "build\bin\*.exe" -ErrorAction SilentlyContinue
 
-    # Ensure root and cmd/updater rsrc_windows_amd64.syso are present so every .exe embeds the Darius DB icon & manifest
+    # Ensure root, cmd/updater, and cmd/repair rsrc_windows_amd64.syso are present so every .exe embeds the Darius DB icon & manifest
     if (-not (Test-Path "rsrc_windows_amd64.syso") -and (Test-Path "cmd\installer\rsrc_windows_amd64.syso")) {
         Copy-Item -Force "cmd\installer\rsrc_windows_amd64.syso" "rsrc_windows_amd64.syso"
     }
     if (-not (Test-Path "cmd\updater\rsrc_windows_amd64.syso") -and (Test-Path "cmd\installer\rsrc_windows_amd64.syso")) {
         Copy-Item -Force "cmd\installer\rsrc_windows_amd64.syso" "cmd\updater\rsrc_windows_amd64.syso"
+    }
+    if (-not (Test-Path "cmd\repair\rsrc_windows_amd64.syso") -and (Test-Path "cmd\installer\rsrc_windows_amd64.syso")) {
+        Copy-Item -Force "cmd\installer\rsrc_windows_amd64.syso" "cmd\repair\rsrc_windows_amd64.syso"
     }
 
     # Incrementally warm Go build cache with unified build tags (-tags "desktop,production")
@@ -65,6 +68,10 @@ try {
     go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Launcher.exe" ./cmd/launcher
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Launcher.exe failed" }
 
+    Write-Host "==> Building DariusDB-Repair.exe (Standalone Repair All Wizard)..." -ForegroundColor Cyan
+    go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui$ldBuild" -o "build\bin\DariusDB-Repair.exe" ./cmd/repair
+    if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Repair.exe failed" }
+
     Write-Host "==> Building DariusDB-Uninstall.exe..." -ForegroundColor Cyan
     go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui" -o "build\bin\DariusDB-Uninstall.exe" ./cmd/uninstaller
     if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Uninstall.exe failed" }
@@ -89,6 +96,7 @@ try {
 
     Copy-Item "build\bin\DariusDB.exe"           $stageDir
     Copy-Item "build\bin\DariusDB-Launcher.exe"  $stageDir
+    Copy-Item "build\bin\DariusDB-Repair.exe"    $stageDir
     Copy-Item "build\bin\DariusDB-Uninstall.exe" $stageDir
     Copy-Item "build\bin\DariusDB-Updater.exe"   $stageDir
     Copy-Item "build\bin\darius.exe"             $stageDir
@@ -110,9 +118,10 @@ try {
     }
     Remove-Item -Force "build\bin\DariusDB-Setup-stub.exe" -ErrorAction SilentlyContinue
 
-    # Place Installer, Launcher, Uninstaller, and Updater in installer\ for direct click access & GitHub distribution
+    # Place Installer, Launcher, Repair All, Uninstaller, and Updater in installer\ for direct click access & GitHub distribution
     Copy-Item -Force $setupExe "installer\DariusDB-Setup-$Version.exe"
     Copy-Item -Force "build\bin\DariusDB-Launcher.exe" "installer\DariusDB-Launcher.exe"
+    Copy-Item -Force "build\bin\DariusDB-Repair.exe" "installer\DariusDB-Repair.exe"
     Copy-Item -Force "build\bin\DariusDB-Uninstall.exe" "installer\DariusDB-Uninstall.exe"
     Copy-Item -Force "build\bin\DariusDB-Updater.exe" "installer\DariusDB-Updater.exe"
 

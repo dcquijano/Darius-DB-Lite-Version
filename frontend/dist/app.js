@@ -2985,21 +2985,28 @@
       return uiFixes;
     };
 
+    let repairModalMode = "single";
     const closeRepair = () => ($("modalRepair").hidden = true);
+    const getRepairButtonLabel = () => (repairModalMode === "all" ? "🛠️ Run Repair All" : "🔧 Run Repair");
     const runRepairAction = async () => {
-      const target = $("repairTarget").value || "all";
+      const target = repairModalMode === "all" ? "all" : ($("repairTarget").value || "apache");
       const resetCfg = !!$("repairResetCfg").checked;
       const fixPorts = !!$("repairFixPorts")?.checked;
-      const cleanCache = $("repairCleanCache") ? !!$("repairCleanCache").checked : true;
+      const cleanCache = !!$("repairCleanCache")?.checked;
+      const deepSystem = repairModalMode === "all";
       const btn = $("btnRunRepair");
       const box = $("repairReportBox");
       btn.disabled = true;
-      btn.textContent = "Repairing...";
+      btn.textContent = repairModalMode === "all" ? "Repairing All..." : "Repairing...";
       box.hidden = false;
-      box.innerHTML = `<div class="muted">Running full system diagnostics &amp; repairing ${esc(target)}...</div>`;
+      box.innerHTML = `<div class="muted">${
+        repairModalMode === "all"
+          ? "Running full system diagnostics &amp; repairing all components..."
+          : `Running diagnostics &amp; repairing ${esc(target)}...`
+      }</div>`;
       try {
         const rep = api().RepairSystem
-          ? await api().RepairSystem({ target, resetConfigs: resetCfg, fixPorts, cleanCache, deepSystem: true })
+          ? await api().RepairSystem({ target, resetConfigs: resetCfg, fixPorts, cleanCache, deepSystem })
           : await api().Repair(target, resetCfg);
         const uiFixes = healFrontendCaches(cleanCache);
         const allItems = [...(rep.items || [])];
@@ -3037,22 +3044,62 @@
         toast(errMsg(e), "err");
       } finally {
         btn.disabled = false;
-        btn.textContent = "🔧 Run Repair Now";
+        btn.textContent = getRepairButtonLabel();
       }
     };
+    const defaultSingleRepairTarget = () => {
+      const running = (state.statuses || []).find((s) => s.running && s.engine);
+      if (running) return running.engine;
+      const installed = (state.statuses || []).find((s) => s.installed && s.engine);
+      return installed ? installed.engine : "apache";
+    };
     const openRepairModal = (target = "all", autoRun = false, opts = {}) => {
-      $("repairTarget").value = target || "all";
+      const isAll = opts.mode === "all" || (opts.mode !== "single" && target === "all");
+      repairModalMode = isAll ? "all" : "single";
+
+      const sel = $("repairTarget");
+      const allOpt = sel?.querySelector('option[value="all"]');
+      if (isAll) {
+        if (allOpt) allOpt.hidden = false;
+        sel.value = "all";
+        sel.disabled = true;
+        if ($("repairModalTitle")) $("repairModalTitle").textContent = "🛠️ Repair All (Full System & Engines)";
+        if ($("repairModalDesc")) {
+          $("repairModalDesc").innerHTML =
+            "Full-system recovery across all folders (<code>www/</code>, <code>bin/</code>, <code>data/</code>, <code>etc/</code>, <code>logs/</code>, <code>backups/</code>, <code>tmp/</code>), <code>settings.json</code>, Cloud profiles, Schedules, Mailpit inbox, oversized logs, stale PIDs &amp; orphaned processes, Windows <code>PATH</code>, SQL/UI caches, blocked ports &amp; MS SQL LocalDB — while keeping databases in <code>data/</code> untouched.";
+        }
+        if ($("repairTargetLabel")) $("repairTargetLabel").textContent = "Scope";
+      } else {
+        const picked = target && target !== "all" ? target : defaultSingleRepairTarget();
+        if (allOpt) allOpt.hidden = true;
+        sel.disabled = false;
+        sel.value = picked;
+        if (sel.value === "all") sel.value = "apache";
+        const engLabel = sel.options[sel.selectedIndex]?.textContent || picked;
+        if ($("repairModalTitle")) {
+          $("repairModalTitle").textContent = target && target !== "all"
+            ? `🔧 Repair ${engLabel} Only`
+            : "🔧 Repair Service Only";
+        }
+        if ($("repairModalDesc")) {
+          $("repairModalDesc").innerHTML =
+            "Repairs only the selected component — verifies its binaries, configuration, data folder, and clears stale PID locks while keeping databases in <code>data/</code> untouched.";
+        }
+        if ($("repairTargetLabel")) $("repairTargetLabel").textContent = "Service to Repair (Single Component Only)";
+      }
+
       $("repairResetCfg").checked = !!opts.resetConfigs;
-      if ($("repairFixPorts")) $("repairFixPorts").checked = !!opts.fixPorts;
-      if ($("repairCleanCache")) $("repairCleanCache").checked = opts.cleanCache !== false;
+      if ($("repairFixPorts")) $("repairFixPorts").checked = opts.fixPorts !== undefined ? !!opts.fixPorts : isAll;
+      if ($("repairCleanCache")) $("repairCleanCache").checked = opts.cleanCache !== undefined ? !!opts.cleanCache : isAll;
+      $("btnRunRepair").textContent = getRepairButtonLabel();
       $("repairReportBox").hidden = !autoRun;
       if (!autoRun) $("repairReportBox").innerHTML = "";
       $("modalRepair").hidden = false;
       if (autoRun) runRepairAction();
     };
-    $("btnOpenRepair").onclick = () => openRepairModal("all", false);
+    $("btnOpenRepair").onclick = () => openRepairModal(defaultSingleRepairTarget(), false, { mode: "single", fixPorts: false, cleanCache: false, resetConfigs: false });
     if ($("btnRepairAllSystem")) {
-      $("btnRepairAllSystem").onclick = () => openRepairModal("all", false, { fixPorts: true, cleanCache: true, resetConfigs: false });
+      $("btnRepairAllSystem").onclick = () => openRepairModal("all", false, { mode: "all", fixPorts: true, cleanCache: true, resetConfigs: false });
     }
     $("btnCloseRepair").onclick = closeRepair;
     $("btnCancelRepair").onclick = closeRepair;

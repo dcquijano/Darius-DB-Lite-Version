@@ -1,7 +1,7 @@
 {
   "name": "Darius DB (Lite Version 0.1.4)",
   "version": "0.1.4",
-  "build": "202611211432",
+  "build": "202611211509",
   "channel": "Lite Version",
   "releasedAt": "2026-11-21",
   "author": "Darius Cumpio",
@@ -10,9 +10,11 @@
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.4/DariusDB-0.1.4-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.4.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Updated 'Repair All' to open the Repair dialog for review before running, plus Multi-Tab SQL Browser, DB/Table counts, resizable splitters & fast data loading!",
+  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Separated 'Repair' (single service only) vs 'Repair All' (full system), added standalone DariusDB-Repair.exe & repair.ps1 installer tool, Multi-Tab SQL Browser & fast MS SQL loading!",
   "changelog": [
-    "Updated 'Repair All' button to pre-configure the Repair modal and wait for 'Run Repair Now' click before executing",
+    "Added standalone DariusDB-Repair.exe (native Win32 Repair All Installer Wizard) and installer/repair.ps1, bundled in DariusDB-Setup-0.1.4.exe, portable ZIP, Start Menu ('Repair All Darius DB'), and DariusDB-Uninstall.exe",
+    "Separated 'Repair' (single service/engine only: '🔧 Repair Service Only' + '🔧 Run Repair') from 'Repair All' (full system & all engines: '🛠️ Repair All' + port/cache/LocalDB/PATH recovery + '🛠️ Run Repair All')",
+    "Updated 'Repair All' button to pre-configure the Repair dialog for review before running",
     "Added 1-Click 'Repair All' & Full-System Diagnostics (RepairWithOptions): fixes missing folders, corrupted settings/catalog/Mailpit inbox, Cloud/Schedule configs, oversized logs, stale PIDs/temp/orphaned processes, incomplete data dirs, Windows PATH, SQL/UI caches & busy ports",
     "Added Multi-Tab SQL Browser: click multiple tables to open each in its own tab side-by-side, click + for new SQL query tabs, close tabs with ✕/middle-click, and keep per-tab SQL, rows, filters, pagination & column widths",
     "Added live Database & Table count badges beside Databases and Tables (<db>) headers, plus resizable/collapsible browser splitters, stretchable/auto-fit result table columns, and faster parallel/non-blocking table & MS SQL query loading",

@@ -31,6 +31,7 @@ jobs:
             dist/*.zip
             dist/*.exe
             installer/DariusDB-Launcher.exe
+            installer/DariusDB-Repair.exe
             installer/DariusDB-Uninstall.exe
             installer/DariusDB-Updater.exe
 
@@ -43,5 +44,6 @@ jobs:
             dist/DariusDB-Setup-*.exe
             dist/DariusDB-*-portable-windows-amd64.zip
             installer/DariusDB-Launcher.exe
+            installer/DariusDB-Repair.exe
             installer/DariusDB-Uninstall.exe
             installer/DariusDB-Updater.exe

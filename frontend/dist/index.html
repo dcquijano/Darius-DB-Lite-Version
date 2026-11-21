@@ -136,11 +136,11 @@
               ⬆️ System Updater
             </button>
             <button class="btn accent" id="btnOpenRepair"
-              title="Diagnose &amp; repair folders, configs, stale locks, LocalDB, ports, caches &amp; PATH">
+              title="Repair a single selected service/engine only without changing other system settings">
               🔧 Repair
             </button>
             <button class="btn accent" id="btnRepairAllSystem"
-              title="Open Repair modal pre-configured for full system repair across all components, ports, locks &amp; caches">
+              title="Repair All system components, engines, blocked ports, caches, locks &amp; Windows PATH">
               🛠️ Repair All
             </button>
             <button class="btn primary" id="btnStartAll">
@@ -931,21 +931,18 @@
   <div class="modal-backdrop" id="modalRepair" hidden>
     <div class="modal" style="width:600px;max-width:94vw">
       <div class="modal-head">
-        <h3>🔧 Repair Darius DB (Lite Version 0.1.4)</h3>
+        <h3 id="repairModalTitle">🔧 Repair Service Only</h3>
         <button class="icon-btn" id="btnCloseRepair" aria-label="Close">✕</button>
       </div>
       <div class="modal-body">
-        <p class="muted" style="margin:0;font-size:12px">
-          Diagnoses and fixes missing folders (<code>www/</code>, <code>bin/</code>, <code>data/</code>,
-          <code>etc/</code>, <code>logs/</code>, <code>backups/</code>, <code>tmp/</code>), corrupted
-          <code>settings.json</code> / Cloud profiles / Schedules / Mailpit inbox, oversized logs, stale PIDs &amp;
-          orphaned processes, incomplete data folders, Windows <code>PATH</code>, SQL caches, and MS SQL LocalDB —
-          while keeping valid databases in <code>data/</code> untouched.
+        <p class="muted" id="repairModalDesc" style="margin:0;font-size:12px">
+          Repairs the selected component only — verifies its folders, configs, binaries, data directory, and clears
+          stale PID locks while keeping databases in <code>data/</code> untouched.
         </p>
-        <label class="field">
-          <span>Target to Repair</span>
+        <label class="field" id="repairTargetField">
+          <span id="repairTargetLabel">Service to Repair (Single Component Only)</span>
           <select id="repairTarget" class="input">
-            <option value="all">All System Components &amp; Engines (Recommended)</option>
+            <option value="all">All System Components &amp; Engines (Repair All)</option>
             <option value="apache">Apache Web Server</option>
             <option value="php">PHP</option>
             <option value="mariadb">MariaDB</option>
@@ -961,7 +958,7 @@
           <span>Auto-reassign ports blocked by external programs to the nearest free port</span>
         </label>
         <label class="check-row" style="font-size:12px">
-          <input type="checkbox" id="repairCleanCache" checked />
+          <input type="checkbox" id="repairCleanCache" />
           <span>Clear SQL/UI caches, reset stuck modals/sync state &amp; repair panel layout</span>
         </label>
         <label class="check-row" style="font-size:12px">
@@ -974,7 +971,7 @@
         </div>
         <div class="modal-actions">
           <button type="button" class="btn" id="btnCancelRepair">Close</button>
-          <button type="button" class="btn primary" id="btnRunRepair">🔧 Run Repair Now</button>
+          <button type="button" class="btn primary" id="btnRunRepair">🔧 Run Repair</button>
         </div>
       </div>
     </div>

@@ -24,7 +24,7 @@ const (
 )
 
 // CLIAppBuild identifies the build timestamp (overridden via -ldflags at build time).
-var CLIAppBuild = "202611211432"
+var CLIAppBuild = "202611211509"
 
 // RunCLI executes a CLI subcommand and returns an process exit code.
 func RunCLI(root string, args []string) int {
@@ -407,6 +407,7 @@ func RunCLI(root string, args []string) int {
 		target := "all"
 		resetCfg := false
 		fixPorts := false
+		cleanCache := true
 		for _, a := range rest {
 			low := strings.ToLower(a)
 			switch low {
@@ -416,6 +417,11 @@ func RunCLI(root string, args []string) int {
 				fixPorts = true
 			case "--deep", "--system":
 				fixPorts = true
+				cleanCache = true
+			case "--clean-cache", "--cache":
+				cleanCache = true
+			case "--no-cache":
+				cleanCache = false
 			default:
 				target = normalizeEngineArg(a)
 			}
@@ -424,7 +430,7 @@ func RunCLI(root string, args []string) int {
 			Target:       target,
 			ResetConfigs: resetCfg,
 			FixPorts:     fixPorts,
-			CleanCache:   true,
+			CleanCache:   cleanCache,
 			DeepSystem:   true,
 		})
 		if err != nil {

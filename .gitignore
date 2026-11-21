@@ -8,6 +8,7 @@
 *.exe
 !installer/DariusDB-Setup-*.exe
 !installer/DariusDB-Launcher.exe
+!installer/DariusDB-Repair.exe
 !installer/DariusDB-Uninstall.exe
 !installer/DariusDB-Updater.exe
 *.syso

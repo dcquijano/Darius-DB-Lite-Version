@@ -47,6 +47,7 @@ if (-not $mainExe) {
     exit 1
 }
 $launcherExe  = Find-SourceFile "DariusDB-Launcher.exe"
+$repairExe    = Find-SourceFile "DariusDB-Repair.exe"
 $uninstallExe = Find-SourceFile "DariusDB-Uninstall.exe"
 $updaterExe   = Find-SourceFile "DariusDB-Updater.exe"
 $cliExe       = Find-SourceFile "darius.exe"
@@ -98,6 +99,7 @@ if ($runningProcs) {
 # Copy executables & documentation
 Copy-Item -Force $mainExe (Join-Path $InstallDir "DariusDB.exe")
 if ($launcherExe)  { Copy-Item -Force $launcherExe  (Join-Path $InstallDir "DariusDB-Launcher.exe") }
+if ($repairExe)    { Copy-Item -Force $repairExe    (Join-Path $InstallDir "DariusDB-Repair.exe") }
 if ($uninstallExe) { Copy-Item -Force $uninstallExe (Join-Path $InstallDir "DariusDB-Uninstall.exe") }
 if ($updaterExe)   { Copy-Item -Force $updaterExe   (Join-Path $InstallDir "DariusDB-Updater.exe") }
 if ($cliExe)       { Copy-Item -Force $cliExe       (Join-Path $InstallDir "darius.exe") }
@@ -126,6 +128,7 @@ function New-Shortcut([string]$LinkPath, [string]$TargetPath, [string]$Arguments
 
 $installedMain      = Join-Path $InstallDir "DariusDB.exe"
 $installedLauncher  = if (Test-Path (Join-Path $InstallDir "DariusDB-Launcher.exe")) { Join-Path $InstallDir "DariusDB-Launcher.exe" } else { $installedMain }
+$installedRepair    = Join-Path $InstallDir "DariusDB-Repair.exe"
 $installedUninstall = Join-Path $InstallDir "DariusDB-Uninstall.exe"
 $installedUpdater   = Join-Path $InstallDir "DariusDB-Updater.exe"
 $iconRef            = "$installedMain,0"
@@ -139,6 +142,9 @@ if (Test-Path (Join-Path $InstallDir "DariusDB-Launcher.exe")) {
 }
 if (Test-Path $installedUpdater) {
     New-Shortcut (Join-Path $startMenuDir "Update $AppName.lnk") $installedUpdater "" $iconRef "Check for updates and upgrade $AppName"
+}
+if (Test-Path $installedRepair) {
+    New-Shortcut (Join-Path $startMenuDir "Repair All $AppName.lnk") $installedRepair "" $iconRef "Run Repair All diagnostics & recovery for $AppName"
 }
 if (Test-Path $installedUninstall) {
     New-Shortcut (Join-Path $startMenuDir "Uninstall $AppName.lnk") $installedUninstall "" $iconRef "Uninstall $AppName"
@@ -163,8 +169,11 @@ Set-ItemProperty -Path $uninstKey -Name "InstallLocation"      -Value $InstallDi
 Set-ItemProperty -Path $uninstKey -Name "DisplayIcon"          -Value $iconRef
 Set-ItemProperty -Path $uninstKey -Name "InstallDate"          -Value (Get-Date -Format "yyyyMMdd")
 Set-ItemProperty -Path $uninstKey -Name "EstimatedSize"        -Value $sizeKB -Type DWord
-Set-ItemProperty -Path $uninstKey -Name "NoModify"             -Value 1 -Type DWord
-Set-ItemProperty -Path $uninstKey -Name "NoRepair"             -Value 1 -Type DWord
+Set-ItemProperty -Path $uninstKey -Name "NoModify"             -Value 0 -Type DWord
+Set-ItemProperty -Path $uninstKey -Name "NoRepair"             -Value 0 -Type DWord
+if (Test-Path $installedRepair) {
+    Set-ItemProperty -Path $uninstKey -Name "ModifyPath"           -Value "`"$installedRepair`" --dir=`"$InstallDir`""
+}
 if (Test-Path $installedUninstall) {
     Set-ItemProperty -Path $uninstKey -Name "UninstallString"      -Value "`"$installedUninstall`""
     Set-ItemProperty -Path $uninstKey -Name "QuietUninstallString" -Value "`"$installedUninstall`" --silent --keep-data"

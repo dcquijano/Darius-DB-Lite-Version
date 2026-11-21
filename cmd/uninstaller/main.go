@@ -478,7 +478,7 @@ func buildUninstControls(hwnd syscall.Handle) {
 	uw.p1LblAction = createCtrl(0, "STATIC", "Choose Maintenance Action:", 0, 22, 136, 480, 18, hwnd, 0, uw.fontBold)
 	uw.p1RadUninstall = createCtrl(0, "BUTTON", "Uninstall Darius DB (Lite Version 0.1.4) from this computer",
 		wsTabStop|wsGroup|bsAutoRadioButton, 26, 158, 495, 22, hwnd, idRadUninstall, uw.fontUI)
-	uw.p1RadRepair = createCtrl(0, "BUTTON", "Repair Darius DB (fix corrupted configs, stale PID locks, folders & shortcuts)",
+	uw.p1RadRepair = createCtrl(0, "BUTTON", "Repair All Darius DB (fix configs, ports, caches, locks, LocalDB, folders & shortcuts)",
 		wsTabStop|bsAutoRadioButton, 26, 183, 495, 22, hwnd, idRadRepair, uw.fontUI)
 
 	uw.p1LblOpts = createCtrl(0, "STATIC", "Database Data & Cleanup Options:", 0, 22, 215, 480, 18, hwnd, 0, uw.fontBold)
@@ -777,14 +777,7 @@ func performUninstall(opts uninstOptions, report func(pct int, msg string)) erro
 	}
 
 	step(15, "Stopping any running Darius DB services and processes in "+opts.root)
-	existingLauncher := filepath.Join(opts.root, "DariusDB-Launcher.exe")
-	if fileExists(existingLauncher) {
-		stopCmd := exec.Command(existingLauncher, "--stop-all")
-		stopCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-		_ = stopCmd.Run()
-	}
-	winui.KillProcessesInDir(opts.root, uint32(os.Getpid()))
-	time.Sleep(400 * time.Millisecond)
+	winui.StopDariusProcesses(opts.root, uint32(os.Getpid()))
 
 	step(32, "Removing Windows Startup & Installed Apps registry entries")
 	if k, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.SET_VALUE); err == nil {
@@ -795,16 +788,17 @@ func performUninstall(opts uninstOptions, report func(pct int, msg string)) erro
 
 	if opts.cleanPath {
 		step(48, "Removing Desktop & Start Menu shortcuts")
-		removeShortcuts()
+		winui.RemoveStandardShortcuts(appShortName)
 
 		step(62, "Removing Darius DB from Windows User PATH")
-		removeDirFromUserPath(opts.root)
+		winui.RemoveDirFromUserPath(opts.root)
 	}
 
-	step(78, "Removing Darius DB application binaries (DariusDB.exe, Launcher, Updater, CLI)")
+	step(78, "Removing Darius DB application binaries (DariusDB.exe, Launcher, Repair, Updater, CLI)")
 	programItems := []string{
 		"DariusDB.exe",
 		"DariusDB-Launcher.exe",
+		"DariusDB-Repair.exe",
 		"DariusDB-Updater.exe",
 		"darius.exe",
 		"LICENSE",
@@ -837,91 +831,43 @@ func performRepair(opts uninstOptions, report func(pct int, msg string)) error {
 		}
 	}
 
-	step(18, "Verifying portable directory structure (www, bin, data, etc, logs, tmp)")
-	for _, sub := range []string{"www", "bin", "data", "etc", "logs", "tmp"} {
+	step(12, "Stopping any hung Darius DB processes in "+opts.root)
+	winui.StopDariusProcesses(opts.root, uint32(os.Getpid()))
+
+	step(24, "Verifying portable directory structure (www, bin, data, etc, logs, backups, tmp)")
+	for _, sub := range []string{"www", "bin", "data", "etc", "logs", "backups", "tmp"} {
 		_ = os.MkdirAll(filepath.Join(opts.root, sub), 0o755)
+	}
+
+	if copied, err := winui.RestoreCoreBinaries(opts.root, opts.selfExe, true); err == nil && len(copied) > 0 {
+		step(36, "Restored missing files: "+strings.Join(copied, ", "))
 	}
 
 	cliExe := filepath.Join(opts.root, "darius.exe")
 	if fileExists(cliExe) {
-		step(50, "Running darius.exe repair all (configs, settings.json, stale PID locks, LocalDB)")
-		cmd := exec.Command(cliExe, "repair", "all")
+		step(50, "Running darius.exe repair all --fix-ports (configs, settings.json, ports, caches, stale locks, LocalDB)")
+		cmd := exec.Command(cliExe, "repair", "all", "--fix-ports", "--clean-cache")
 		cmd.Dir = opts.root
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 		if out, err := cmd.CombinedOutput(); err == nil {
 			for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "| OK") || strings.HasPrefix(line, "| FIXED") {
-					step(65, strings.Trim(line, "| "))
+				if strings.HasPrefix(line, "| OK") || strings.HasPrefix(line, "| FIXED") || strings.HasPrefix(line, "| WARN") {
+					step(68, strings.Trim(line, "| "))
 				}
 			}
 		}
 	}
 
-	step(85, "Repairing Start Menu and Desktop shortcuts")
-	repairShortcuts(opts.root)
+	step(82, "Refreshing Windows User PATH & Installed Apps registration")
+	_ = winui.EnsureDirsInUserPath(opts.root)
+	winui.RegisterUninstallEntry(opts.root, appFullTitle, appVersion, appAuthor)
 
-	step(100, "Darius DB (Lite Version 0.1.4) repair complete!")
+	step(92, "Repairing Start Menu and Desktop shortcuts")
+	winui.CreateStandardShortcuts(opts.root, appShortName, appFullTitle, true, true)
+
+	step(100, "Darius DB (Lite Version 0.1.4) Repair All complete!")
 	return nil
-}
-
-func removeShortcuts() {
-	if appData := os.Getenv("APPDATA"); appData != "" {
-		_ = os.RemoveAll(filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Darius DB"))
-	}
-	if profile := os.Getenv("USERPROFILE"); profile != "" {
-		for _, sub := range []string{"Desktop", filepath.Join("OneDrive", "Desktop")} {
-			_ = os.Remove(filepath.Join(profile, sub, "Darius DB.lnk"))
-		}
-	}
-}
-
-func repairShortcuts(installDir string) {
-	mainExe := filepath.Join(installDir, "DariusDB.exe")
-	launcherExe := filepath.Join(installDir, "DariusDB-Launcher.exe")
-	if !fileExists(launcherExe) {
-		launcherExe = mainExe
-	}
-	uninstExe := filepath.Join(installDir, "DariusDB-Uninstall.exe")
-	updaterExe := filepath.Join(installDir, "DariusDB-Updater.exe")
-	startMenu := filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs", appShortName)
-	_ = os.MkdirAll(startMenu, 0o755)
-	_ = winui.CreateShortcut(filepath.Join(startMenu, appShortName+".lnk"), launcherExe, "", installDir, mainExe, "Launch "+appFullTitle)
-	_ = winui.CreateShortcut(filepath.Join(startMenu, appShortName+" Terminal.lnk"), launcherExe, "--terminal", installDir, mainExe, "Open "+appFullTitle+" Terminal")
-	_ = winui.CreateShortcut(filepath.Join(startMenu, "Update "+appShortName+".lnk"), updaterExe, "", installDir, mainExe, "Update "+appFullTitle)
-	_ = winui.CreateShortcut(filepath.Join(startMenu, "Repair "+appShortName+".lnk"), uninstExe, "--repair", installDir, mainExe, "Repair "+appFullTitle)
-	_ = winui.CreateShortcut(filepath.Join(startMenu, "Uninstall "+appShortName+".lnk"), uninstExe, "", installDir, mainExe, "Uninstall "+appFullTitle)
-
-	desktop := filepath.Join(os.Getenv("USERPROFILE"), "Desktop")
-	if st, err := os.Stat(desktop); err == nil && st.IsDir() {
-		_ = winui.CreateShortcut(filepath.Join(desktop, appShortName+".lnk"), launcherExe, "", installDir, mainExe, "Launch "+appFullTitle)
-	}
-}
-
-func removeDirFromUserPath(targetDir string) {
-	k, err := registry.OpenKey(registry.CURRENT_USER, `Environment`, registry.QUERY_VALUE|registry.SET_VALUE)
-	if err != nil {
-		return
-	}
-	defer k.Close()
-	cur, _, err := k.GetStringValue("Path")
-	if err != nil {
-		return
-	}
-	cleanTarget := strings.ToLower(strings.TrimRight(filepath.Clean(targetDir), `\/`))
-	var kept []string
-	for _, p := range strings.Split(cur, ";") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		cleanP := strings.ToLower(strings.TrimRight(filepath.Clean(p), `\/`))
-		if cleanP == cleanTarget || strings.HasPrefix(cleanP, cleanTarget+`\`) {
-			continue
-		}
-		kept = append(kept, p)
-	}
-	_ = k.SetExpandStringValue("Path", strings.Join(kept, ";"))
 }
 
 func scheduleInstalledSelfDelete(root, selfExe string, removeRoot bool) {

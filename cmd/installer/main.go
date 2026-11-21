@@ -30,9 +30,9 @@ const (
 	appFullTitle = "Darius DB (Lite Version 0.1.4)"
 	appVersion   = "0.1.4"
 	appAuthor    = "Darius Cumpio"
-	defaultDir   = `C:\DariusDB`
-	uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\DariusDB`
-	runKey       = `Software\Microsoft\Windows\CurrentVersion\Run`
+	defaultDir   = winui.DefaultInstallDir
+	uninstallKey = winui.UninstallRegKey
+	runKey       = winui.RunRegKey
 	trailerMagic = "DARIUS01"
 
 	mitLicenseText = "MIT License\r\n\r\n" +
@@ -73,6 +73,8 @@ func main() {
 	silent := false
 	forceUpdate := false
 	repairMode := false
+	resetConfigs := false
+	fixPorts := true
 	autoStart := false
 	noDesktop := false
 
@@ -85,6 +87,12 @@ func main() {
 			forceUpdate = true
 		case low == "--repair" || low == "/repair":
 			repairMode = true
+		case low == "--reset-config" || low == "--reset":
+			resetConfigs = true
+		case low == "--no-fix-ports":
+			fixPorts = false
+		case low == "--fix-ports":
+			fixPorts = true
 		case low == "--autostart":
 			autoStart = true
 		case low == "--no-desktop":
@@ -169,12 +177,14 @@ func main() {
 
 	if silent {
 		opts := installOptions{
-			dir:       installDir,
-			desktop:   !noDesktop,
-			startMenu: true,
-			addToPath: true,
-			autoStart: autoStart,
-			repair:    repairMode,
+			dir:          installDir,
+			desktop:      !noDesktop,
+			startMenu:    true,
+			addToPath:    true,
+			autoStart:    autoStart,
+			repair:       repairMode,
+			fixPorts:     fixPorts,
+			resetConfigs: resetConfigs,
 		}
 		if err := performInstall(opts, nil); err != nil {
 			os.Exit(1)
@@ -182,16 +192,20 @@ func main() {
 		return
 	}
 
+	wiz.fixPorts = fixPorts
+	wiz.resetConfigs = resetConfigs
 	runWizardGUI()
 }
 
 type installOptions struct {
-	dir       string
-	desktop   bool
-	startMenu bool
-	addToPath bool
-	autoStart bool
-	repair    bool
+	dir          string
+	desktop      bool
+	startMenu    bool
+	addToPath    bool
+	autoStart    bool
+	repair       bool
+	fixPorts     bool
+	resetConfigs bool
 }
 
 // ---------------------------------------------------------------- Win32 Wizard GUI
@@ -261,6 +275,8 @@ const (
 	idChkStartMnu = 304
 	idChkPath     = 305
 	idChkBoot     = 306
+	idChkFixPorts = 307
+	idChkResetCfg = 308
 	idChkLaunch   = 501
 	idChkGuide    = 502
 )
@@ -335,10 +351,12 @@ type wizardState struct {
 	fontBold   syscall.Handle
 	fontUI     syscall.Handle
 	fontMono   syscall.Handle
-	page       int // 1..4
-	installing bool
-	repairMode bool
-	finalDir   string
+	page         int // 1..4
+	installing   bool
+	repairMode   bool
+	fixPorts     bool
+	resetConfigs bool
+	finalDir     string
 
 	// Header
 	lblTitle    syscall.Handle
@@ -350,14 +368,16 @@ type wizardState struct {
 	p1Accept syscall.Handle
 
 	// Page 2: Destination & Options
-	p2LblDir   syscall.Handle
-	p2EditDir  syscall.Handle
-	p2BtnBrw   syscall.Handle
-	p2LblOpt   syscall.Handle
-	p2ChkDesk  syscall.Handle
-	p2ChkMenu  syscall.Handle
-	p2ChkPath  syscall.Handle
-	p2ChkBoot  syscall.Handle
+	p2LblDir      syscall.Handle
+	p2EditDir     syscall.Handle
+	p2BtnBrw      syscall.Handle
+	p2LblOpt      syscall.Handle
+	p2ChkDesk     syscall.Handle
+	p2ChkMenu     syscall.Handle
+	p2ChkPath     syscall.Handle
+	p2ChkBoot     syscall.Handle
+	p2ChkFixPorts syscall.Handle
+	p2ChkResetCfg syscall.Handle
 
 	// Page 3: Installing Progress
 	p3Status   syscall.Handle
@@ -563,18 +583,24 @@ func buildWizardControls(hwnd syscall.Handle) {
 	}
 
 	wiz.p2LblOpt = createCtrl(0, "STATIC", "Shortcuts & Developer Integration:",
-		0, 22, 156, 480, 20, hwnd, 0, wiz.fontBold)
+		0, 22, 150, 480, 18, hwnd, 0, wiz.fontBold)
 	wiz.p2ChkDesk = createCtrl(0, "BUTTON", "Create / Repair Desktop shortcut",
-		wsTabStop|bsAutoCheckBox, 26, 182, 480, 22, hwnd, idChkDesktop, wiz.fontUI)
-	wiz.p2ChkMenu = createCtrl(0, "BUTTON", "Create / Repair Start Menu shortcuts (Darius DB, Terminal, Repair, Uninstall)",
-		wsTabStop|bsAutoCheckBox, 26, 210, 495, 22, hwnd, idChkStartMnu, wiz.fontUI)
+		wsTabStop|bsAutoCheckBox, 26, 174, 480, 20, hwnd, idChkDesktop, wiz.fontUI)
+	wiz.p2ChkMenu = createCtrl(0, "BUTTON", "Create / Repair Start Menu shortcuts (Darius DB, Terminal, Repair All, Uninstall)",
+		wsTabStop|bsAutoCheckBox, 26, 198, 495, 20, hwnd, idChkStartMnu, wiz.fontUI)
 	wiz.p2ChkPath = createCtrl(0, "BUTTON", "Add 'darius' CLI & DB tools to Windows PATH (Visual Studio & VS Code)",
-		wsTabStop|bsAutoCheckBox, 26, 238, 495, 22, hwnd, idChkPath, wiz.fontUI)
+		wsTabStop|bsAutoCheckBox, 26, 222, 495, 20, hwnd, idChkPath, wiz.fontUI)
 	wiz.p2ChkBoot = createCtrl(0, "BUTTON", "Start Darius DB automatically when Windows signs in (minimized to tray)",
-		wsTabStop|bsAutoCheckBox, 26, 266, 495, 22, hwnd, idChkBoot, wiz.fontUI)
+		wsTabStop|bsAutoCheckBox, 26, 246, 495, 20, hwnd, idChkBoot, wiz.fontUI)
+	wiz.p2ChkFixPorts = createCtrl(0, "BUTTON", "Repair All: Auto-reassign ports blocked by external programs & run deep LocalDB fix",
+		wsTabStop|bsAutoCheckBox, 26, 272, 505, 20, hwnd, idChkFixPorts, wiz.fontUI)
+	wiz.p2ChkResetCfg = createCtrl(0, "BUTTON", "Reset engine configuration files (etc/*) to clean defaults (backs up to .bak)",
+		wsTabStop|bsAutoCheckBox, 26, 296, 505, 20, hwnd, idChkResetCfg, wiz.fontUI)
 	setChecked(wiz.p2ChkDesk, true)
 	setChecked(wiz.p2ChkMenu, true)
 	setChecked(wiz.p2ChkPath, true)
+	setChecked(wiz.p2ChkFixPorts, wiz.fixPorts)
+	setChecked(wiz.p2ChkResetCfg, wiz.resetConfigs)
 
 	// ---- Page 3: Installing... ----
 	wiz.p3Status = createCtrl(0, "STATIC", "Preparing installation...",
@@ -626,6 +652,8 @@ func showWizardPage(page int) {
 	for _, h := range []syscall.Handle{wiz.p2LblDir, wiz.p2EditDir, wiz.p2BtnBrw, wiz.p2LblOpt, wiz.p2ChkDesk, wiz.p2ChkMenu, wiz.p2ChkPath, wiz.p2ChkBoot} {
 		showCtrl(h, page == 2)
 	}
+	showCtrl(wiz.p2ChkFixPorts, page == 2 && wiz.repairMode)
+	showCtrl(wiz.p2ChkResetCfg, page == 2 && wiz.repairMode)
 	// Page 3 controls
 	for _, h := range []syscall.Handle{wiz.p3Status, wiz.p3Progress, wiz.p3LogBox} {
 		showCtrl(h, page == 3)
@@ -647,10 +675,10 @@ func showWizardPage(page int) {
 		}
 	case 2:
 		if wiz.repairMode {
-			setText(wiz.lblSubtitle, "Maintenance Mode — Repair Existing Darius DB Installation")
+			setText(wiz.lblSubtitle, "Maintenance Mode — Repair All Darius DB Components")
 			procEnableWindow.Call(uintptr(wiz.btnBack), 0)
 			procEnableWindow.Call(uintptr(wiz.btnNext), 1)
-			setText(wiz.btnNext, "Repair")
+			setText(wiz.btnNext, "Repair All")
 		} else {
 			setText(wiz.lblSubtitle, "Step 2 of 3 — Choose Install Location & Options")
 			procEnableWindow.Call(uintptr(wiz.btnBack), 1)
@@ -715,12 +743,14 @@ func startAsyncInstall() {
 	}
 	wiz.finalDir = dir
 	opts := installOptions{
-		dir:       dir,
-		desktop:   isChecked(wiz.p2ChkDesk),
-		startMenu: isChecked(wiz.p2ChkMenu),
-		addToPath: isChecked(wiz.p2ChkPath),
-		autoStart: isChecked(wiz.p2ChkBoot),
-		repair:    wiz.repairMode,
+		dir:          dir,
+		desktop:      isChecked(wiz.p2ChkDesk),
+		startMenu:    isChecked(wiz.p2ChkMenu),
+		addToPath:    isChecked(wiz.p2ChkPath),
+		autoStart:    isChecked(wiz.p2ChkBoot),
+		repair:       wiz.repairMode,
+		fixPorts:     isChecked(wiz.p2ChkFixPorts),
+		resetConfigs: isChecked(wiz.p2ChkResetCfg),
 	}
 
 	showWizardPage(3)
@@ -867,14 +897,7 @@ func performInstall(opts installOptions, report func(pct int, msg string)) error
 	}
 
 	step(16, "Stopping any running Darius DB processes")
-	existingLauncher := filepath.Join(opts.dir, "DariusDB-Launcher.exe")
-	if fileExists(existingLauncher) {
-		stopCmd := exec.Command(existingLauncher, "--stop-all")
-		stopCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		_ = stopCmd.Run()
-	}
-	winui.KillProcessesInDir(opts.dir, uint32(os.Getpid()))
-	time.Sleep(350 * time.Millisecond)
+	winui.StopDariusProcesses(opts.dir, uint32(os.Getpid()))
 
 	extracted, err := extractEmbeddedZip(opts.dir, step)
 	if err != nil {
@@ -886,8 +909,8 @@ func performInstall(opts installOptions, report func(pct int, msg string)) error
 		}
 	}
 
-	step(76, "Verifying portable directories (www, bin, data, etc, logs, tmp)")
-	for _, sub := range []string{"www", "bin", "data", "etc", "logs", "tmp"} {
+	step(76, "Verifying portable directories (www, bin, data, etc, logs, backups, tmp)")
+	for _, sub := range []string{"www", "bin", "data", "etc", "logs", "backups", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(opts.dir, sub), 0o755); err != nil {
 			return err
 		}
@@ -895,8 +918,15 @@ func performInstall(opts installOptions, report func(pct int, msg string)) error
 
 	cliExe := filepath.Join(opts.dir, "darius.exe")
 	if fileExists(cliExe) {
-		step(81, "Running self-diagnostics & repairing configs, settings, and stale PID locks")
-		repCmd := exec.Command(cliExe, "repair", "all")
+		step(81, "Running Repair All diagnostics (configs, settings, ports, caches, LocalDB & stale locks)")
+		repairArgs := []string{"repair", "all", "--clean-cache"}
+		if opts.fixPorts {
+			repairArgs = append(repairArgs, "--fix-ports")
+		}
+		if opts.resetConfigs {
+			repairArgs = append(repairArgs, "--reset-config")
+		}
+		repCmd := exec.Command(cliExe, repairArgs...)
 		repCmd.Dir = opts.dir
 		repCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 		_ = repCmd.Run()
@@ -904,16 +934,16 @@ func performInstall(opts installOptions, report func(pct int, msg string)) error
 
 	if opts.startMenu || opts.desktop {
 		step(86, "Creating / repairing Start Menu and Desktop shortcuts")
-		createShortcuts(opts.dir, opts.startMenu, opts.desktop)
+		winui.CreateStandardShortcuts(opts.dir, appShortName, appFullTitle, opts.startMenu, opts.desktop)
 	}
 
 	step(92, "Registering in Windows Installed Apps (Add/Remove Programs)")
-	registerUninstall(opts.dir)
+	winui.RegisterUninstallEntry(opts.dir, appFullTitle, appVersion, appAuthor)
 	configureAutoStart(opts.dir, opts.autoStart)
 
 	if opts.addToPath {
 		step(97, "Adding 'darius' CLI to Windows User PATH (Visual Studio & VS Code)")
-		addInstallDirToUserPath(opts.dir)
+		_ = winui.EnsureDirsInUserPath(opts.dir)
 	}
 
 	if opts.repair {
@@ -968,6 +998,7 @@ func extractEmbeddedZip(installDir string, step func(int, string)) (bool, error)
 	allowed := map[string]bool{
 		"DariusDB.exe":           true,
 		"DariusDB-Launcher.exe":  true,
+		"DariusDB-Repair.exe":    true,
 		"DariusDB-Uninstall.exe": true,
 		"DariusDB-Updater.exe":   true,
 		"darius.exe":             true,
@@ -1033,7 +1064,7 @@ func copyFromLocalBuild(installDir string, step func(int, string)) error {
 		return fmt.Errorf("DariusDB.exe was not found next to the installer or in build\\bin\\")
 	}
 	pct := 25
-	for _, name := range []string{"DariusDB.exe", "DariusDB-Launcher.exe", "DariusDB-Uninstall.exe", "DariusDB-Updater.exe", "darius.exe", "LICENSE", "README.md", "GUIDE.md"} {
+	for _, name := range winui.CoreProgramFiles {
 		src := findFile(name)
 		if src == "" {
 			continue
@@ -1069,55 +1100,6 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-func createShortcuts(installDir string, createMenu, createDesktop bool) {
-	mainExe := filepath.Join(installDir, "DariusDB.exe")
-	launcherExe := filepath.Join(installDir, "DariusDB-Launcher.exe")
-	if !fileExists(launcherExe) {
-		launcherExe = mainExe
-	}
-	uninstExe := filepath.Join(installDir, "DariusDB-Uninstall.exe")
-	updaterExe := filepath.Join(installDir, "DariusDB-Updater.exe")
-
-	if createMenu {
-		startMenu := filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs", appShortName)
-		_ = os.MkdirAll(startMenu, 0o755)
-		_ = winui.CreateShortcut(filepath.Join(startMenu, appShortName+".lnk"), launcherExe, "", installDir, mainExe, "Launch "+appFullTitle)
-		_ = winui.CreateShortcut(filepath.Join(startMenu, appShortName+" Terminal.lnk"), launcherExe, "--terminal", installDir, mainExe, "Open "+appFullTitle+" Terminal")
-		_ = winui.CreateShortcut(filepath.Join(startMenu, "Update "+appShortName+".lnk"), updaterExe, "", installDir, mainExe, "Update "+appFullTitle)
-		_ = winui.CreateShortcut(filepath.Join(startMenu, "Repair "+appShortName+".lnk"), uninstExe, "--repair", installDir, mainExe, "Repair "+appFullTitle)
-		_ = winui.CreateShortcut(filepath.Join(startMenu, "Uninstall "+appShortName+".lnk"), uninstExe, "", installDir, mainExe, "Uninstall "+appFullTitle)
-	}
-	if createDesktop {
-		desktop := filepath.Join(os.Getenv("USERPROFILE"), "Desktop")
-		if st, err := os.Stat(desktop); err == nil && st.IsDir() {
-			_ = winui.CreateShortcut(filepath.Join(desktop, appShortName+".lnk"), launcherExe, "", installDir, mainExe, "Launch "+appFullTitle)
-		}
-	}
-}
-
-func registerUninstall(installDir string) {
-	k, _, err := registry.CreateKey(registry.CURRENT_USER, uninstallKey, registry.SET_VALUE)
-	if err != nil {
-		return
-	}
-	defer k.Close()
-
-	mainExe := filepath.Join(installDir, "DariusDB.exe")
-	uninstExe := filepath.Join(installDir, "DariusDB-Uninstall.exe")
-	_ = k.SetStringValue("DisplayName", appFullTitle)
-	_ = k.SetStringValue("DisplayVersion", appVersion)
-	_ = k.SetStringValue("Publisher", appAuthor)
-	_ = k.SetStringValue("InstallLocation", installDir)
-	_ = k.SetStringValue("DisplayIcon", mainExe+",0")
-	_ = k.SetStringValue("InstallDate", time.Now().Format("20060102"))
-	_ = k.SetDWordValue("EstimatedSize", 28000)
-	_ = k.SetDWordValue("NoModify", 0)
-	_ = k.SetDWordValue("NoRepair", 0)
-	_ = k.SetStringValue("ModifyPath", fmt.Sprintf(`"%s" --repair`, uninstExe))
-	_ = k.SetStringValue("UninstallString", fmt.Sprintf(`"%s"`, uninstExe))
-	_ = k.SetStringValue("QuietUninstallString", fmt.Sprintf(`"%s" --silent --keep-data`, uninstExe))
-}
-
 func configureAutoStart(installDir string, enable bool) {
 	k, _, err := registry.CreateKey(registry.CURRENT_USER, runKey, registry.SET_VALUE)
 	if err != nil {
@@ -1130,29 +1112,6 @@ func configureAutoStart(installDir string, enable bool) {
 	}
 	mainExe := filepath.Join(installDir, "DariusDB.exe")
 	_ = k.SetStringValue("DariusDB", fmt.Sprintf(`"%s" --minimized`, mainExe))
-}
-
-func addInstallDirToUserPath(installDir string) {
-	k, err := registry.OpenKey(registry.CURRENT_USER, `Environment`, registry.QUERY_VALUE|registry.SET_VALUE)
-	if err != nil {
-		return
-	}
-	defer k.Close()
-	cur, _, _ := k.GetStringValue("Path")
-	cleanTarget := strings.ToLower(strings.TrimRight(filepath.Clean(installDir), `\/`))
-	var parts []string
-	for _, p := range strings.Split(cur, ";") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if strings.ToLower(strings.TrimRight(filepath.Clean(p), `\/`)) == cleanTarget {
-			return
-		}
-		parts = append(parts, p)
-	}
-	parts = append([]string{filepath.Clean(installDir)}, parts...)
-	_ = k.SetExpandStringValue("Path", strings.Join(parts, ";"))
 }
 
 func fileExists(p string) bool {

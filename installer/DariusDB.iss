@@ -54,6 +54,7 @@ Name: "{app}\tmp"
 [Files]
 Source: "..\build\bin\DariusDB.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\bin\DariusDB-Launcher.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\build\bin\DariusDB-Repair.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\bin\DariusDB-Uninstall.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\bin\DariusDB-Updater.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\bin\darius.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -65,6 +66,7 @@ Source: "..\GUIDE.md"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyLauncherExe}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\{#MyAppName} Terminal"; Filename: "{app}\{#MyLauncherExe}"; Parameters: "--terminal"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\Update {#MyAppName}"; Filename: "{app}\DariusDB-Updater.exe"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{group}\Repair All {#MyAppName}"; Filename: "{app}\DariusDB-Repair.exe"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\User Guide"; Filename: "{app}\GUIDE.md"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyLauncherExe}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon

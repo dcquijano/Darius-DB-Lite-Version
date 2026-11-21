@@ -758,7 +758,7 @@ func ApplySystemUpdateFromFile(p *Paths, filePath string) (string, error) {
 		actionBlock = fmt.Sprintf(`Remove-Item -Recurse -Force '%s' -ErrorAction SilentlyContinue
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::ExtractToDirectory('%s', '%s')
-$allowed = @('DariusDB.exe','DariusDB-Launcher.exe','DariusDB-Uninstall.exe','DariusDB-Updater.exe','darius.exe','LICENSE','README.md','GUIDE.md','version.json')
+$allowed = @('DariusDB.exe','DariusDB-Launcher.exe','DariusDB-Repair.exe','DariusDB-Uninstall.exe','DariusDB-Updater.exe','darius.exe','LICENSE','README.md','GUIDE.md','version.json')
 Get-ChildItem -LiteralPath '%s' -Recurse -File | Where-Object { $allowed -contains $_.Name } | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path '%s' $_.Name) -Force
 }

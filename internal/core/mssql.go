@@ -154,12 +154,28 @@ var (
 	sysSqlcmdMu      sync.Mutex
 	sysSqlcmdCached  string
 	sysSqlcmdChecked time.Time
+
+	mssqlTargetMu      sync.Mutex
+	mssqlTargetCached  string
+	mssqlTargetChecked time.Time
 )
 
-const sysDetectCacheTTL = 60 * time.Second
+const (
+	sysDetectCacheTTL   = 60 * time.Second
+	mssqlTargetCacheTTL = 30 * time.Second
+)
+
+// InvalidateMSSQLTargetCache clears the cached local MS SQL server target/pipe.
+func InvalidateMSSQLTargetCache() {
+	mssqlTargetMu.Lock()
+	mssqlTargetCached = ""
+	mssqlTargetChecked = time.Time{}
+	mssqlTargetMu.Unlock()
+}
 
 // InvalidateSystemDetectCache clears cached system-wide engine detection results (MSSQL / PHP).
 func InvalidateSystemDetectCache() {
+	InvalidateMSSQLTargetCache()
 	sysMSSQLMu.Lock()
 	sysMSSQLChecked = time.Time{}
 	sysMSSQLMu.Unlock()
@@ -484,16 +500,32 @@ func mssqlServerTarget(s EngineSettings) string {
 		}
 		return h
 	}
+	mssqlTargetMu.Lock()
+	if mssqlTargetCached != "" && time.Since(mssqlTargetChecked) < mssqlTargetCacheTTL {
+		cached := mssqlTargetCached
+		mssqlTargetMu.Unlock()
+		return cached
+	}
+	mssqlTargetMu.Unlock()
+
+	var resolved string
 	if s.Port > 0 && portInUse(s.Port) {
-		return fmt.Sprintf("127.0.0.1,%d", s.Port)
-	}
-	if localDB := findSqlLocalDB(); localDB != "" {
+		resolved = fmt.Sprintf("127.0.0.1,%d", s.Port)
+	} else if localDB := findSqlLocalDB(); localDB != "" {
 		if pipe := resolveLocalDBPipe(localDB); pipe != "" {
-			return pipe
+			resolved = pipe
+		} else {
+			resolved = `(localdb)\` + mssqlInstance
 		}
-		return `(localdb)\` + mssqlInstance
+	} else {
+		resolved = fmt.Sprintf("127.0.0.1,%d", s.Port)
 	}
-	return fmt.Sprintf("127.0.0.1,%d", s.Port)
+
+	mssqlTargetMu.Lock()
+	mssqlTargetCached = resolved
+	mssqlTargetChecked = time.Now()
+	mssqlTargetMu.Unlock()
+	return resolved
 }
 
 func resolveLocalDBPipe(localDB string) string {
@@ -606,58 +638,108 @@ func mssqlRunQueryWithLimitCtx(ctx context.Context, s EngineSettings, dbName, q 
 	tmpFile.Close()
 
 	const sep = "\t"
-	target := mssqlServerTarget(s)
-	baseArgs := []string{
-		"-S", target,
-		"-d", dbName,
-		"-I",
-		"-W",
-		"-s", sep,
-		"-b",
-		"-i", tmpPath,
+	runWithTarget := func(target string) ([]byte, error, []string) {
+		baseArgs := []string{
+			"-S", target,
+			"-d", dbName,
+			"-I",
+			"-W",
+			"-s", sep,
+			"-b",
+			"-i", tmpPath,
+		}
+		authArgs := mssqlAuthArgs(target, s)
+		args := append(append([]string{}, baseArgs...), authArgs...)
+		qCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(qCtx, sqlcmd, args...)
+		hideWindow(cmd)
+		out, err := cmd.CombinedOutput()
+		if ctx.Err() != nil {
+			return out, ctx.Err(), authArgs
+		}
+		// Automatic fallback to Windows Auth (-E) only on local instances
+		if !isRemoteMSSQLHost(s) && err != nil && len(authArgs) > 1 && strings.Contains(strings.ToLower(string(out)), "login failed") {
+			retryCmd := exec.CommandContext(qCtx, sqlcmd, append(append([]string{}, baseArgs...), "-E")...)
+			hideWindow(retryCmd)
+			out, err = retryCmd.CombinedOutput()
+		}
+		return out, err, authArgs
 	}
-	authArgs := mssqlAuthArgs(target, s)
-	args := append(append([]string{}, baseArgs...), authArgs...)
 
 	start := time.Now()
-	qCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(qCtx, sqlcmd, args...)
-	hideWindow(cmd)
-	out, err := cmd.CombinedOutput()
+	target := mssqlServerTarget(s)
+	out, err, _ := runWithTarget(target)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	// Automatic fallback to Windows Auth (-E) only on local instances
-	if !isRemoteMSSQLHost(s) && err != nil && len(authArgs) > 1 && strings.Contains(strings.ToLower(string(out)), "login failed") {
-		retryCmd := exec.CommandContext(qCtx, sqlcmd, append(append([]string{}, baseArgs...), "-E")...)
-		hideWindow(retryCmd)
-		out, err = retryCmd.CombinedOutput()
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+	if !isRemoteMSSQLHost(s) && err != nil {
+		lowOut := strings.ToLower(string(out))
+		if strings.Contains(lowOut, "named pipes") || strings.Contains(lowOut, "could not open a connection") || strings.Contains(lowOut, "server was not found") || strings.Contains(lowOut, "login timeout") {
+			InvalidateMSSQLTargetCache()
+			if freshTarget := mssqlServerTarget(s); freshTarget != "" && freshTarget != target {
+				out, err, _ = runWithTarget(freshTarget)
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+			}
 		}
 	}
 	dur := float64(time.Since(start).Microseconds()) / 1000.0
-	text := strings.ReplaceAll(string(out), "\r\n", "\n")
 
 	if err != nil {
-		return nil, errors.New(formatMSSQLError(text, err, dbName, s))
+		return nil, errors.New(formatMSSQLError(strings.ReplaceAll(string(out), "\r\n", "\n"), err, dbName, s))
 	}
 
-	lines := strings.Split(text, "\n")
+	return parseMSSQLOutput(out, limit, dur), nil
+}
+
+// parseMSSQLOutput parses tab-separated sqlcmd stdout/stderr into a QueryResult without duplicating the full buffer.
+func parseMSSQLOutput(out []byte, limit int, durMs float64) *QueryResult {
+	const sep = "\t"
+	if limit <= 0 {
+		limit = maxShowRows
+	}
+	capHint := 64
+	if limit < capHint {
+		capHint = limit
+	}
 	res := &QueryResult{
 		Columns:    []string{},
-		Rows:       [][]*string{},
-		DurationMs: dur,
+		Rows:       make([][]*string, 0, capHint),
+		DurationMs: durMs,
 	}
 
-	// Find header + dash separator line if the query returned a result set
+	type lineSpan struct{ start, end int }
+	var spans []lineSpan
+	for pos := 0; pos <= len(out); {
+		nl := bytes.IndexByte(out[pos:], '\n')
+		end := len(out)
+		if nl >= 0 {
+			end = pos + nl
+		}
+		lineEnd := end
+		if lineEnd > pos && out[lineEnd-1] == '\r' {
+			lineEnd--
+		}
+		spans = append(spans, lineSpan{pos, lineEnd})
+		if nl < 0 {
+			break
+		}
+		pos = end + 1
+	}
+
+	lineAt := func(idx int) string {
+		sp := spans[idx]
+		return string(out[sp.start:sp.end])
+	}
+
 	headerIdx := -1
-	for i := 0; i+1 < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "" {
+	for i := 0; i+1 < len(spans); i++ {
+		if len(bytes.TrimSpace(out[spans[i].start:spans[i].end])) == 0 {
 			continue
 		}
-		if isDashRow(lines[i+1], sep) {
+		if isDashRow(lineAt(i+1), sep) {
 			headerIdx = i
 			break
 		}
@@ -665,24 +747,26 @@ func mssqlRunQueryWithLimitCtx(ctx context.Context, s EngineSettings, dbName, q 
 
 	if headerIdx >= 0 {
 		res.IsQuery = true
-		res.Columns = strings.Split(lines[headerIdx], sep)
-		for i := headerIdx + 2; i < len(lines); i++ {
-			line := lines[i]
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" {
+		res.Columns = strings.Split(lineAt(headerIdx), sep)
+		colCount := len(res.Columns)
+		for i := headerIdx + 2; i < len(spans); i++ {
+			sp := spans[i]
+			if len(bytes.TrimSpace(out[sp.start:sp.end])) == 0 {
 				continue
 			}
+			line := string(out[sp.start:sp.end])
+			trimmed := strings.TrimSpace(line)
 			if m := affectedRe.FindStringSubmatch(trimmed); m != nil {
 				res.Affected, _ = strconv.ParseInt(m[1], 10, 64)
 				break
 			}
 			if len(res.Rows) >= limit {
 				res.Truncated = true
-				continue
+				break
 			}
 			parts := strings.Split(line, sep)
-			row := make([]*string, len(res.Columns))
-			for c := 0; c < len(res.Columns) && c < len(parts); c++ {
+			row := make([]*string, colCount)
+			for c := 0; c < colCount && c < len(parts); c++ {
 				val := parts[c]
 				if val == "NULL" {
 					row[c] = nil
@@ -693,16 +777,20 @@ func mssqlRunQueryWithLimitCtx(ctx context.Context, s EngineSettings, dbName, q 
 			}
 			res.Rows = append(res.Rows, row)
 		}
-		res.Affected = int64(len(res.Rows))
-		return res, nil
+		if res.Affected == 0 {
+			res.Affected = int64(len(res.Rows))
+		}
+		return res
 	}
 
-	for _, l := range lines {
-		if m := affectedRe.FindStringSubmatch(strings.TrimSpace(l)); m != nil {
+	for i := range spans {
+		sp := spans[i]
+		trimmed := strings.TrimSpace(string(out[sp.start:sp.end]))
+		if m := affectedRe.FindStringSubmatch(trimmed); m != nil {
 			res.Affected, _ = strconv.ParseInt(m[1], 10, 64)
 		}
 	}
-	return res, nil
+	return res
 }
 
 func isDashRow(line, sep string) bool {
@@ -773,7 +861,12 @@ func mssqlListDatabases(s EngineSettings) ([]string, error) {
 }
 
 func mssqlListTables(s EngineSettings, dbName string) ([]TableInfo, error) {
-	res, err := mssqlRunQuery(s, dbName, "SET NOCOUNT ON; SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES ORDER BY TABLE_SCHEMA, TABLE_NAME;")
+	res, err := mssqlRunQuery(s, dbName, `SET NOCOUNT ON;
+SELECT s.name, o.name, CASE o.type WHEN 'V' THEN 'VIEW' ELSE 'BASE TABLE' END
+FROM sys.objects o
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0
+ORDER BY s.name, o.name;`)
 	if err != nil {
 		return nil, err
 	}
@@ -855,26 +948,31 @@ func mssqlWhereClause(keys map[string]RowValue) string {
 }
 
 func mssqlDescribeTable(s EngineSettings, dbName, schema, table string) ([]ColumnInfo, error) {
-	escS := strings.ReplaceAll(schema, "'", "''")
-	escT := strings.ReplaceAll(table, "'", "''")
+	escObj := strings.ReplaceAll("["+strings.ReplaceAll(schema, "]", "]]")+"].["+strings.ReplaceAll(table, "]", "]]")+"]", "'", "''")
 	q := fmt.Sprintf(`SET NOCOUNT ON;
-SELECT c.COLUMN_NAME,
-       CASE WHEN c.CHARACTER_MAXIMUM_LENGTH IS NOT NULL THEN c.DATA_TYPE + '(' + CASE WHEN c.CHARACTER_MAXIMUM_LENGTH = -1 THEN 'MAX' ELSE CAST(c.CHARACTER_MAXIMUM_LENGTH AS VARCHAR(16)) END + ')' ELSE c.DATA_TYPE END,
-       c.IS_NULLABLE,
-       c.COLUMN_DEFAULT,
+DECLARE @obj INT = OBJECT_ID(N'%s');
+SELECT c.name,
+       t.name + CASE
+         WHEN t.name IN ('varchar','char','varbinary','binary')
+           THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length AS VARCHAR(16)) END + ')'
+         WHEN t.name IN ('nvarchar','nchar')
+           THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length / 2 AS VARCHAR(16)) END + ')'
+         ELSE ''
+       END,
+       CASE WHEN c.is_nullable = 1 THEN 'YES' ELSE 'NO' END,
+       dc.definition,
        CASE WHEN EXISTS (
-         SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-         JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
-           ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
-         WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
-           AND tc.TABLE_SCHEMA = c.TABLE_SCHEMA
-           AND tc.TABLE_NAME = c.TABLE_NAME
-           AND kcu.COLUMN_NAME = c.COLUMN_NAME
+         SELECT 1
+         FROM sys.index_columns ic
+         INNER JOIN sys.indexes ix ON ix.object_id = ic.object_id AND ix.index_id = ic.index_id
+         WHERE ic.object_id = c.object_id AND ic.column_id = c.column_id AND ix.is_primary_key = 1
        ) THEN '1' ELSE '0' END,
-       CAST(COLUMNPROPERTY(OBJECT_ID(QUOTENAME(c.TABLE_SCHEMA)+'.'+QUOTENAME(c.TABLE_NAME)), c.COLUMN_NAME, 'IsIdentity') AS VARCHAR(8))
-FROM INFORMATION_SCHEMA.COLUMNS c
-WHERE c.TABLE_SCHEMA = N'%s' AND c.TABLE_NAME = N'%s'
-ORDER BY c.ORDINAL_POSITION;`, escS, escT)
+       CASE WHEN c.is_identity = 1 THEN '1' ELSE '0' END
+FROM sys.columns c
+INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
+LEFT JOIN sys.default_constraints dc ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id
+WHERE c.object_id = @obj
+ORDER BY c.column_id;`, escObj)
 
 	res, err := mssqlRunQuery(s, dbName, q)
 	if err != nil {

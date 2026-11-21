@@ -528,7 +528,62 @@
     );
   }
 
-  async function loadDbView() {
+  const SQL_CACHE_TTL_MS = 15000;
+  const sqlDbsCache = new Map();
+  const sqlTablesCache = new Map();
+  const sqlSchemaCache = new Map();
+  const sqlSchemaInFlight = new Map();
+  let sqlDbsReqSeq = 0;
+  let sqlTablesReqSeq = 0;
+  let sqlQueryReqSeq = 0;
+
+  function invalidateSqlCache(engine = "", db = "", table = "") {
+    if (!engine) {
+      sqlDbsCache.clear();
+      sqlTablesCache.clear();
+      sqlSchemaCache.clear();
+      return;
+    }
+    const engPrefix = `${engine}|`;
+    if (!db) {
+      sqlDbsCache.delete(engine);
+      for (const k of sqlTablesCache.keys()) if (k.startsWith(engPrefix)) sqlTablesCache.delete(k);
+      for (const k of sqlSchemaCache.keys()) if (k.startsWith(engPrefix)) sqlSchemaCache.delete(k);
+      return;
+    }
+    const dbKey = `${engine}|${db}`;
+    const dbPrefix = `${dbKey}|`;
+    if (!table) {
+      sqlTablesCache.delete(dbKey);
+      for (const k of sqlSchemaCache.keys()) if (k.startsWith(dbPrefix)) sqlSchemaCache.delete(k);
+      return;
+    }
+    sqlSchemaCache.delete(`${dbKey}|${table}`);
+  }
+
+  async function ensureSqlColumns(engine, db, table) {
+    if (!engine || !db || !table) return [];
+    const key = `${engine}|${db}|${table}`;
+    if (sqlSchemaCache.has(key)) return sqlSchemaCache.get(key);
+    if (sqlSchemaInFlight.has(key)) return sqlSchemaInFlight.get(key);
+    const p = api()
+      .DescribeTable(engine, db, table)
+      .then((cols) => {
+        const list = cols || [];
+        sqlSchemaCache.set(key, list);
+        if (state.dbEngine === engine && state.sqlDb === db && state.sqlTable === table) {
+          state.sqlColumns = list;
+        }
+        return list;
+      })
+      .finally(() => {
+        sqlSchemaInFlight.delete(key);
+      });
+    sqlSchemaInFlight.set(key, p);
+    return p;
+  }
+
+  async function loadDbView(force = false) {
     const cloud = getActiveCloudProfile();
     const s = cloud ? null : getStatus(state.dbEngine);
     const stoppedEl = $("dbStoppedState");
@@ -568,8 +623,9 @@
       redisEl.hidden = true;
       sqlEl.hidden = false;
       reapplySplitters();
+      if (force) invalidateSqlCache(state.dbEngine);
       if (cloud && cloud.database && !state.sqlDb) state.sqlDb = cloud.database;
-      await loadSqlDatabases();
+      await loadSqlDatabases(force);
     } else {
       sqlEl.hidden = true;
       redisEl.hidden = false;
@@ -578,17 +634,65 @@
     }
   }
 
-  async function loadSqlDatabases() {
+  function applySqlDbList(dbs) {
+    state.sqlDbs = dbs || [];
+    if (!state.sqlDb || !state.sqlDbs.includes(state.sqlDb)) {
+      state.sqlDb =
+        state.sqlDbs.find((d) => !SYSTEM_DBS.has(d.toLowerCase())) || state.sqlDbs[0] || "";
+    }
+    renderSqlDbList();
+  }
+
+  async function refreshSqlDbsBackground(reqEngine) {
     try {
-      const dbs = await api().ListDatabases(state.dbEngine);
-      state.sqlDbs = dbs || [];
-      if (!state.sqlDb || !state.sqlDbs.includes(state.sqlDb)) {
-        state.sqlDb =
-          state.sqlDbs.find((d) => !SYSTEM_DBS.has(d.toLowerCase())) || state.sqlDbs[0] || "";
+      const dbs = await api().ListDatabases(reqEngine);
+      sqlDbsCache.set(reqEngine, { data: dbs || [], ts: Date.now() });
+      if (state.dbEngine !== reqEngine) return;
+      const prevDb = state.sqlDb;
+      applySqlDbList(dbs);
+      if (state.sqlDb && state.sqlDb !== prevDb) {
+        await loadSqlTables(state.sqlDb, true);
       }
-      renderSqlDbList();
+    } catch { }
+  }
+
+  async function loadSqlDatabases(force = false) {
+    const reqEngine = state.dbEngine;
+    const reqSeq = ++sqlDbsReqSeq;
+    try {
+      if (!force && sqlDbsCache.has(reqEngine)) {
+        const cached = sqlDbsCache.get(reqEngine);
+        applySqlDbList(cached.data);
+        if (state.sqlDb) {
+          await loadSqlTables(state.sqlDb, false);
+        } else {
+          state.sqlTables = [];
+          state.sqlTable = "";
+          state.sqlColumns = [];
+          renderSqlTableList();
+          updateSqlTableToolbar();
+        }
+        if (Date.now() - cached.ts > SQL_CACHE_TTL_MS) {
+          refreshSqlDbsBackground(reqEngine);
+        }
+        return;
+      }
+
+      const knownDb = state.sqlDb || "";
+      const canParallelTables = !!knownDb && (force || !sqlTablesCache.has(`${reqEngine}|${knownDb}`));
+      const tablesPromise = canParallelTables ? loadSqlTables(knownDb, force) : null;
+
+      const dbs = await api().ListDatabases(reqEngine);
+      if (state.dbEngine !== reqEngine || reqSeq !== sqlDbsReqSeq) return;
+      sqlDbsCache.set(reqEngine, { data: dbs || [], ts: Date.now() });
+      applySqlDbList(dbs);
+
       if (state.sqlDb) {
-        await loadSqlTables(state.sqlDb);
+        if (tablesPromise && state.sqlDb === knownDb) {
+          await tablesPromise;
+        } else {
+          await loadSqlTables(state.sqlDb, force);
+        }
       } else {
         state.sqlTables = [];
         state.sqlTable = "";
@@ -597,6 +701,7 @@
         updateSqlTableToolbar();
       }
     } catch (e) {
+      if (state.dbEngine !== reqEngine || reqSeq !== sqlDbsReqSeq) return;
       toast(errMsg(e), "err");
     }
   }
@@ -640,23 +745,45 @@
     if ($("sqlRowFilter")) $("sqlRowFilter").hidden = !(state.sqlLastResult && state.sqlLastResult.isQuery);
   }
 
-  async function loadSqlTables(db) {
+  async function loadSqlTables(db, force = false, background = false) {
+    if (!db) return;
     const reqEngine = state.dbEngine;
-    const titleEl = $("sqlTablesTitle");
-    if (titleEl) {
-      titleEl.textContent = db ? `Tables (${db})` : "Tables";
-      titleEl.title = db ? `Tables in ${db}` : "Tables";
+    const cacheKey = `${reqEngine}|${db}`;
+    if (!force && sqlTablesCache.has(cacheKey)) {
+      const cached = sqlTablesCache.get(cacheKey);
+      state.sqlTables = cached.data;
+      if (state.sqlTable && !state.sqlTables.some((t) => t.name === state.sqlTable)) {
+        state.sqlTable = "";
+        state.sqlColumns = [];
+      }
+      renderSqlTableList();
+      updateSqlTableToolbar();
+      if (Date.now() - cached.ts > SQL_CACHE_TTL_MS && !background) {
+        loadSqlTables(db, true, true);
+      }
+      return;
     }
-    const countEl = $("sqlTablesCount");
-    if (countEl) {
-      countEl.textContent = "…";
-      countEl.title = db ? `Loading tables in ${db}...` : "Loading tables...";
-      countEl.hidden = !db;
+
+    const reqSeq = ++sqlTablesReqSeq;
+    if (!background) {
+      const titleEl = $("sqlTablesTitle");
+      if (titleEl) {
+        titleEl.textContent = `Tables (${db})`;
+        titleEl.title = `Tables in ${db}`;
+      }
+      const countEl = $("sqlTablesCount");
+      if (countEl) {
+        countEl.textContent = "…";
+        countEl.title = `Loading tables in ${db}...`;
+        countEl.hidden = false;
+      }
     }
     try {
       const tables = await api().ListTables(reqEngine, db);
-      if (state.dbEngine !== reqEngine || state.sqlDb !== db) return;
-      state.sqlTables = tables || [];
+      const list = tables || [];
+      sqlTablesCache.set(cacheKey, { data: list, ts: Date.now() });
+      if (state.dbEngine !== reqEngine || state.sqlDb !== db || (!background && reqSeq !== sqlTablesReqSeq)) return;
+      state.sqlTables = list;
       if (state.sqlTable && !state.sqlTables.some((t) => t.name === state.sqlTable)) {
         state.sqlTable = "";
         state.sqlColumns = [];
@@ -664,7 +791,7 @@
       renderSqlTableList();
       updateSqlTableToolbar();
     } catch (e) {
-      if (state.dbEngine !== reqEngine || state.sqlDb !== db) return;
+      if (background || state.dbEngine !== reqEngine || state.sqlDb !== db || reqSeq !== sqlTablesReqSeq) return;
       state.sqlTables = [];
       state.sqlTable = "";
       state.sqlColumns = [];
@@ -701,13 +828,15 @@
       return;
     }
     list.innerHTML = state.sqlTables
-      .map(
-        (t, idx) =>
-          `<div class="tree-item ${t.name === state.sqlTable ? "active" : ""}" data-table-idx="${idx}" title="${esc(t.name)} (${esc(t.kind)})">
-            <span class="tree-label">${esc(t.name)}</span>
-            ${t.kind && t.kind.toUpperCase().includes("VIEW") ? `<span class="type-tag">VIEW</span>` : `<button class="tree-del" data-drop-table="${esc(t.name)}" title="Drop table">✕</button>`}
-          </div>`
-      )
+      .map((t, idx) => {
+        const safeName = esc(t.name);
+        const safeKind = esc(t.kind);
+        const isView = t.kind && t.kind.toUpperCase().includes("VIEW");
+        return `<div class="tree-item ${t.name === state.sqlTable ? "active" : ""}" data-table-idx="${idx}" title="${safeName} (${safeKind})">
+            <span class="tree-label">${safeName}</span>
+            ${isView ? `<span class="type-tag">VIEW</span>` : `<button class="tree-del" data-drop-table="${safeName}" title="Drop table">✕</button>`}
+          </div>`;
+      })
       .join("");
   }
 
@@ -747,10 +876,13 @@
 
   async function selectSqlTable(tableObj, showAll = false) {
     if (!tableObj) return;
+    const reqEngine = state.dbEngine;
+    const reqDb = state.sqlDb;
     const fetchAll = !!showAll || state.sqlPageSize === 0;
     state.sqlTable = tableObj.name;
     state.sqlShowingAll = fetchAll;
     state.sqlPage = 1;
+    state.sqlColumns = sqlSchemaCache.get(`${reqEngine}|${reqDb}|${tableObj.name}`) || [];
     renderSqlTableList();
     updateSqlTableToolbar();
     let sql = tableObj.select;
@@ -760,17 +892,23 @@
       sql = applySqlQueryLimit(tableObj.select, state.sqlPageSize);
     }
     $("sqlEditor").value = sql;
-    try {
-      state.sqlColumns = (await api().DescribeTable(state.dbEngine, state.sqlDb, tableObj.name)) || [];
-    } catch {
-      state.sqlColumns = [];
-    }
     await runSqlQuery(fetchAll || state.sqlPageSize > 1000);
+    if (
+      state.dbEngine === reqEngine &&
+      state.sqlDb === reqDb &&
+      state.sqlTable === tableObj.name &&
+      !sqlSchemaCache.has(`${reqEngine}|${reqDb}|${tableObj.name}`)
+    ) {
+      ensureSqlColumns(reqEngine, reqDb, tableObj.name).catch(() => { });
+    }
   }
 
   async function runSqlQuery(showAll = false, preservePage = false) {
     const q = $("sqlEditor").value.trim();
     if (!q) return;
+    const reqEngine = state.dbEngine;
+    const reqDb = state.sqlDb;
+    const reqSeq = ++sqlQueryReqSeq;
     if (!preservePage) state.sqlPage = 1;
     const meta = $("sqlMeta");
     const bar = meta.parentElement;
@@ -780,8 +918,9 @@
     hideSqlPager();
     try {
       const res = showAll
-        ? await api().RunQueryAll(state.dbEngine, state.sqlDb, q)
-        : await api().RunQuery(state.dbEngine, state.sqlDb, q);
+        ? await api().RunQueryAll(reqEngine, reqDb, q)
+        : await api().RunQuery(reqEngine, reqDb, q);
+      if (state.dbEngine !== reqEngine || state.sqlDb !== reqDb || reqSeq !== sqlQueryReqSeq) return;
       state.sqlLastResult = res;
       if (!preservePage && $("sqlRowFilter")) $("sqlRowFilter").value = "";
       updateSqlTableToolbar();
@@ -791,11 +930,13 @@
       } else {
         hideSqlPager();
         meta.textContent = `Query OK · ${res.affected} row(s) affected · ${res.durationMs.toFixed(1)} ms`;
-        if (/\b(create|drop|alter|insert|update|delete|truncate)\b/i.test(q)) {
-          loadSqlDatabases();
+        if (/\b(create|drop|alter|rename)\b/i.test(q)) {
+          invalidateSqlCache(reqEngine);
+          loadSqlDatabases(true);
         }
       }
     } catch (e) {
+      if (state.dbEngine !== reqEngine || state.sqlDb !== reqDb || reqSeq !== sqlQueryReqSeq) return;
       hideSqlPager();
       bar.className = "result-meta-bar error";
       meta.textContent = errMsg(e);
@@ -919,7 +1060,12 @@
       let cells = "";
       for (let c = 0; c < row.length; c++) {
         const cell = row[c];
-        cells += cell === null ? `<td class="null-val">NULL</td>` : `<td title="${esc(cell)}">${esc(cell)}</td>`;
+        if (cell === null) {
+          cells += `<td class="null-val">NULL</td>`;
+        } else {
+          const safeCell = esc(cell);
+          cells += `<td title="${safeCell}">${safeCell}</td>`;
+        }
       }
       rowHtml[i] = `<tr data-row-idx="${idx}">${actCell}${cells}</tr>`;
     }
@@ -1418,7 +1564,7 @@
     }
     if (!state.sqlColumns || !state.sqlColumns.length) {
       try {
-        state.sqlColumns = (await api().DescribeTable(state.dbEngine, state.sqlDb, state.sqlTable)) || [];
+        state.sqlColumns = await ensureSqlColumns(state.dbEngine, state.sqlDb, state.sqlTable);
       } catch (e) {
         toast(errMsg(e), "err");
         return;
@@ -1534,6 +1680,11 @@
     if (!state.sqlTable) return;
     if (!(await askConfirm("Delete Row?", `Permanently delete this row from "${state.sqlTable}"?`, "Delete"))) return;
     try {
+      if (!state.sqlColumns || !state.sqlColumns.length) {
+        try {
+          state.sqlColumns = await ensureSqlColumns(state.dbEngine, state.sqlDb, state.sqlTable);
+        } catch { }
+      }
       const { keys, hasPK } = buildRowKeyMap(rowIdx);
       await api().DeleteRow(state.dbEngine, state.sqlDb, state.sqlTable, keys, hasPK);
       toast("Row deleted", "ok");
@@ -2742,7 +2893,7 @@ try {
     });
 
     // Database tab events
-    $("btnDbRefresh").onclick = () => loadDbView();
+    $("btnDbRefresh").onclick = () => loadDbView(true);
 
     const closeRestore = () => ($("modalRestore").hidden = true);
     const updateImportTableVisibility = () => {
@@ -2806,7 +2957,8 @@ try {
         toast(res?.message || `Imported into "${res?.database || targetDb}"!`, "ok");
         if (res?.database) state.sqlDb = res.database;
         if (res?.table) state.sqlTable = res.table;
-        await loadSqlDatabases();
+        invalidateSqlCache(state.dbEngine);
+        await loadSqlDatabases(true);
       } catch (err) {
         toast(errMsg(err), "err");
       } finally {
@@ -3042,7 +3194,8 @@ try {
           await api().DropDatabase(state.dbEngine, name);
           toast(`Dropped ${name}`, "ok");
           if (state.sqlDb === name) state.sqlDb = "";
-          await loadSqlDatabases();
+          invalidateSqlCache(state.dbEngine);
+          await loadSqlDatabases(true);
         } catch (err) {
           toast(errMsg(err), "err");
         }
@@ -3077,7 +3230,8 @@ try {
             $("sqlResults").innerHTML = "";
             hideSqlPager();
           }
-          await loadSqlTables(state.sqlDb);
+          invalidateSqlCache(state.dbEngine, state.sqlDb);
+          await loadSqlTables(state.sqlDb, true);
         } catch (err) {
           toast(errMsg(err), "err");
         }
@@ -3254,7 +3408,8 @@ try {
         await api().CreateTable(state.dbEngine, state.sqlDb, tblName, cols);
         closeNewTable();
         toast(`Created table "${tblName}"`, "ok");
-        await loadSqlTables(state.sqlDb);
+        invalidateSqlCache(state.dbEngine, state.sqlDb);
+        await loadSqlTables(state.sqlDb, true);
         const created = state.sqlTables.find((t) => t.name === tblName);
         if (created) await selectSqlTable(created, false);
       } catch (err) {
@@ -3295,7 +3450,8 @@ try {
         closeNewDb();
         toast(user ? `Created database "${name}" & user "${user}"` : `Created database "${name}"`, "ok");
         state.sqlDb = name;
-        await loadSqlDatabases();
+        invalidateSqlCache(state.dbEngine);
+        await loadSqlDatabases(true);
       } catch (err) {
         toast(errMsg(err), "err");
       }
@@ -3698,7 +3854,7 @@ try {
       } else if (state.tab === "database") {
         renderDbEngineTabs();
         const now = getStatus(state.dbEngine)?.state;
-        if (prev !== now) loadDbView();
+        if (prev !== now) loadDbView(true);
       } else if (state.tab === "config") {
         renderCfgEngineTabs();
         const s = getStatus(state.cfgEngine);
@@ -4138,7 +4294,9 @@ try {
     $("formCloudProfile").onsubmit = async (e) => {
       e.preventDefault();
       try {
-        state.cloudProfiles = (await api().SaveCloudProfile(buildCloudObjFromForm())) || [];
+        const profileObj = buildCloudObjFromForm();
+        state.cloudProfiles = (await api().SaveCloudProfile(profileObj)) || [];
+        if (profileObj?.id) invalidateSqlCache("cloud:" + profileObj.id);
         closeCloudForm();
         renderCloudView();
         toast("Cloud database profile saved", "ok");
@@ -4373,7 +4531,8 @@ try {
         setSyncFormLocked(false);
         setSyncProgress(100, "done", "✅ Sync Complete!", msg || "Database synced successfully.");
         toast(msg || "Sync complete!", "ok");
-        if (state.tab === "database") await loadSqlDatabases();
+        invalidateSqlCache();
+        if (state.tab === "database") await loadSqlDatabases(true);
         if (syncJob.minimized) {
           syncHideTimer = setTimeout(() => {
             if (!syncJob.running && syncJob.minimized) {
@@ -4715,6 +4874,7 @@ try {
         openCloudFormModal(c);
       } else if (act === "del") {
         if (!(await askConfirm("Delete Cloud Profile?", `Remove "${c.name}" from saved cloud profiles?`, "Delete"))) return;
+        invalidateSqlCache("cloud:" + c.id);
         state.cloudProfiles = (await api().DeleteCloudProfile(c.id)) || [];
         if (state.dbEngine === "cloud:" + c.id) {
           state.dbEngine = "mariadb";

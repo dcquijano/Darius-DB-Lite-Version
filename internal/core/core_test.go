@@ -661,3 +661,34 @@ func TestFormatMSSQLErrorCannotOpenDB(t *testing.T) {
 	}
 }
 
+func TestParseMSSQLOutputAndTargetCache(t *testing.T) {
+	raw := "id\tname\tnote\r\n--\t----\t----\r\n1\tAlice\tNULL\r\n2\tBob\tActive\r\n3\tCara\tPending\r\n"
+	res := parseMSSQLOutput([]byte(raw), 2, 12.5)
+	if !res.IsQuery || !res.Truncated || len(res.Rows) != 2 || len(res.Columns) != 3 {
+		t.Fatalf("unexpected parsed result: %+v", res)
+	}
+	if res.Rows[0][2] != nil || res.Rows[1][1] == nil || *res.Rows[1][1] != "Bob" {
+		t.Fatalf("unexpected row values: %+v", res.Rows)
+	}
+
+	nonQuery := parseMSSQLOutput([]byte("(5 rows affected)\r\n"), 100, 3.2)
+	if nonQuery.IsQuery || nonQuery.Affected != 5 {
+		t.Fatalf("unexpected non-query parsed result: %+v", nonQuery)
+	}
+
+	mssqlTargetMu.Lock()
+	mssqlTargetCached = `\\.\pipe\TEST`
+	mssqlTargetChecked = time.Now()
+	mssqlTargetMu.Unlock()
+	if got := mssqlServerTarget(EngineSettings{}); got != `\\.\pipe\TEST` {
+		t.Fatalf("expected cached target, got %q", got)
+	}
+	InvalidateMSSQLTargetCache()
+	mssqlTargetMu.Lock()
+	cleared := mssqlTargetCached == "" && mssqlTargetChecked.IsZero()
+	mssqlTargetMu.Unlock()
+	if !cleared {
+		t.Fatal("expected InvalidateMSSQLTargetCache to clear cache")
+	}
+}
+

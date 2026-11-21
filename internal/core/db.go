@@ -171,6 +171,9 @@ func pooledSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) 
 
 // CloseSQLPools closes cached SQL connection pools for the given engine (and optional database name).
 func CloseSQLPools(engine, dbName string) {
+	if engine == "" || engine == "mssql" {
+		InvalidateMSSQLTargetCache()
+	}
 	var toClose []*sql.DB
 	sqlPoolMu.Lock()
 	for k, entry := range sqlPools {
@@ -388,7 +391,11 @@ func RunQueryWithLimit(engine string, s EngineSettings, dbName, q string, limit 
 		return nil, err
 	}
 	start := time.Now()
-	res := &QueryResult{Columns: []string{}, Rows: [][]*string{}}
+	capRows := 128
+	if limit < capRows {
+		capRows = limit
+	}
+	res := &QueryResult{Columns: []string{}, Rows: make([][]*string, 0, capRows)}
 
 	if !returnsRows(q) {
 		r, err := db.Exec(q)
@@ -579,23 +586,23 @@ func DescribeTable(engine string, s EngineSettings, dbName, tableName string) ([
 			WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
 			ORDER BY ORDINAL_POSITION`, schema, table)
 	} else {
-		rows, err = db.Query(`SELECT c.column_name,
-			CASE WHEN c.character_maximum_length IS NOT NULL THEN c.data_type || '(' || c.character_maximum_length::text || ')' ELSE c.data_type END,
-			c.is_nullable,
-			c.column_default,
+		rows, err = db.Query(`SELECT a.attname,
+			format_type(a.atttypid, a.atttypmod),
+			CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END,
+			pg_get_expr(d.adbin, d.adrelid),
 			CASE WHEN EXISTS (
-				SELECT 1 FROM information_schema.table_constraints tc
-				JOIN information_schema.key_column_usage kcu
-				  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-				WHERE tc.constraint_type = 'PRIMARY KEY'
-				  AND tc.table_schema = c.table_schema
-				  AND tc.table_name = c.table_name
-				  AND kcu.column_name = c.column_name
+				SELECT 1 FROM pg_index i
+				WHERE i.indrelid = a.attrelid
+				  AND i.indisprimary
+				  AND a.attnum = ANY(i.indkey)
 			) THEN 'PRI' ELSE '' END,
-			CASE WHEN c.is_identity = 'YES' OR COALESCE(c.column_default, '') LIKE 'nextval(%' THEN 'auto_increment' ELSE '' END
-		FROM information_schema.columns c
-		WHERE c.table_schema = $1 AND c.table_name = $2
-		ORDER BY c.ordinal_position`, schema, table)
+			CASE WHEN a.attidentity IN ('a', 'd') OR COALESCE(pg_get_expr(d.adbin, d.adrelid), '') LIKE 'nextval(%' THEN 'auto_increment' ELSE '' END
+		FROM pg_attribute a
+		JOIN pg_class cl ON cl.oid = a.attrelid
+		JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+		LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+		WHERE ns.nspname = $1 AND cl.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped
+		ORDER BY a.attnum`, schema, table)
 	}
 	if err != nil {
 		return nil, err

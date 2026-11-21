@@ -4617,6 +4617,9 @@ try {
       $("cloudEditId").value = existing?.id || "";
       $("cloudUriInput").value = "";
       $("cloudTestStatus").hidden = true;
+      $("cloudTestStatus").classList.remove("success", "error");
+      if ($("cloudTestBar")) $("cloudTestBar").style.width = "0%";
+      if ($("cloudTestPct")) $("cloudTestPct").textContent = "0%";
       $("modalCloudTitle").textContent = existing ? `Edit Cloud Profile — ${existing.name}` : "☁️ Add Cloud Database";
       if ($("cloudProviderHint")) $("cloudProviderHint").hidden = true;
       if (presetKey) applyPresetToForm(presetKey);
@@ -4690,24 +4693,67 @@ try {
       }
     };
 
-    $("btnTestCloudForm").onclick = async () => {
+    const setCloudTestProgress = (percent, mode = "running", title = "", detail = "") => {
+      const pct = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
       const box = $("cloudTestStatus");
+      if (box) {
+        box.hidden = false;
+        box.classList.remove("success", "error");
+        if (mode === "done" || mode === "success") box.classList.add("success");
+        else if (mode === "error") box.classList.add("error");
+      }
+      if ($("cloudTestSpinner")) $("cloudTestSpinner").hidden = mode !== "running";
+      if ($("cloudTestTitle") && title) $("cloudTestTitle").textContent = title;
+      if ($("cloudTestPct")) $("cloudTestPct").textContent = `${pct}%`;
+      if ($("cloudTestBar")) $("cloudTestBar").style.width = `${pct}%`;
+      if ($("cloudTestSub")) $("cloudTestSub").textContent = detail || "";
+
+      const formBtn = $("btnTestCloudForm");
+      if (formBtn && formBtn.disabled && mode === "running") {
+        formBtn.textContent = `⏳ Testing ${pct}%`;
+      }
+      const cardBtn = state.activeCloudTestBtn;
+      if (cardBtn && cardBtn.isConnected && mode === "running") {
+        cardBtn.textContent = `⏳ ${pct}%`;
+      }
+    };
+
+    rt()?.EventsOn?.("cloud-test-progress", (p) => {
+      if (!p) return;
+      state.lastCloudTestPct = Math.max(state.lastCloudTestPct || 0, Number(p.percent) || 0);
+      setCloudTestProgress(
+        p.percent,
+        p.state || "running",
+        p.stage || "Testing connection...",
+        p.detail || ""
+      );
+    });
+
+    $("btnTestCloudForm").onclick = async () => {
       const btn = $("btnTestCloudForm");
       btn.disabled = true;
-      btn.textContent = "⏳ Testing...";
-      box.hidden = false;
-      box.style.color = "var(--text-muted)";
-      box.textContent = "Connecting to remote database server...";
+      btn.textContent = "⏳ Testing 5%";
+      state.lastCloudTestPct = 5;
+      const startedAt = Date.now();
+      setCloudTestProgress(5, "running", "Starting connection test...", "Elapsed 0.0s — preparing network probe");
+      const elapsedTimer = setInterval(() => {
+        if (!btn.disabled) return;
+        const secs = ((Date.now() - startedAt) / 1000).toFixed(1);
+        const curPct = Number($("cloudTestPct")?.textContent?.replace("%", "")) || state.lastCloudTestPct || 10;
+        const nudged = curPct < 88 ? Math.min(88, curPct + 2) : curPct;
+        state.lastCloudTestPct = nudged;
+        setCloudTestProgress(nudged, "running", $("cloudTestTitle")?.textContent || "Connecting...", `Elapsed ${secs}s — waiting for remote database response`);
+      }, 450);
       try {
         const res = await api().TestCloudProfile(buildCloudObjFromForm());
-        box.style.color = "var(--green)";
-        box.textContent = `✅ ${res.message}`;
+        setCloudTestProgress(100, "done", `✅ Connected in ${res.latencyMs ?? 0} ms`, res.message || "Connection verified.");
         toast(res.message, "ok");
       } catch (err) {
-        box.style.color = "var(--red)";
-        box.textContent = `⚠️ ${errMsg(err)}`;
+        const secs = ((Date.now() - startedAt) / 1000).toFixed(1);
+        setCloudTestProgress(100, "error", `⚠️ Connection test failed (${secs}s)`, errMsg(err));
         toast(errMsg(err), "err");
       } finally {
+        clearInterval(elapsedTimer);
         btn.disabled = false;
         btn.textContent = "🔌 Test Connection";
       }
@@ -5241,7 +5287,8 @@ try {
       } else if (act === "test") {
         const prev = btn.textContent;
         btn.disabled = true;
-        btn.textContent = "⏳...";
+        btn.textContent = "⏳ 5%";
+        state.activeCloudTestBtn = btn;
         try {
           const res = await api().TestCloudProfile(c);
           state.cloudProfiles = (await api().CloudProfiles()) || state.cloudProfiles;
@@ -5250,6 +5297,7 @@ try {
         } catch (err) {
           toast(errMsg(err), "err");
         } finally {
+          state.activeCloudTestBtn = null;
           btn.disabled = false;
           btn.textContent = prev;
         }

@@ -779,3 +779,46 @@ func TestRepairSystemFixesAllComponents(t *testing.T) {
 	}
 }
 
+func TestCloudConnectionWithProgressEmitsStages(t *testing.T) {
+	var events []CloudSyncProgress
+	_, err := TestCloudConnectionWithProgress(CloudConnection{Engine: "mysql"}, func(p CloudSyncProgress) {
+		events = append(events, p)
+	})
+	if err == nil {
+		t.Fatal("expected error for missing host")
+	}
+	if len(events) < 2 {
+		t.Fatalf("expected >= 2 progress events on validation failure, got %+v", events)
+	}
+	if events[0].Percent != 10 || events[len(events)-1].State != "error" || events[len(events)-1].Percent != 100 {
+		t.Fatalf("unexpected progress sequence on missing host: %+v", events)
+	}
+
+	// Pick a guaranteed closed ephemeral port so TCP reachability check fails deterministically with progress stages.
+	ln, lerr := net.Listen("tcp", "127.0.0.1:0")
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	closedPort := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	events = nil
+	res, cerr := TestCloudConnectionWithProgress(CloudConnection{
+		Engine: "mysql",
+		Host:   "127.0.0.1",
+		Port:   closedPort,
+	}, func(p CloudSyncProgress) {
+		events = append(events, p)
+	})
+	if cerr == nil || res == nil || res.OK {
+		t.Fatalf("expected connection failure on closed port %d, got res=%+v err=%v", closedPort, res, cerr)
+	}
+	if len(events) < 3 {
+		t.Fatalf("expected validation, tcp probe, and error progress events, got %+v", events)
+	}
+	if events[1].Percent != 25 || events[len(events)-1].State != "error" || events[len(events)-1].Percent != 100 {
+		t.Fatalf("unexpected progress sequence on closed port: %+v", events)
+	}
+}
+
+

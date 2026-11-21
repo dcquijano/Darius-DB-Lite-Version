@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -300,24 +301,61 @@ func ParseCloudURI(raw string) (*CloudConnection, error) {
 // TestCloudConnection opens a live connection to the configured Cloud/cPanel/MonsterASP database,
 // measures round-trip latency, fetches server version info, and lists accessible databases.
 func TestCloudConnection(c CloudConnection) (*CloudTestResult, error) {
+	return TestCloudConnectionWithProgress(c, nil)
+}
+
+// TestCloudConnectionWithProgress runs TestCloudConnection while reporting real-time
+// stage and percentage updates to emit.
+func TestCloudConnectionWithProgress(c CloudConnection, emit func(CloudSyncProgress)) (*CloudTestResult, error) {
+	report := func(pct int, state, stage, detail string) {
+		if emit != nil {
+			emit(CloudSyncProgress{
+				Percent: pct,
+				State:   state,
+				Stage:   stage,
+				Detail:  detail,
+			})
+		}
+	}
+
+	report(10, "running", "Validating connection parameters...", fmt.Sprintf("Checking %s host & port settings", strings.ToUpper(strings.TrimSpace(c.Engine))))
 	nc := c.Normalized()
 	if nc.Host == "" {
-		return nil, errors.New("host / server address is required")
+		err := errors.New("host / server address is required")
+		report(100, "error", "Validation failed", err.Error())
+		return nil, err
 	}
 	es := nc.ToEngineSettings()
 	start := time.Now()
+	addr := net.JoinHostPort(nc.Host, strconv.Itoa(nc.Port))
+
+	report(25, "running", fmt.Sprintf("Testing TCP reachability (%s)...", addr), "Checking firewall / network route to remote server")
+	tcpConn, dialErr := net.DialTimeout("tcp", addr, 6*time.Second)
+	if dialErr != nil {
+		lat := time.Since(start).Milliseconds()
+		report(100, "error", fmt.Sprintf("TCP connection failed (%d ms)", lat), dialErr.Error())
+		return &CloudTestResult{OK: false, LatencyMs: lat, Message: dialErr.Error()}, dialErr
+	}
+	_ = tcpConn.Close()
+
+	report(50, "running", fmt.Sprintf("Authenticating (%s, TLS: %s)...", strings.ToUpper(nc.Engine), nc.SSLMode), fmt.Sprintf("TCP reachable in %d ms — verifying credentials", time.Since(start).Milliseconds()))
 
 	if nc.Engine == "redis" {
 		conn, err := dialRedis(es, 0)
 		if err != nil {
-			return &CloudTestResult{OK: false, LatencyMs: time.Since(start).Milliseconds(), Message: err.Error()}, err
+			lat := time.Since(start).Milliseconds()
+			report(100, "error", fmt.Sprintf("Redis authentication failed (%d ms)", lat), err.Error())
+			return &CloudTestResult{OK: false, LatencyMs: lat, Message: err.Error()}, err
 		}
 		defer conn.Close()
+		report(75, "running", "Sending Redis PING...", "Verifying live session")
 		pong, err := conn.Do("PING")
 		lat := time.Since(start).Milliseconds()
 		if err != nil {
+			report(100, "error", fmt.Sprintf("Redis PING failed (%d ms)", lat), err.Error())
 			return &CloudTestResult{OK: false, LatencyMs: lat, Message: err.Error()}, err
 		}
+		report(90, "running", "Reading Redis server version...", "Fetching server metadata")
 		ver := ""
 		if info, ierr := conn.Do("INFO", "server"); ierr == nil {
 			for _, line := range strings.Split(fmt.Sprint(info), "\n") {
@@ -330,23 +368,28 @@ func TestCloudConnection(c CloudConnection) (*CloudTestResult, error) {
 		if ver == "" {
 			ver = fmt.Sprintf("Redis (%v)", pong)
 		}
+		msg := fmt.Sprintf("Connected to %s:%d in %d ms (%s)", nc.Host, nc.Port, lat, ver)
+		report(100, "done", fmt.Sprintf("Connected in %d ms", lat), msg)
 		return &CloudTestResult{
 			OK:         true,
 			LatencyMs:  lat,
 			ServerInfo: ver,
-			Message:    fmt.Sprintf("Connected to %s:%d in %d ms (%s)", nc.Host, nc.Port, lat, ver),
+			Message:    msg,
 		}, nil
 	}
 
+	report(60, "running", "Authenticating & listing accessible databases...", fmt.Sprintf("Opening %s database session on %s", strings.ToUpper(nc.Engine), addr))
 	dbs, err := ListDatabases(nc.Engine, es)
 	lat := time.Since(start).Milliseconds()
 	if err != nil {
+		report(100, "error", fmt.Sprintf("Database handshake failed (%d ms)", lat), err.Error())
 		return &CloudTestResult{OK: false, LatencyMs: lat, Message: err.Error()}, err
 	}
 	targetDB := nc.Database
 	if targetDB == "" && len(dbs) > 0 {
 		targetDB = dbs[0]
 	}
+	report(85, "running", "Querying remote server version...", fmt.Sprintf("Found %d database(s) — reading server version", len(dbs)))
 	ver := ""
 	verQ := "SELECT VERSION()"
 	if nc.Engine == "mssql" {
@@ -362,6 +405,7 @@ func TestCloudConnection(c CloudConnection) (*CloudTestResult, error) {
 	if ver != "" {
 		msg = fmt.Sprintf("Connected in %d ms · %s", lat, ver)
 	}
+	report(100, "done", fmt.Sprintf("Connected in %d ms", lat), msg)
 	return &CloudTestResult{
 		OK:         true,
 		LatencyMs:  lat,

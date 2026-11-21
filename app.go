@@ -1028,7 +1028,11 @@ func (a *App) ParseCloudURI(rawURI string) (*core.CloudConnection, error) {
 }
 
 func (a *App) TestCloudProfile(conn core.CloudConnection) (*core.CloudTestResult, error) {
-	res, err := core.TestCloudConnection(conn)
+	res, err := core.TestCloudConnectionWithProgress(conn, func(p core.CloudSyncProgress) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "cloud-test-progress", p)
+		}
+	})
 	if err == nil && res != nil && res.OK && conn.ID != "" {
 		_ = a.settings.Update(func(s *core.Settings) {
 			for i, cur := range s.CloudConnections {

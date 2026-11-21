@@ -521,6 +521,20 @@ func (a *App) resolveTarget(engine string) (string, core.EngineSettings, *core.C
 	return engine, a.settings.Engine(engine), nil
 }
 
+func (a *App) resolveTargetStrict(engine string) (string, core.EngineSettings, *core.CloudConnection, error) {
+	if strings.HasPrefix(engine, "cloud:") {
+		id := strings.TrimPrefix(engine, "cloud:")
+		for _, cc := range a.settings.Get().CloudConnections {
+			if cc.ID == id {
+				nc := cc.Normalized()
+				return nc.Engine, nc.ToEngineSettings(), &nc, nil
+			}
+		}
+		return "", core.EngineSettings{}, nil, fmt.Errorf("cloud profile %q not found — select a Cloud connection or switch to a Local engine", id)
+	}
+	return engine, a.settings.Engine(engine), nil, nil
+}
+
 func (a *App) ConnectionString(engine, dbName string) string {
 	realEng, es, cloud := a.resolveTarget(engine)
 	if cloud != nil {
@@ -707,62 +721,98 @@ func (a *App) SetAutoRunConfig(autoStartServices bool, enabledEngines map[string
 // ---------------------------------------------------------------- Database Browser (Local & Cloud)
 
 func (a *App) ListDatabases(engine string) ([]string, error) {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return nil, err
+	}
 	return core.ListDatabases(realEng, es)
 }
 
 func (a *App) ListTables(engine, dbName string) ([]core.TableInfo, error) {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return nil, err
+	}
 	return core.ListTables(realEng, es, dbName)
 }
 
 func (a *App) RunQuery(engine, dbName, query string) (*core.QueryResult, error) {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return nil, err
+	}
 	return core.RunQuery(realEng, es, dbName, query)
 }
 
 func (a *App) RunQueryAll(engine, dbName, query string) (*core.QueryResult, error) {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return nil, err
+	}
 	return core.RunQueryAll(realEng, es, dbName, query)
 }
 
 func (a *App) DescribeTable(engine, dbName, tableName string) ([]core.ColumnInfo, error) {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return nil, err
+	}
 	return core.DescribeTable(realEng, es, dbName, tableName)
 }
 
 func (a *App) InsertRow(engine, dbName, tableName string, values map[string]core.RowValue) error {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return err
+	}
 	return core.InsertRow(realEng, es, dbName, tableName, values)
 }
 
 func (a *App) UpdateRow(engine, dbName, tableName string, keys, updates map[string]core.RowValue, hasPK bool) error {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return err
+	}
 	return core.UpdateRow(realEng, es, dbName, tableName, keys, updates, hasPK)
 }
 
 func (a *App) DeleteRow(engine, dbName, tableName string, keys map[string]core.RowValue, hasPK bool) error {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return err
+	}
 	return core.DeleteRow(realEng, es, dbName, tableName, keys, hasPK)
 }
 
 func (a *App) CreateTable(engine, dbName, tableName string, cols []core.CreateTableColumn) error {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return err
+	}
 	return core.CreateTable(realEng, es, dbName, tableName, cols)
 }
 
 func (a *App) DropTable(engine, dbName, tableName string) error {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return err
+	}
 	return core.DropTable(realEng, es, dbName, tableName)
 }
 
 func (a *App) CreateDatabase(engine, name, user, password string) error {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return err
+	}
 	return core.CreateDatabase(realEng, es, name, user, password)
 }
 
 func (a *App) DropDatabase(engine, name string) error {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return err
+	}
 	return core.DropDatabase(realEng, es, name)
 }
 
@@ -804,12 +854,18 @@ type ImportResult struct {
 }
 
 func (a *App) RestoreDatabase(engine, filePath, targetDB string) (string, error) {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return "", err
+	}
 	return core.RestoreDatabase(a.paths, realEng, es, filePath, targetDB)
 }
 
 func (a *App) ImportDatabaseFile(engine, filePath, targetDB, targetTable string) (*ImportResult, error) {
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return nil, err
+	}
 	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(filePath)))
 	if ext == ".csv" {
 		dbName, count, err := core.ImportCSV(realEng, es, filePath, targetDB, targetTable)
@@ -901,7 +957,10 @@ func (a *App) ExportDatabaseDialog(engine, dbName string, tables []string, forma
 	if actualExt == "zip" || actualExt == "csv" || actualExt == "bak" || actualExt == "sql" {
 		exportFmt = actualExt
 	}
-	realEng, es, _ := a.resolveTarget(engine)
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return "", err
+	}
 	emit := func(prog core.BackupProgress) {
 		if a.ctx != nil {
 			runtime.EventsEmit(a.ctx, "backup-progress", prog)

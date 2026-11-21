@@ -228,7 +228,12 @@ func mssqlImportSQLCtx(ctx context.Context, s EngineSettings, sqlPath, targetDB 
 	if targetDB != "" && !systemDBs[strings.ToLower(targetDB)] {
 		createQ := fmt.Sprintf("IF DB_ID(N'%s') IS NULL CREATE DATABASE %s;",
 			strings.ReplaceAll(targetDB, "'", "''"), mssqlBracket(targetDB))
-		_, _ = mssqlRunQueryCtx(ctx, s, "master", createQ)
+		if _, cerr := mssqlRunQueryCtx(ctx, s, "master", createQ); cerr != nil && !isRemoteMSSQLHost(s) {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("cannot prepare local database %q: %w", targetDB, cerr)
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}

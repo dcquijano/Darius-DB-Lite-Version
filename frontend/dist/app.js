@@ -156,18 +156,34 @@
     }
   }
 
+  function resetSqlBrowserState(nextDb = "") {
+    state.sqlDb = nextDb;
+    state.sqlDbs = [];
+    state.sqlTables = [];
+    state.sqlTable = "";
+    state.sqlColumns = [];
+    state.sqlLastResult = null;
+    state.sqlShowingAll = false;
+    state.sqlPage = 1;
+    hideSqlPager();
+  }
+
   function pickBestDbEngine() {
     if (String(state.dbEngine || "").startsWith("cloud:")) {
       const id = state.dbEngine.slice(6);
       if (state.cloudProfiles.some((p) => p.id === id)) return;
     }
+    const prevEng = state.dbEngine;
     const cur = getStatus(state.dbEngine);
     if (cur && cur.engine !== "apache" && cur.engine !== "php" && cur.state === "running") return;
     const running = state.statuses.find(
       (s) => s.engine !== "apache" && s.engine !== "php" && s.engine !== "mailpit" && s.state === "running"
     );
     if (running) state.dbEngine = running.engine;
-    else if (state.dbEngine === "apache" || state.dbEngine === "php") state.dbEngine = "mariadb";
+    else if (state.dbEngine === "apache" || state.dbEngine === "php" || String(state.dbEngine || "").startsWith("cloud:")) state.dbEngine = "mariadb";
+    if (state.dbEngine !== prevEng) {
+      resetSqlBrowserState("");
+    }
   }
 
   // ---- Dashboard (5th-Picture Unified Row Layout: Apache + PHP Unified, Separate MariaDB & MySQL) ----
@@ -498,15 +514,7 @@
     el.querySelectorAll(".seg").forEach((btn) =>
       btn.addEventListener("click", () => {
         state.dbEngine = btn.dataset.engine;
-        state.sqlDb = "";
-        state.sqlDbs = [];
-        state.sqlTables = [];
-        state.sqlTable = "";
-        state.sqlColumns = [];
-        state.sqlLastResult = null;
-        state.sqlShowingAll = false;
-        state.sqlPage = 1;
-        hideSqlPager();
+        resetSqlBrowserState("");
         renderDbEngineTabs();
         loadDbView();
       })
@@ -2173,6 +2181,7 @@
           }
         } else if (act === "browse") {
           state.dbEngine = eng;
+          resetSqlBrowserState("");
           switchTab("database");
         } else if (act === "config") {
           state.cfgEngine = eng;
@@ -4171,11 +4180,7 @@ try {
 
       if (act === "browse") {
         state.dbEngine = "cloud:" + c.id;
-        state.sqlDb = c.database || "";
-        state.sqlDbs = [];
-        state.sqlTables = [];
-        state.sqlTable = "";
-        state.sqlLastResult = null;
+        resetSqlBrowserState(c.database || "");
         switchTab("database");
       } else if (act === "test") {
         const prev = btn.textContent;
@@ -4236,7 +4241,10 @@ try {
       } else if (act === "del") {
         if (!(await askConfirm("Delete Cloud Profile?", `Remove "${c.name}" from saved cloud profiles?`, "Delete"))) return;
         state.cloudProfiles = (await api().DeleteCloudProfile(c.id)) || [];
-        if (state.dbEngine === "cloud:" + c.id) state.dbEngine = "mariadb";
+        if (state.dbEngine === "cloud:" + c.id) {
+          state.dbEngine = "mariadb";
+          resetSqlBrowserState("");
+        }
         renderCloudView();
         toast(`Removed ${c.name}`, "ok");
       }
@@ -4265,8 +4273,8 @@ try {
     if ($("btnCloudBarLocal")) {
       $("btnCloudBarLocal").onclick = () => {
         state.dbEngine = "mariadb";
+        resetSqlBrowserState("");
         pickBestDbEngine();
-        state.sqlDb = "";
         renderDbEngineTabs();
         loadDbView();
       };

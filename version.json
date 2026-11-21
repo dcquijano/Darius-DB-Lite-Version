@@ -1,7 +1,7 @@
 {
   "name": "Darius DB (Lite Version 0.1.4)",
   "version": "0.1.4",
-  "build": "202611211015",
+  "build": "202611211025",
   "channel": "Lite Version",
   "releasedAt": "2026-11-21",
   "author": "Darius Cumpio",
@@ -10,8 +10,9 @@
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.4/DariusDB-0.1.4-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.4.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Reduced Windows Defender/antivirus false positives in Setup & Uninstaller (native Windows COM shortcuts instead of hidden PowerShell + clean go:embed PE payload)!",
+  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Fixed MS SQL Login/Cannot open database error caused by stale Cloud database selection across engine switches & hardened Setup against AV false positives!",
   "changelog": [
+    "Fixed MS SQL Error 4060 ('Cannot open database ... requested by the login' / Windows Auth 'IKYOJIN\\ADMIN'): resets stale Cloud database selection when switching to Local engines, validates missing Cloud profiles strictly, filters offline DBs from sys.databases, and surfaces clear actionable errors",
     "Hardened DariusDB-Setup-0.1.4.exe & Uninstaller against antivirus/Defender false positives: replaced hidden powershell.exe shortcut scripts with native Win32 COM IShellLinkW calls and switched to clean go:embed PE packaging ready for Authenticode code signing",
     "Show latest 10 GitHub pushes in Release Announcement & What's New with expanded scrollable view in System Version Updater",
     "Fixed MS SQL Server Dashboard toggle turning back OFF right after starting: ignores inaccessible SYSTEM SQL Server service PIDs when locating LocalDB's sqlservr.exe, keeps LocalDB awake while switched ON (preventing idle auto-shutdown), and guards against accidental double-click stop while starting",

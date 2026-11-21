@@ -649,3 +649,15 @@ func TestSelectBestLocalDBPID(t *testing.T) {
 	}
 }
 
+func TestFormatMSSQLErrorCannotOpenDB(t *testing.T) {
+	raw := `Sqlcmd: Error: Microsoft ODBC Driver 17 for SQL Server : Login failed for user 'IKYOJIN\ADMIN'.. Sqlcmd: Error: Microsoft ODBC Driver 17 for SQL Server : Cannot open database "db70628" requested by the login. The login failed..`
+	localMsg := formatMSSQLError(raw, nil, "db70628", EngineSettings{})
+	if !strings.Contains(localMsg, `Cannot open local MS SQL database "db70628"`) {
+		t.Fatalf("expected clear local MS SQL explanation, got: %s", localMsg)
+	}
+	remoteMsg := formatMSSQLError(raw, nil, "db70628", EngineSettings{Host: "db70628.public.databaseasp.net"})
+	if !strings.Contains(remoteMsg, `Cannot open remote MS SQL database "db70628"`) {
+		t.Fatalf("expected clear remote MS SQL explanation, got: %s", remoteMsg)
+	}
+}
+

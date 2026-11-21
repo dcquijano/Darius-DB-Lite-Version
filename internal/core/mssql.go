@@ -641,11 +641,7 @@ func mssqlRunQueryWithLimitCtx(ctx context.Context, s EngineSettings, dbName, q 
 	text := strings.ReplaceAll(string(out), "\r\n", "\n")
 
 	if err != nil {
-		msg := strings.TrimSpace(text)
-		if msg == "" {
-			msg = err.Error()
-		}
-		return nil, errors.New(msg)
+		return nil, errors.New(formatMSSQLError(text, err, dbName, s))
 	}
 
 	lines := strings.Split(text, "\n")
@@ -725,14 +721,33 @@ func mssqlBracket(ident string) string {
 	return "[" + strings.ReplaceAll(ident, "]", "]]") + "]"
 }
 
+func formatMSSQLError(raw string, err error, dbName string, s EngineSettings) string {
+	msg := strings.TrimSpace(raw)
+	if msg == "" && err != nil {
+		msg = err.Error()
+	}
+	low := strings.ToLower(msg)
+	if strings.Contains(low, "cannot open database") && strings.Contains(low, "requested by the login") {
+		targetLabel := dbName
+		if targetLabel == "" {
+			targetLabel = s.DefaultDB
+		}
+		if !isRemoteMSSQLHost(s) {
+			return fmt.Sprintf("Cannot open local MS SQL database %q — it does not exist or is offline on LocalDB. Select an existing local DB or Pull it from Cloud in Sync first. (%s)", targetLabel, msg)
+		}
+		return fmt.Sprintf("Cannot open remote MS SQL database %q on %s — verify the database name and SQL login credentials. (%s)", targetLabel, fallbackStr(strings.TrimSpace(s.Host), "server"), msg)
+	}
+	return msg
+}
+
 func mssqlListDatabases(s EngineSettings) ([]string, error) {
 	queryDB := "master"
-	q := "SET NOCOUNT ON; SELECT name FROM sys.databases ORDER BY name;"
+	q := "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' ORDER BY name;"
 	if isRemoteMSSQLHost(s) {
 		if s.DefaultDB != "" {
 			queryDB = s.DefaultDB
 		}
-		q = "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE HAS_DBACCESS(name) = 1 ORDER BY name;"
+		q = "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' AND HAS_DBACCESS(name) = 1 ORDER BY name;"
 	}
 	res, err := mssqlRunQuery(s, queryDB, q)
 	if err != nil {

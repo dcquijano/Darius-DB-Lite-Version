@@ -29,6 +29,8 @@
     sqlPage: 1,
     sqlPageSize: 50,
     sqlColWidths: null,
+    sqlTabs: [],
+    activeSqlTabId: "",
     redisDb: 0,
     redisCursor: "0",
     redisKeys: [],
@@ -157,20 +159,216 @@
     }
   }
 
+  const activeSqlTabByEngine = new Map();
+  let sqlTabIdSeq = 0;
+
+  function engineTabs(engine = state.dbEngine) {
+    return state.sqlTabs.filter((t) => t.engine === engine);
+  }
+
+  function getSqlTab(tabId) {
+    return state.sqlTabs.find((t) => t.id === tabId) || null;
+  }
+
+  function getActiveSqlTab() {
+    return getSqlTab(state.activeSqlTabId);
+  }
+
+  function isBlankSqlTab(tab) {
+    return !!tab && !tab.table && !tab.result && !tab.loading && !(tab.sql || "").trim();
+  }
+
+  function nextQueryTabTitle(engine) {
+    const used = new Set(engineTabs(engine).map((t) => t.title));
+    let n = 1;
+    while (used.has(`Query ${n}`)) n++;
+    return `Query ${n}`;
+  }
+
+  function createSqlTabObj({ engine = state.dbEngine, db = state.sqlDb, table = "", title = "", sql = "", pageSize = state.sqlPageSize || 50 } = {}) {
+    const id = `sqltab-${++sqlTabIdSeq}`;
+    return {
+      id,
+      title: title || table || nextQueryTabTitle(engine),
+      engine,
+      db: db || "",
+      table,
+      columns: [],
+      sql: sql || "",
+      result: null,
+      showingAll: false,
+      page: 1,
+      pageSize: pageSize ?? 50,
+      filter: "",
+      colWidths: null,
+      metaText: "Ready",
+      metaError: false,
+      loading: false,
+      reqSeq: 0,
+    };
+  }
+
+  function syncActiveTabFromDom() {
+    const tab = getActiveSqlTab();
+    if (!tab) return;
+    tab.table = state.sqlTable;
+    tab.columns = state.sqlColumns;
+    tab.result = state.sqlLastResult;
+    tab.showingAll = state.sqlShowingAll;
+    tab.page = state.sqlPage;
+    tab.pageSize = state.sqlPageSize;
+    tab.colWidths = state.sqlColWidths;
+    if ($("sqlEditor")) tab.sql = $("sqlEditor").value;
+    if ($("sqlRowFilter")) tab.filter = $("sqlRowFilter").value;
+    if ($("sqlMeta")) {
+      tab.metaText = $("sqlMeta").textContent;
+      tab.metaError = $("sqlMeta").parentElement?.classList.contains("error") || false;
+    }
+  }
+
+  function renderSqlTabs() {
+    const el = $("sqlTabList");
+    if (!el) return;
+    const tabs = engineTabs(state.dbEngine);
+    const multiDb = new Set(tabs.map((t) => t.db).filter(Boolean)).size > 1;
+    el.innerHTML = tabs
+      .map((t) => {
+        const active = t.id === state.activeSqlTabId;
+        const label = t.title || t.table || "Query";
+        const dbHint = multiDb && t.db ? ` (${t.db})` : "";
+        const tip = `${label}${t.db ? ` — ${t.db}` : ""}`;
+        return `<div class="sql-tab ${active ? "active" : ""}" data-sqltab-id="${esc(t.id)}" role="tab" aria-selected="${active ? "true" : "false"}" title="${esc(tip)}">
+          ${t.loading ? `<span class="sql-tab-dot" title="Running query..."></span>` : ""}
+          <span class="sql-tab-title">${esc(label)}${dbHint ? `<span class="sql-tab-db">${esc(dbHint)}</span>` : ""}</span>
+          <button type="button" class="sql-tab-close" data-close-sqltab="${esc(t.id)}" title="Close tab">✕</button>
+        </div>`;
+      })
+      .join("");
+    const activeEl = el.querySelector(".sql-tab.active");
+    if (activeEl && activeEl.scrollIntoView) {
+      activeEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }
+
+  function applyTabToDom(tab, { syncSidebar = false } = {}) {
+    if (!tab) return;
+    state.activeSqlTabId = tab.id;
+    activeSqlTabByEngine.set(tab.engine, tab.id);
+    state.sqlTable = tab.table || "";
+    state.sqlColumns = tab.columns || [];
+    state.sqlLastResult = tab.result || null;
+    state.sqlShowingAll = !!tab.showingAll;
+    state.sqlPage = tab.page || 1;
+    state.sqlPageSize = tab.pageSize !== undefined ? tab.pageSize : 50;
+    state.sqlColWidths = tab.colWidths || null;
+
+    if ($("sqlEditor")) $("sqlEditor").value = tab.sql || "";
+    if ($("sqlRowFilter")) $("sqlRowFilter").value = tab.filter || "";
+    if ($("sqlPageSize")) $("sqlPageSize").value = String(state.sqlPageSize);
+    const meta = $("sqlMeta");
+    if (meta) {
+      meta.textContent = tab.metaText || "Ready";
+      meta.parentElement.className = tab.metaError ? "result-meta-bar error" : "result-meta-bar";
+    }
+    if (tab.result && tab.result.isQuery) {
+      renderSqlTable(tab.result);
+    } else {
+      if ($("sqlResults")) $("sqlResults").innerHTML = "";
+      hideSqlPager();
+    }
+    updateSqlTableToolbar();
+    renderSqlTabs();
+
+    if (syncSidebar && tab.db && tab.db !== state.sqlDb && tab.engine === state.dbEngine) {
+      state.sqlDb = tab.db;
+      renderSqlDbList();
+      loadSqlTables(tab.db, false);
+    } else {
+      if ($("sqlActiveDb")) {
+        const displayDb = tab.db || state.sqlDb;
+        $("sqlActiveDb").textContent = displayDb ? `${state.dbEngine} / ${displayDb}` : "No DB selected";
+      }
+      renderSqlTableList();
+    }
+  }
+
+  function ensureActiveSqlTab() {
+    let tab = getActiveSqlTab();
+    if (tab && tab.engine === state.dbEngine) return tab;
+    const savedId = activeSqlTabByEngine.get(state.dbEngine);
+    tab = (savedId && getSqlTab(savedId)) || engineTabs(state.dbEngine)[0] || null;
+    if (!tab) {
+      tab = createSqlTabObj({ engine: state.dbEngine, db: state.sqlDb });
+      state.sqlTabs.push(tab);
+    }
+    applyTabToDom(tab);
+    return tab;
+  }
+
+  function openNewSqlTab({ focus = true } = {}) {
+    syncActiveTabFromDom();
+    const tab = createSqlTabObj({ engine: state.dbEngine, db: state.sqlDb });
+    state.sqlTabs.push(tab);
+    applyTabToDom(tab);
+    if (focus && $("sqlEditor")) $("sqlEditor").focus();
+    return tab;
+  }
+
+  function closeSqlTab(tabId) {
+    const idx = state.sqlTabs.findIndex((t) => t.id === tabId);
+    if (idx < 0) return;
+    const closing = state.sqlTabs[idx];
+    const siblingsBefore = engineTabs(closing.engine);
+    const sibIdx = siblingsBefore.findIndex((t) => t.id === tabId);
+    state.sqlTabs.splice(idx, 1);
+
+    if (closing.engine !== state.dbEngine) {
+      if (activeSqlTabByEngine.get(closing.engine) === tabId) {
+        const rem = engineTabs(closing.engine);
+        if (rem.length) activeSqlTabByEngine.set(closing.engine, rem[Math.min(sibIdx, rem.length - 1)].id);
+        else activeSqlTabByEngine.delete(closing.engine);
+      }
+      return;
+    }
+
+    if (state.activeSqlTabId === tabId) {
+      const remaining = engineTabs(state.dbEngine);
+      if (remaining.length > 0) {
+        applyTabToDom(remaining[Math.min(sibIdx, remaining.length - 1)], { syncSidebar: true });
+      } else {
+        const fresh = createSqlTabObj({ engine: state.dbEngine, db: state.sqlDb });
+        state.sqlTabs.push(fresh);
+        applyTabToDom(fresh);
+      }
+    } else {
+      renderSqlTabs();
+    }
+  }
+
   function resetSqlBrowserState(nextDb = "") {
+    const prevTab = getActiveSqlTab();
+    if (prevTab) {
+      syncActiveTabFromDom();
+      activeSqlTabByEngine.set(prevTab.engine, prevTab.id);
+    }
     state.sqlDb = nextDb;
     state.sqlDbs = [];
     state.sqlTables = [];
-    state.sqlTable = "";
-    state.sqlColumns = [];
-    state.sqlLastResult = null;
-    state.sqlShowingAll = false;
-    state.sqlPage = 1;
-    hideSqlPager();
+    state.activeSqlTabId = "";
+    const restoredId = activeSqlTabByEngine.get(state.dbEngine);
+    let nextTab = (restoredId && getSqlTab(restoredId)) || engineTabs(state.dbEngine)[0] || null;
+    if (!nextTab) {
+      nextTab = createSqlTabObj({ engine: state.dbEngine, db: nextDb });
+      state.sqlTabs.push(nextTab);
+    } else if (nextDb && isBlankSqlTab(nextTab)) {
+      nextTab.db = nextDb;
+    }
+    if (nextTab.db && !nextDb) state.sqlDb = nextTab.db;
+    applyTabToDom(nextTab);
     if ($("sqlDbsCount")) $("sqlDbsCount").hidden = true;
     if ($("sqlTablesTitle")) {
-      $("sqlTablesTitle").textContent = nextDb ? `Tables (${nextDb})` : "Tables";
-      $("sqlTablesTitle").title = nextDb ? `Tables in ${nextDb}` : "Tables";
+      $("sqlTablesTitle").textContent = state.sqlDb ? `Tables (${state.sqlDb})` : "Tables";
+      $("sqlTablesTitle").title = state.sqlDb ? `Tables in ${state.sqlDb}` : "Tables";
     }
     if ($("sqlTablesCount")) $("sqlTablesCount").hidden = true;
   }
@@ -571,7 +769,10 @@
       .then((cols) => {
         const list = cols || [];
         sqlSchemaCache.set(key, list);
-        if (state.dbEngine === engine && state.sqlDb === db && state.sqlTable === table) {
+        state.sqlTabs.forEach((t) => {
+          if (t.engine === engine && t.db === db && t.table === table) t.columns = list;
+        });
+        if (state.dbEngine === engine && (getActiveSqlTab()?.db || state.sqlDb) === db && state.sqlTable === table) {
           state.sqlColumns = list;
         }
         return list;
@@ -623,6 +824,7 @@
       redisEl.hidden = true;
       sqlEl.hidden = false;
       reapplySplitters();
+      ensureActiveSqlTab();
       if (force) invalidateSqlCache(state.dbEngine);
       if (cloud && cloud.database && !state.sqlDb) state.sqlDb = cloud.database;
       await loadSqlDatabases(force);
@@ -639,6 +841,11 @@
     if (!state.sqlDb || !state.sqlDbs.includes(state.sqlDb)) {
       state.sqlDb =
         state.sqlDbs.find((d) => !SYSTEM_DBS.has(d.toLowerCase())) || state.sqlDbs[0] || "";
+    }
+    const curTab = getActiveSqlTab();
+    if (curTab && isBlankSqlTab(curTab) && state.sqlDb) {
+      curTab.db = state.sqlDb;
+      renderSqlTabs();
     }
     renderSqlDbList();
   }
@@ -752,9 +959,12 @@
     if (!force && sqlTablesCache.has(cacheKey)) {
       const cached = sqlTablesCache.get(cacheKey);
       state.sqlTables = cached.data;
-      if (state.sqlTable && !state.sqlTables.some((t) => t.name === state.sqlTable)) {
+      const curTab = getActiveSqlTab();
+      if (curTab && curTab.engine === reqEngine && curTab.db === db && state.sqlTable && !state.sqlTables.some((t) => t.name === state.sqlTable)) {
         state.sqlTable = "";
         state.sqlColumns = [];
+        curTab.table = "";
+        curTab.columns = [];
       }
       renderSqlTableList();
       updateSqlTableToolbar();
@@ -784,17 +994,23 @@
       sqlTablesCache.set(cacheKey, { data: list, ts: Date.now() });
       if (state.dbEngine !== reqEngine || state.sqlDb !== db || (!background && reqSeq !== sqlTablesReqSeq)) return;
       state.sqlTables = list;
-      if (state.sqlTable && !state.sqlTables.some((t) => t.name === state.sqlTable)) {
+      const curTab = getActiveSqlTab();
+      if (curTab && curTab.engine === reqEngine && curTab.db === db && state.sqlTable && !state.sqlTables.some((t) => t.name === state.sqlTable)) {
         state.sqlTable = "";
         state.sqlColumns = [];
+        curTab.table = "";
+        curTab.columns = [];
       }
       renderSqlTableList();
       updateSqlTableToolbar();
     } catch (e) {
       if (background || state.dbEngine !== reqEngine || state.sqlDb !== db || reqSeq !== sqlTablesReqSeq) return;
       state.sqlTables = [];
-      state.sqlTable = "";
-      state.sqlColumns = [];
+      const curTab = getActiveSqlTab();
+      if (curTab && curTab.engine === reqEngine && curTab.db === db) {
+        state.sqlTable = "";
+        state.sqlColumns = [];
+      }
       renderSqlTableList();
       updateSqlTableToolbar();
       toast(errMsg(e), "err");
@@ -827,12 +1043,15 @@
       list.innerHTML = `<div class="empty-note">No tables</div>`;
       return;
     }
+    const curTab = getActiveSqlTab();
+    const activeMatchDb = !curTab || !curTab.db || curTab.db === state.sqlDb;
     list.innerHTML = state.sqlTables
       .map((t, idx) => {
         const safeName = esc(t.name);
         const safeKind = esc(t.kind);
         const isView = t.kind && t.kind.toUpperCase().includes("VIEW");
-        return `<div class="tree-item ${t.name === state.sqlTable ? "active" : ""}" data-table-idx="${idx}" title="${safeName} (${safeKind})">
+        const isActive = activeMatchDb && t.name === state.sqlTable;
+        return `<div class="tree-item ${isActive ? "active" : ""}" data-table-idx="${idx}" title="${safeName} (${safeKind})">
             <span class="tree-label">${safeName}</span>
             ${isView ? `<span class="type-tag">VIEW</span>` : `<button class="tree-del" data-drop-table="${safeName}" title="Drop table">✕</button>`}
           </div>`;
@@ -874,72 +1093,138 @@
     return s;
   }
 
-  async function selectSqlTable(tableObj, showAll = false) {
+  async function selectSqlTable(tableObj, showAll = false, opts = {}) {
     if (!tableObj) return;
+    syncActiveTabFromDom();
     const reqEngine = state.dbEngine;
     const reqDb = state.sqlDb;
-    const fetchAll = !!showAll || state.sqlPageSize === 0;
-    state.sqlTable = tableObj.name;
-    state.sqlShowingAll = fetchAll;
-    state.sqlPage = 1;
-    state.sqlColumns = sqlSchemaCache.get(`${reqEngine}|${reqDb}|${tableObj.name}`) || [];
-    renderSqlTableList();
-    updateSqlTableToolbar();
+    const existing = engineTabs(reqEngine).find((t) => t.db === reqDb && t.table === tableObj.name);
+    let targetTab = null;
+
+    if (existing && !opts.forceNew) {
+      targetTab = existing;
+      const wasActive = existing.id === state.activeSqlTabId;
+      if (!wasActive) {
+        applyTabToDom(existing);
+        if (!showAll && (existing.result || existing.loading)) {
+          return;
+        }
+      } else if (!showAll && existing.loading) {
+        return;
+      }
+    } else {
+      const cur = ensureActiveSqlTab();
+      if (isBlankSqlTab(cur) && !opts.forceNew) {
+        targetTab = cur;
+        targetTab.engine = reqEngine;
+        targetTab.db = reqDb;
+        targetTab.table = tableObj.name;
+        targetTab.title = tableObj.name;
+      } else {
+        targetTab = createSqlTabObj({
+          engine: reqEngine,
+          db: reqDb,
+          table: tableObj.name,
+          title: tableObj.name,
+        });
+        state.sqlTabs.push(targetTab);
+      }
+    }
+
+    const fetchAll = !!showAll || targetTab.pageSize === 0;
+    targetTab.table = tableObj.name;
+    targetTab.title = tableObj.name;
+    targetTab.db = reqDb;
+    targetTab.showingAll = fetchAll;
+    targetTab.page = 1;
+    targetTab.columns = sqlSchemaCache.get(`${reqEngine}|${reqDb}|${tableObj.name}`) || [];
     let sql = tableObj.select;
     if (fetchAll) {
       sql = tableObj.selectAll || applySqlQueryLimit(tableObj.select, 0);
-    } else if (state.sqlPageSize > 100) {
-      sql = applySqlQueryLimit(tableObj.select, state.sqlPageSize);
+    } else if (targetTab.pageSize > 100) {
+      sql = applySqlQueryLimit(tableObj.select, targetTab.pageSize);
     }
-    $("sqlEditor").value = sql;
-    await runSqlQuery(fetchAll || state.sqlPageSize > 1000);
+    targetTab.sql = sql;
+    applyTabToDom(targetTab);
+
+    await runSqlQuery(fetchAll || targetTab.pageSize > 1000, false, targetTab.id);
     if (
       state.dbEngine === reqEngine &&
       state.sqlDb === reqDb &&
-      state.sqlTable === tableObj.name &&
+      targetTab.table === tableObj.name &&
       !sqlSchemaCache.has(`${reqEngine}|${reqDb}|${tableObj.name}`)
     ) {
       ensureSqlColumns(reqEngine, reqDb, tableObj.name).catch(() => { });
     }
   }
 
-  async function runSqlQuery(showAll = false, preservePage = false) {
-    const q = $("sqlEditor").value.trim();
+  async function runSqlQuery(showAll = false, preservePage = false, explicitTabId = "") {
+    syncActiveTabFromDom();
+    const tab = (explicitTabId && getSqlTab(explicitTabId)) || ensureActiveSqlTab();
+    const q = (tab.sql || "").trim();
     if (!q) return;
-    const reqEngine = state.dbEngine;
-    const reqDb = state.sqlDb;
-    const reqSeq = ++sqlQueryReqSeq;
-    if (!preservePage) state.sqlPage = 1;
-    const meta = $("sqlMeta");
-    const bar = meta.parentElement;
-    bar.className = "result-meta-bar";
-    meta.textContent = showAll ? "Loading all rows..." : "Running query...";
-    $("sqlResults").innerHTML = "";
-    hideSqlPager();
+    const reqEngine = tab.engine;
+    const reqDb = tab.db || state.sqlDb;
+    tab.db = reqDb;
+    const reqSeq = ++tab.reqSeq;
+    tab.loading = true;
+    if (!preservePage) {
+      tab.page = 1;
+      tab.filter = "";
+    }
+    tab.showingAll = !!showAll;
+    tab.metaText = showAll ? "Loading all rows..." : "Running query...";
+    tab.metaError = false;
+
+    const isStillActive = () => state.activeSqlTabId === tab.id && state.dbEngine === tab.engine;
+    if (isStillActive()) {
+      state.sqlPage = tab.page;
+      state.sqlShowingAll = tab.showingAll;
+      if (!preservePage && $("sqlRowFilter")) $("sqlRowFilter").value = "";
+      const meta = $("sqlMeta");
+      if (meta) {
+        meta.parentElement.className = "result-meta-bar";
+        meta.textContent = tab.metaText;
+      }
+      if ($("sqlResults")) $("sqlResults").innerHTML = "";
+      hideSqlPager();
+    }
+    renderSqlTabs();
+
     try {
       const res = showAll
         ? await api().RunQueryAll(reqEngine, reqDb, q)
         : await api().RunQuery(reqEngine, reqDb, q);
-      if (state.dbEngine !== reqEngine || state.sqlDb !== reqDb || reqSeq !== sqlQueryReqSeq) return;
-      state.sqlLastResult = res;
-      if (!preservePage && $("sqlRowFilter")) $("sqlRowFilter").value = "";
-      updateSqlTableToolbar();
+      if (!getSqlTab(tab.id) || tab.reqSeq !== reqSeq) return;
+      tab.loading = false;
+      tab.result = res;
       if (res.isQuery) {
-        meta.textContent = `${res.rows.length} row(s)${res.truncated ? " (capped)" : showAll ? " (all)" : ""} · ${res.durationMs.toFixed(1)} ms`;
-        renderSqlTable(res);
+        tab.metaText = `${res.rows.length} row(s)${res.truncated ? " (capped)" : showAll ? " (all)" : ""} · ${res.durationMs.toFixed(1)} ms`;
+        tab.metaError = false;
       } else {
-        hideSqlPager();
-        meta.textContent = `Query OK · ${res.affected} row(s) affected · ${res.durationMs.toFixed(1)} ms`;
+        tab.metaText = `Query OK · ${res.affected} row(s) affected · ${res.durationMs.toFixed(1)} ms`;
+        tab.metaError = false;
         if (/\b(create|drop|alter|rename)\b/i.test(q)) {
           invalidateSqlCache(reqEngine);
           loadSqlDatabases(true);
         }
       }
+      if (isStillActive()) {
+        applyTabToDom(tab);
+      } else {
+        renderSqlTabs();
+      }
     } catch (e) {
-      if (state.dbEngine !== reqEngine || state.sqlDb !== reqDb || reqSeq !== sqlQueryReqSeq) return;
-      hideSqlPager();
-      bar.className = "result-meta-bar error";
-      meta.textContent = errMsg(e);
+      if (!getSqlTab(tab.id) || tab.reqSeq !== reqSeq) return;
+      tab.loading = false;
+      tab.result = null;
+      tab.metaText = errMsg(e);
+      tab.metaError = true;
+      if (isStillActive()) {
+        applyTabToDom(tab);
+      } else {
+        renderSqlTabs();
+      }
     }
   }
 
@@ -1562,9 +1847,13 @@
       toast("Select a table on the left first", "err");
       return;
     }
+    const activeTab = getActiveSqlTab();
+    const rowDb = activeTab?.db || state.sqlDb;
+    const rowEngine = activeTab?.engine || state.dbEngine;
+    const rowTable = state.sqlTable;
     if (!state.sqlColumns || !state.sqlColumns.length) {
       try {
-        state.sqlColumns = await ensureSqlColumns(state.dbEngine, state.sqlDb, state.sqlTable);
+        state.sqlColumns = await ensureSqlColumns(rowEngine, rowDb, rowTable);
       } catch (e) {
         toast(errMsg(e), "err");
         return;
@@ -1659,14 +1948,14 @@
         });
         if (isEdit) {
           const { keys, hasPK } = buildRowKeyMap(rowIdx);
-          await api().UpdateRow(state.dbEngine, state.sqlDb, state.sqlTable, keys, values, hasPK);
+          await api().UpdateRow(rowEngine, rowDb, rowTable, keys, values, hasPK);
           toast("Row updated!", "ok");
         } else {
-          await api().InsertRow(state.dbEngine, state.sqlDb, state.sqlTable, values);
+          await api().InsertRow(rowEngine, rowDb, rowTable, values);
           toast("Row created!", "ok");
         }
         $("modalRowForm").hidden = true;
-        await runSqlQuery(state.sqlShowingAll, true);
+        await runSqlQuery(state.sqlShowingAll, true, activeTab?.id || "");
       } catch (err) {
         toast(errMsg(err), "err");
       } finally {
@@ -1679,16 +1968,20 @@
   async function deleteSqlRow(rowIdx) {
     if (!state.sqlTable) return;
     if (!(await askConfirm("Delete Row?", `Permanently delete this row from "${state.sqlTable}"?`, "Delete"))) return;
+    const activeTab = getActiveSqlTab();
+    const rowDb = activeTab?.db || state.sqlDb;
+    const rowEngine = activeTab?.engine || state.dbEngine;
+    const rowTable = state.sqlTable;
     try {
       if (!state.sqlColumns || !state.sqlColumns.length) {
         try {
-          state.sqlColumns = await ensureSqlColumns(state.dbEngine, state.sqlDb, state.sqlTable);
+          state.sqlColumns = await ensureSqlColumns(rowEngine, rowDb, rowTable);
         } catch { }
       }
       const { keys, hasPK } = buildRowKeyMap(rowIdx);
-      await api().DeleteRow(state.dbEngine, state.sqlDb, state.sqlTable, keys, hasPK);
+      await api().DeleteRow(rowEngine, rowDb, rowTable, keys, hasPK);
       toast("Row deleted", "ok");
-      await runSqlQuery(state.sqlShowingAll, true);
+      await runSqlQuery(state.sqlShowingAll, true, activeTab?.id || "");
     } catch (err) {
       toast(errMsg(err), "err");
     }
@@ -3193,8 +3486,10 @@ try {
         try {
           await api().DropDatabase(state.dbEngine, name);
           toast(`Dropped ${name}`, "ok");
+          state.sqlTabs = state.sqlTabs.filter((t) => !(t.engine === state.dbEngine && t.db === name));
           if (state.sqlDb === name) state.sqlDb = "";
           invalidateSqlCache(state.dbEngine);
+          ensureActiveSqlTab();
           await loadSqlDatabases(true);
         } catch (err) {
           toast(errMsg(err), "err");
@@ -3203,12 +3498,14 @@ try {
       }
       const item = e.target.closest("[data-db]");
       if (!item) return;
+      syncActiveTabFromDom();
       state.sqlDb = item.dataset.db;
-      state.sqlTable = "";
-      state.sqlColumns = [];
-      state.sqlShowingAll = false;
-      state.sqlPage = 1;
-      hideSqlPager();
+      const curTab = getActiveSqlTab();
+      if (curTab && isBlankSqlTab(curTab)) {
+        curTab.db = state.sqlDb;
+        renderSqlTabs();
+      }
+      $("sqlActiveDb").textContent = `${state.dbEngine} / ${state.sqlDb}`;
       renderSqlDbList();
       await loadSqlTables(state.sqlDb);
     });
@@ -3223,13 +3520,9 @@ try {
         try {
           await api().DropTable(state.dbEngine, state.sqlDb, tbl);
           toast(`Dropped table ${tbl}`, "ok");
-          if (state.sqlTable === tbl) {
-            state.sqlTable = "";
-            state.sqlColumns = [];
-            state.sqlLastResult = null;
-            $("sqlResults").innerHTML = "";
-            hideSqlPager();
-          }
+          state.sqlTabs
+            .filter((t) => t.engine === state.dbEngine && t.db === state.sqlDb && t.table === tbl)
+            .forEach((t) => closeSqlTab(t.id));
           invalidateSqlCache(state.dbEngine, state.sqlDb);
           await loadSqlTables(state.sqlDb, true);
         } catch (err) {
@@ -3243,8 +3536,40 @@ try {
       await selectSqlTable(t, false);
     });
 
+    if ($("btnNewSqlTab")) {
+      $("btnNewSqlTab").onclick = () => openNewSqlTab({ focus: true });
+    }
+    if ($("sqlTabList")) {
+      $("sqlTabList").addEventListener("click", (e) => {
+        const closeBtn = e.target.closest("[data-close-sqltab]");
+        if (closeBtn) {
+          e.stopPropagation();
+          closeSqlTab(closeBtn.dataset.closeSqltab);
+          return;
+        }
+        const tabEl = e.target.closest("[data-sqltab-id]");
+        if (!tabEl) return;
+        if (tabEl.dataset.sqltabId === state.activeSqlTabId) return;
+        syncActiveTabFromDom();
+        const tab = getSqlTab(tabEl.dataset.sqltabId);
+        if (tab) applyTabToDom(tab, { syncSidebar: true });
+      });
+      $("sqlTabList").addEventListener("auxclick", (e) => {
+        if (e.button !== 1) return;
+        const tabEl = e.target.closest("[data-sqltab-id]");
+        if (!tabEl) return;
+        e.preventDefault();
+        closeSqlTab(tabEl.dataset.sqltabId);
+      });
+      $("sqlTabList").addEventListener("dblclick", (e) => {
+        if (e.target === $("sqlTabList")) openNewSqlTab({ focus: true });
+      });
+    }
+
     const triggerShowAll = async () => {
-      const t = state.sqlTables.find((x) => x.name === state.sqlTable);
+      const curTab = getActiveSqlTab();
+      const targetDb = curTab?.db || state.sqlDb;
+      const t = targetDb === state.sqlDb ? state.sqlTables.find((x) => x.name === state.sqlTable) : null;
       if (t) {
         await selectSqlTable(t, true);
       } else if ($("sqlEditor").value.trim()) {
@@ -3420,6 +3745,8 @@ try {
     $("btnSqlRun").onclick = () => runSqlQuery(false);
     $("btnSqlClear").onclick = () => {
       $("sqlEditor").value = "";
+      const tab = getActiveSqlTab();
+      if (tab) tab.sql = "";
       $("sqlEditor").focus();
     };
     $("sqlEditor").addEventListener("keydown", (e) => {
@@ -4874,9 +5201,12 @@ try {
         openCloudFormModal(c);
       } else if (act === "del") {
         if (!(await askConfirm("Delete Cloud Profile?", `Remove "${c.name}" from saved cloud profiles?`, "Delete"))) return;
-        invalidateSqlCache("cloud:" + c.id);
+        const cloudEng = "cloud:" + c.id;
+        invalidateSqlCache(cloudEng);
+        state.sqlTabs = state.sqlTabs.filter((t) => t.engine !== cloudEng);
+        activeSqlTabByEngine.delete(cloudEng);
         state.cloudProfiles = (await api().DeleteCloudProfile(c.id)) || [];
-        if (state.dbEngine === "cloud:" + c.id) {
+        if (state.dbEngine === cloudEng) {
           state.dbEngine = "mariadb";
           resetSqlBrowserState("");
         }

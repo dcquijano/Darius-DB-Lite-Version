@@ -1,7 +1,7 @@
 {
   "name": "Darius DB (Lite Version 0.1.4)",
   "version": "0.1.4",
-  "build": "202611211340",
+  "build": "202611211354",
   "channel": "Lite Version",
   "releasedAt": "2026-11-21",
   "author": "Darius Cumpio",
@@ -10,8 +10,9 @@
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.4/DariusDB-0.1.4-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.4.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Added live Database & Table count badges, stretchable/collapsible browser splitters & result columns, and faster non-blocking data loading!",
+  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Added Multi-Tab SQL Browser (open multiple tables side-by-side, + new tab & close ✕), Database/Table counts, resizable splitters & fast data loading!",
   "changelog": [
+    "Added Multi-Tab SQL Browser: click multiple tables to open each in its own tab side-by-side, click + for new SQL query tabs, close tabs with ✕/middle-click, and keep per-tab SQL, rows, filters, pagination & column widths",
     "Added live Database & Table count badges beside Databases and Tables (<db>) headers, plus resizable/collapsible browser splitters, stretchable/auto-fit result table columns, and faster parallel/non-blocking table & MS SQL query loading",
     "Fixed MS SQL Error 4060 ('Cannot open database ... requested by the login' / Windows Auth 'IKYOJIN\\ADMIN'): resets stale Cloud database selection when switching to Local engines, validates missing Cloud profiles strictly, filters offline DBs from sys.databases, and surfaces clear actionable errors",
     "Hardened DariusDB-Setup-0.1.4.exe & Uninstaller against antivirus/Defender false positives: replaced hidden powershell.exe shortcut scripts with native Win32 COM IShellLinkW calls and switched to clean go:embed PE packaging ready for Authenticode code signing",

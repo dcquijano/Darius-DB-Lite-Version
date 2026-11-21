@@ -908,6 +908,129 @@ body.is-resizing-row, body.is-resizing-row * { cursor: row-resize !important; us
 
 .browser-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
+@keyframes sql-tab-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.sql-tabs-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  padding: 4px 8px 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  min-height: 31px;
+}
+.sql-tab-list {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.sql-tab-list::-webkit-scrollbar { height: 4px; }
+.sql-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  min-width: 72px;
+  flex-shrink: 0;
+  padding: 4px 7px 5px 10px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.sql-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.sql-tab.active {
+  background: var(--bg-elev);
+  color: var(--text);
+  font-weight: 600;
+  border-color: var(--border);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.sql-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: sql-tab-pulse 1s ease-in-out infinite;
+}
+.sql-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.sql-tab-db {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.sql-tab-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.65;
+  flex-shrink: 0;
+}
+.sql-tab:hover .sql-tab-close,
+.sql-tab.active .sql-tab-close {
+  opacity: 0.9;
+}
+.sql-tab-close:hover {
+  opacity: 1;
+  background: var(--red-soft);
+  color: var(--red);
+}
+.sql-tab-add {
+  width: 24px;
+  height: 24px;
+  margin-bottom: 3px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.sql-tab-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .editor-box { display: flex; flex-direction: column; flex: 38 1 0px; min-height: 90px; }
 .editor-box.is-collapsed { flex: 0 0 auto !important; min-height: 0 !important; }
 .editor-box.is-collapsed .code-area { display: none !important; }

@@ -37,6 +37,9 @@ var (
 	procSHBrowseForFolderW   = shell32.NewProc("SHBrowseForFolderW")
 	procSHGetPathFromIDListW = shell32.NewProc("SHGetPathFromIDListW")
 	procOleInitialize        = ole32.NewProc("OleInitialize")
+	procCoInitializeEx       = ole32.NewProc("CoInitializeEx")
+	procCoUninitialize       = ole32.NewProc("CoUninitialize")
+	procCoCreateInstance     = ole32.NewProc("CoCreateInstance")
 	procCoTaskMemFree        = ole32.NewProc("CoTaskMemFree")
 )
 
@@ -158,4 +161,76 @@ func imagePath(pid uint32) string {
 		return ""
 	}
 	return windows.UTF16ToString(buf[:n])
+}
+
+type comVtbl struct {
+	vtbl *[32]uintptr
+}
+
+func comCall(obj uintptr, slot int, args ...uintptr) uintptr {
+	tbl := (*comVtbl)(unsafe.Pointer(obj)).vtbl
+	callArgs := make([]uintptr, 1+len(args))
+	callArgs[0] = obj
+	copy(callArgs[1:], args)
+	r1, _, _ := syscall.SyscallN(tbl[slot], callArgs...)
+	return r1
+}
+
+// CreateShortcut creates a Windows .lnk shortcut using native COM (IShellLinkW + IPersistFile),
+// avoiding spawning hidden powershell.exe/wscript child processes during installation.
+func CreateShortcut(lnkPath, targetPath, args, workDir, iconPath, desc string) error {
+	hr, _, _ := procCoInitializeEx.Call(0, 0x2) // COINIT_APARTMENTTHREADED
+	if hr == 0 || hr == 1 {                     // S_OK or S_FALSE
+		defer procCoUninitialize.Call()
+	}
+
+	clsidShellLink := windows.GUID{Data1: 0x00021401, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	iidIShellLinkW := windows.GUID{Data1: 0x000214F9, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	iidIPersistFile := windows.GUID{Data1: 0x0000010B, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+
+	var sl uintptr
+	hr, _, _ = procCoCreateInstance.Call(
+		uintptr(unsafe.Pointer(&clsidShellLink)),
+		0,
+		1, // CLSCTX_INPROC_SERVER
+		uintptr(unsafe.Pointer(&iidIShellLinkW)),
+		uintptr(unsafe.Pointer(&sl)),
+	)
+	if hr != 0 || sl == 0 {
+		return syscall.Errno(hr)
+	}
+	defer comCall(sl, 2) // Release
+
+	setStr := func(slot int, val string) {
+		if val == "" {
+			return
+		}
+		p, _ := windows.UTF16PtrFromString(val)
+		comCall(sl, slot, uintptr(unsafe.Pointer(p)))
+	}
+	setStr(20, targetPath) // SetPath
+	setStr(11, args)       // SetArguments
+	setStr(9, workDir)     // SetWorkingDirectory
+	setStr(7, desc)        // SetDescription
+	if iconPath != "" {
+		ip, _ := windows.UTF16PtrFromString(iconPath)
+		comCall(sl, 17, uintptr(unsafe.Pointer(ip)), 0) // SetIconLocation
+	}
+
+	var pf uintptr
+	hr = comCall(sl, 0, uintptr(unsafe.Pointer(&iidIPersistFile)), uintptr(unsafe.Pointer(&pf))) // QueryInterface
+	if hr != 0 || pf == 0 {
+		return syscall.Errno(hr)
+	}
+	defer comCall(pf, 2) // Release
+
+	lp, err := windows.UTF16PtrFromString(lnkPath)
+	if err != nil {
+		return err
+	}
+	hr = comCall(pf, 6, uintptr(unsafe.Pointer(lp)), 1) // Save(lnkPath, TRUE)
+	if hr != 0 {
+		return syscall.Errno(hr)
+	}
+	return nil
 }

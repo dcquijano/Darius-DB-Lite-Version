@@ -886,30 +886,16 @@ func repairShortcuts(installDir string) {
 	updaterExe := filepath.Join(installDir, "DariusDB-Updater.exe")
 	startMenu := filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs", appShortName)
 	_ = os.MkdirAll(startMenu, 0o755)
+	_ = winui.CreateShortcut(filepath.Join(startMenu, appShortName+".lnk"), launcherExe, "", installDir, mainExe, "Launch "+appFullTitle)
+	_ = winui.CreateShortcut(filepath.Join(startMenu, appShortName+" Terminal.lnk"), launcherExe, "--terminal", installDir, mainExe, "Open "+appFullTitle+" Terminal")
+	_ = winui.CreateShortcut(filepath.Join(startMenu, "Update "+appShortName+".lnk"), updaterExe, "", installDir, mainExe, "Update "+appFullTitle)
+	_ = winui.CreateShortcut(filepath.Join(startMenu, "Repair "+appShortName+".lnk"), uninstExe, "--repair", installDir, mainExe, "Repair "+appFullTitle)
+	_ = winui.CreateShortcut(filepath.Join(startMenu, "Uninstall "+appShortName+".lnk"), uninstExe, "", installDir, mainExe, "Uninstall "+appFullTitle)
 
-	escPS := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
-	ps := fmt.Sprintf(`$w = New-Object -ComObject WScript.Shell; `+
-		`function mk($l,$t,$a,$d){ $s=$w.CreateShortcut($l); $s.TargetPath=$t; $s.Arguments=$a; $s.WorkingDirectory='%s'; $s.IconLocation='%s,0'; $s.Description=$d; $s.Save() }; `+
-		`mk '%s' '%s' '' 'Launch %s'; `+
-		`mk '%s' '%s' '--terminal' 'Open %s Terminal'; `+
-		`mk '%s' '%s' '' 'Update %s'; `+
-		`mk '%s' '%s' '--repair' 'Repair %s'; `+
-		`mk '%s' '%s' '' 'Uninstall %s'; `,
-		escPS(installDir), escPS(mainExe),
-		escPS(filepath.Join(startMenu, appShortName+".lnk")), escPS(launcherExe), escPS(appFullTitle),
-		escPS(filepath.Join(startMenu, appShortName+" Terminal.lnk")), escPS(launcherExe), escPS(appFullTitle),
-		escPS(filepath.Join(startMenu, "Update "+appShortName+".lnk")), escPS(updaterExe), escPS(appFullTitle),
-		escPS(filepath.Join(startMenu, "Repair "+appShortName+".lnk")), escPS(uninstExe), escPS(appFullTitle),
-		escPS(filepath.Join(startMenu, "Uninstall "+appShortName+".lnk")), escPS(uninstExe), escPS(appFullTitle),
-	)
 	desktop := filepath.Join(os.Getenv("USERPROFILE"), "Desktop")
 	if st, err := os.Stat(desktop); err == nil && st.IsDir() {
-		ps += fmt.Sprintf(`mk '%s' '%s' '' 'Launch %s';`,
-			escPS(filepath.Join(desktop, appShortName+".lnk")), escPS(launcherExe), escPS(appFullTitle))
+		_ = winui.CreateShortcut(filepath.Join(desktop, appShortName+".lnk"), launcherExe, "", installDir, mainExe, "Launch "+appFullTitle)
 	}
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	_ = cmd.Run()
 }
 
 func removeDirFromUserPath(targetDir string) {

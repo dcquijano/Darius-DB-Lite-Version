@@ -4,6 +4,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -924,36 +925,44 @@ func performInstall(opts installOptions, report func(pct int, msg string)) error
 }
 
 func extractEmbeddedZip(installDir string, step func(int, string)) (bool, error) {
-	selfExe, err := os.Executable()
-	if err != nil {
-		return false, nil
-	}
-	f, err := os.Open(selfExe)
-	if err != nil {
-		return false, nil
-	}
-	defer f.Close()
+	var zr *zip.Reader
+	var err error
+	if data := embeddedPayloadBytes(); len(data) > 0 {
+		zr, err = zip.NewReader(bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			return false, fmt.Errorf("cannot read installer payload: %w", err)
+		}
+	} else {
+		selfExe, e := os.Executable()
+		if e != nil {
+			return false, nil
+		}
+		f, e := os.Open(selfExe)
+		if e != nil {
+			return false, nil
+		}
+		defer f.Close()
 
-	st, err := f.Stat()
-	if err != nil || st.Size() < 32 {
-		return false, nil
-	}
-	var trailer [16]byte
-	if _, err := f.ReadAt(trailer[:], st.Size()-16); err != nil {
-		return false, nil
-	}
-	if string(trailer[8:16]) != trailerMagic {
-		return false, nil
-	}
-	zipSize := int64(binary.LittleEndian.Uint64(trailer[0:8]))
-	zipOffset := st.Size() - 16 - zipSize
-	if zipSize <= 0 || zipOffset < 0 {
-		return false, fmt.Errorf("corrupt installer payload")
-	}
-
-	zr, err := zip.NewReader(io.NewSectionReader(f, zipOffset, zipSize), zipSize)
-	if err != nil {
-		return false, fmt.Errorf("cannot read installer payload: %w", err)
+		st, e := f.Stat()
+		if e != nil || st.Size() < 32 {
+			return false, nil
+		}
+		var trailer [16]byte
+		if _, e := f.ReadAt(trailer[:], st.Size()-16); e != nil {
+			return false, nil
+		}
+		if string(trailer[8:16]) != trailerMagic {
+			return false, nil
+		}
+		zipSize := int64(binary.LittleEndian.Uint64(trailer[0:8]))
+		zipOffset := st.Size() - 16 - zipSize
+		if zipSize <= 0 || zipOffset < 0 {
+			return false, fmt.Errorf("corrupt installer payload")
+		}
+		zr, err = zip.NewReader(io.NewSectionReader(f, zipOffset, zipSize), zipSize)
+		if err != nil {
+			return false, fmt.Errorf("cannot read installer payload: %w", err)
+		}
 	}
 
 	allowed := map[string]bool{
@@ -1069,40 +1078,21 @@ func createShortcuts(installDir string, createMenu, createDesktop bool) {
 	uninstExe := filepath.Join(installDir, "DariusDB-Uninstall.exe")
 	updaterExe := filepath.Join(installDir, "DariusDB-Updater.exe")
 
-	ps := fmt.Sprintf(`$w = New-Object -ComObject WScript.Shell; `+
-		`function mk($l,$t,$a,$d){ $s=$w.CreateShortcut($l); $s.TargetPath=$t; $s.Arguments=$a; $s.WorkingDirectory='%s'; $s.IconLocation='%s,0'; $s.Description=$d; $s.Save() }; `,
-		escPS(installDir), escPS(mainExe),
-	)
 	if createMenu {
 		startMenu := filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs", appShortName)
 		_ = os.MkdirAll(startMenu, 0o755)
-		ps += fmt.Sprintf(
-			`mk '%s' '%s' '' 'Launch %s'; `+
-				`mk '%s' '%s' '--terminal' 'Open %s Terminal'; `+
-				`mk '%s' '%s' '' 'Update %s'; `+
-				`mk '%s' '%s' '--repair' 'Repair %s'; `+
-				`mk '%s' '%s' '' 'Uninstall %s'; `,
-			escPS(filepath.Join(startMenu, appShortName+".lnk")), escPS(launcherExe), escPS(appFullTitle),
-			escPS(filepath.Join(startMenu, appShortName+" Terminal.lnk")), escPS(launcherExe), escPS(appFullTitle),
-			escPS(filepath.Join(startMenu, "Update "+appShortName+".lnk")), escPS(updaterExe), escPS(appFullTitle),
-			escPS(filepath.Join(startMenu, "Repair "+appShortName+".lnk")), escPS(uninstExe), escPS(appFullTitle),
-			escPS(filepath.Join(startMenu, "Uninstall "+appShortName+".lnk")), escPS(uninstExe), escPS(appFullTitle),
-		)
+		_ = winui.CreateShortcut(filepath.Join(startMenu, appShortName+".lnk"), launcherExe, "", installDir, mainExe, "Launch "+appFullTitle)
+		_ = winui.CreateShortcut(filepath.Join(startMenu, appShortName+" Terminal.lnk"), launcherExe, "--terminal", installDir, mainExe, "Open "+appFullTitle+" Terminal")
+		_ = winui.CreateShortcut(filepath.Join(startMenu, "Update "+appShortName+".lnk"), updaterExe, "", installDir, mainExe, "Update "+appFullTitle)
+		_ = winui.CreateShortcut(filepath.Join(startMenu, "Repair "+appShortName+".lnk"), uninstExe, "--repair", installDir, mainExe, "Repair "+appFullTitle)
+		_ = winui.CreateShortcut(filepath.Join(startMenu, "Uninstall "+appShortName+".lnk"), uninstExe, "", installDir, mainExe, "Uninstall "+appFullTitle)
 	}
 	if createDesktop {
 		desktop := filepath.Join(os.Getenv("USERPROFILE"), "Desktop")
 		if st, err := os.Stat(desktop); err == nil && st.IsDir() {
-			ps += fmt.Sprintf(`mk '%s' '%s' '' 'Launch %s';`,
-				escPS(filepath.Join(desktop, appShortName+".lnk")), escPS(launcherExe), escPS(appFullTitle))
+			_ = winui.CreateShortcut(filepath.Join(desktop, appShortName+".lnk"), launcherExe, "", installDir, mainExe, "Launch "+appFullTitle)
 		}
 	}
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	_ = cmd.Run()
-}
-
-func escPS(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
 }
 
 func registerUninstall(installDir string) {

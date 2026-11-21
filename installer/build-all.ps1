@@ -77,16 +77,12 @@ try {
     go build -p 1 -tags $tags -ldflags "-s -w$ldBuild" -o "build\bin\darius.exe" ./cmd/cli
     if ($LASTEXITCODE -ne 0) { throw "building darius.exe failed" }
 
-    Write-Host "==> Building DariusDB-Setup-$Version.exe stub..." -ForegroundColor Cyan
-    $stubExe = "build\bin\DariusDB-Setup-stub.exe"
-    go build -p 1 -tags $tags -ldflags "-s -w -H=windowsgui" -o $stubExe ./cmd/installer
-    if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Setup.exe failed" }
-
     Write-Host "==> Packaging portable ZIP & self-contained DariusDB-Setup-$Version.exe..." -ForegroundColor Cyan
     $distDir = Join-Path $RepoRoot "dist"
     $stageDir = Join-Path $distDir "DariusDB-$Version-portable"
     $zipPath = Join-Path $distDir "DariusDB-$Version-portable-windows-amd64.zip"
     $setupExe = Join-Path $distDir "DariusDB-Setup-$Version.exe"
+    $embedPayload = Join-Path $RepoRoot "cmd\installer\payload.zip"
 
     Remove-Item -Recurse -Force $stageDir -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
@@ -103,21 +99,16 @@ try {
     [System.IO.Compression.ZipFile]::CreateFromDirectory($stageDir, $zipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
     Remove-Item -Recurse -Force $stageDir
 
-    # Create self-contained single-file DariusDB-Setup-0.1.4.exe (stub + zip payload + 16-byte trailer)
-    Copy-Item -Force $stubExe $setupExe
-    $zipBytes = [System.IO.File]::ReadAllBytes($zipPath)
-    $sizeBytes = [System.BitConverter]::GetBytes([uint64]$zipBytes.Length)
-    $magic = [System.Text.Encoding]::ASCII.GetBytes("DARIUS01")
-    $fs = [System.IO.File]::Open($setupExe, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write)
+    # Embed portable payload cleanly into PE .rdata via go:embed (avoids EOF overlay heuristics & keeps PE valid for code signing)
+    Copy-Item -Force $zipPath $embedPayload
     try {
-        $fs.Write($zipBytes, 0, $zipBytes.Length)
-        $fs.Write($sizeBytes, 0, 8)
-        $fs.Write($magic, 0, 8)
+        go build -p 1 -tags "$tags,embedzip" -ldflags "-H=windowsgui" -o $setupExe ./cmd/installer
+        if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Setup.exe with embedded payload failed" }
     }
     finally {
-        $fs.Close()
+        Remove-Item -Force $embedPayload -ErrorAction SilentlyContinue
     }
-    Remove-Item -Force $stubExe -ErrorAction SilentlyContinue
+    Remove-Item -Force "build\bin\DariusDB-Setup-stub.exe" -ErrorAction SilentlyContinue
 
     # Place Installer, Launcher, Uninstaller, and Updater in installer\ for direct click access & GitHub distribution
     Copy-Item -Force $setupExe "installer\DariusDB-Setup-$Version.exe"

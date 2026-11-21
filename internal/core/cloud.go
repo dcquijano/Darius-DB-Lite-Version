@@ -327,10 +327,17 @@ func TestCloudConnectionWithProgress(c CloudConnection, emit func(CloudSyncProgr
 	}
 
 	// Detect common cPanel web port mistakes (cPanel web UI uses 2082/2083, WHM uses 2086/2087)
-	if (nc.Port == 2082 || nc.Port == 2083 || nc.Port == 2086 || nc.Port == 2087) && (nc.Engine == "mysql" || nc.Engine == "mariadb") {
-		msg := fmt.Sprintf("Port %d is the cPanel web login port, not the MySQL database port. In cPanel, MySQL listens on port 3306. Change Port to 3306.", nc.Port)
-		report(100, "error", fmt.Sprintf("Port %d is cPanel web login", nc.Port), msg)
-		return &CloudTestResult{OK: false, LatencyMs: 0, Message: msg}, errors.New(msg)
+	if nc.Port == 2082 || nc.Port == 2083 || nc.Port == 2086 || nc.Port == 2087 {
+		if nc.Engine == "mysql" || nc.Engine == "mariadb" {
+			msg := fmt.Sprintf("Port %d is the cPanel web login port, not the MySQL database port. In cPanel, MySQL listens on port 3306. Change Port to 3306.", nc.Port)
+			report(100, "error", fmt.Sprintf("Port %d is cPanel web login", nc.Port), msg)
+			return &CloudTestResult{OK: false, LatencyMs: 0, Message: msg}, errors.New(msg)
+		}
+		if nc.Engine == "mssql" {
+			msg := fmt.Sprintf("Port %d is the cPanel web login port (HTTP/HTTPS), not an MS SQL Server port. MS SQL Server uses port 1433 by default. Change Port to 1433 (or the SQL Server's actual TCP port).", nc.Port)
+			report(100, "error", fmt.Sprintf("Port %d is cPanel web login — not MS SQL", nc.Port), msg)
+			return &CloudTestResult{OK: false, LatencyMs: 0, Message: msg}, errors.New(msg)
+		}
 	}
 
 	es := nc.ToEngineSettings()
@@ -508,13 +515,38 @@ func CloudSyncDatabaseWithContext(ctx context.Context, p *Paths, srcEngine strin
 	dumpPath := filepath.Join(tmpDir, fmt.Sprintf("sync_%s_%d.sql", srcDB, time.Now().Unix()))
 	defer os.Remove(dumpPath)
 
+	// Early port sanity check for mssql cloud source/destination using cPanel web ports.
+	// go-sqlcmd TDS parser receives HTTP bytes from these ports and reports "invalid packet size".
+	for _, side := range []struct {
+		eng  string
+		cfg  EngineSettings
+		name string
+	}{
+		{srcEngine, srcCfg, "source"},
+		{dstEngine, dstCfg, "destination"},
+	} {
+		if side.eng == "mssql" && (side.cfg.Host != "" &&
+			!strings.EqualFold(side.cfg.Host, "127.0.0.1") &&
+			!strings.EqualFold(side.cfg.Host, "localhost")) &&
+			(side.cfg.Port == 2082 || side.cfg.Port == 2083 || side.cfg.Port == 2086 || side.cfg.Port == 2087) {
+			outErr := fmt.Errorf("sync failed: port %d on the %s MS SQL profile is a cPanel web login port (HTTP/HTTPS), not an MS SQL Server port. MS SQL Server listens on port 1433 by default. Edit the Cloud Profile and change Port to 1433.", side.cfg.Port, side.name)
+			report(0, "error", "Sync Failed — Wrong Port", outErr.Error())
+			return "", outErr
+		}
+	}
+
 	report(5, "running", "Connecting to source...", fmt.Sprintf("Inspecting base tables in %s (%s)...", srcDB, strings.ToUpper(srcEngine)))
 	tables, err := ListTables(srcEngine, srcCfg, srcDB)
 	if ctx.Err() != nil {
 		return abortCancelled()
 	}
 	if err != nil {
-		outErr := fmt.Errorf("failed reading source tables: %w", err)
+		errMsg := err.Error()
+		// Enrich "invalid packet size" errors with a human-readable explanation
+		if strings.Contains(strings.ToLower(errMsg), "invalid packet size") {
+			errMsg = fmt.Sprintf("%s — This usually means the port on your MS SQL Cloud Profile is not an actual MS SQL Server port (MS SQL uses port 1433). If using cPanel, check that port 1433 is open and your host supports remote SQL Server connections. Edit the Cloud Profile and verify the Port.", errMsg)
+		}
+		outErr := fmt.Errorf("failed reading source tables: %s", errMsg)
 		report(lastPct, "error", "Sync Failed", outErr.Error())
 		return "", outErr
 	}

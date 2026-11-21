@@ -825,6 +825,15 @@ func formatMSSQLError(raw string, err error, dbName string, s EngineSettings) st
 		}
 		return fmt.Sprintf("Cannot open remote MS SQL database %q on %s — verify the database name and SQL login credentials. (%s)", targetLabel, fallbackStr(strings.TrimSpace(s.Host), "server"), msg)
 	}
+	if strings.Contains(low, "invalid packet size") {
+		portHint := ""
+		if s.Port == 2082 || s.Port == 2083 || s.Port == 2086 || s.Port == 2087 {
+			portHint = fmt.Sprintf(" Port %d is a cPanel web login port (HTTP/HTTPS), not an MS SQL Server port. MS SQL Server uses port 1433 — edit the Cloud Profile and change Port to 1433.", s.Port)
+		} else if isRemoteMSSQLHost(s) {
+			portHint = " The remote server returned non-TDS (non-SQL) data — verify that your host/port actually exposes an MS SQL Server endpoint and that port 1433 is open."
+		}
+		return fmt.Sprintf("%s%s", msg, portHint)
+	}
 	return msg
 }
 
@@ -840,6 +849,12 @@ func mssqlListDatabases(s EngineSettings) ([]string, error) {
 	res, err := mssqlRunQuery(s, queryDB, q)
 	if err != nil {
 		if isRemoteMSSQLHost(s) && s.DefaultDB != "" {
+			// If the error is "invalid packet size" the host/port is not an MS SQL endpoint at all.
+			// Return the DefaultDB hint but also surface the enriched error so the caller can warn.
+			low := strings.ToLower(err.Error())
+			if strings.Contains(low, "invalid packet size") {
+				return nil, err
+			}
 			return []string{s.DefaultDB}, nil
 		}
 		return nil, err

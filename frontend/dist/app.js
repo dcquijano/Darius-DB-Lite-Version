@@ -4697,7 +4697,9 @@ try {
         $("cloudUser").value = parsed.user || "";
         $("cloudPass").value = parsed.password || "";
         $("cloudSsl").value = parsed.sslMode || "preferred";
-        toast(`Parsed ${parsed.engine.toUpperCase()} connection (${parsed.host}:${parsed.port})`, "ok");
+        if ($("cloudPanelUrl") && parsed.panelUrl) $("cloudPanelUrl").value = parsed.panelUrl;
+        const extra = parsed.panelUrl ? " (cPanel web port converted to MySQL 3306)" : "";
+        toast(`Parsed ${parsed.engine.toUpperCase()} connection (${parsed.host}:${parsed.port})${extra}`, "ok");
       } catch (err) {
         toast(errMsg(err), "err");
       }

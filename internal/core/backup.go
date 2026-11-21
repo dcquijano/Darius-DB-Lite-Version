@@ -611,6 +611,37 @@ func findMySQLClientTool(p *Paths, engine string, s EngineSettings, names ...str
 	return ""
 }
 
+// appendMySQLClientConnArgs adds plugin-dir (needed for caching_sha2_password with MariaDB CLI)
+// and TLS mode flags matching EngineSettings.SSLMode for MySQL/MariaDB client binaries.
+func appendMySQLClientConnArgs(cliPath string, s EngineSettings, args []string) []string {
+	pluginDir := filepath.Join(filepath.Dir(filepath.Dir(cliPath)), "lib", "plugin")
+	if dirExists(pluginDir) {
+		args = append(args, "--plugin-dir="+pluginDir)
+	}
+	isMariaCLI := strings.HasPrefix(strings.ToLower(filepath.Base(cliPath)), "mariadb")
+	ssl := strings.ToLower(strings.TrimSpace(s.SSLMode))
+	if isMariaCLI {
+		switch ssl {
+		case "disable", "none", "false":
+			args = append(args, "--skip-ssl")
+		case "verify-full", "verify-ca":
+			args = append(args, "--ssl")
+		default:
+			args = append(args, "--skip-ssl-verify-server-cert")
+		}
+	} else {
+		switch ssl {
+		case "disable", "none", "false":
+			args = append(args, "--ssl-mode=DISABLED")
+		case "require":
+			args = append(args, "--ssl-mode=REQUIRED")
+		case "verify-full":
+			args = append(args, "--ssl-mode=VERIFY_IDENTITY")
+		}
+	}
+	return args
+}
+
 func isMySQLBinaryCol(dbType string) bool {
 	up := strings.ToUpper(dbType)
 	return strings.Contains(up, "BLOB") || strings.Contains(up, "BINARY")
@@ -672,8 +703,9 @@ func mysqlImportSQLWithProgressCtx(ctx context.Context, p *Paths, engine string,
 			"--binary-mode=1",
 			"--max-allowed-packet=256M",
 			"--default-character-set=utf8mb4",
-			targetDB,
 		}
+		args = appendMySQLClientConnArgs(cli, s, args)
+		args = append(args, targetDB)
 		if s.Password != "" {
 			args = append([]string{"-p" + s.Password}, args...)
 		}
@@ -1708,6 +1740,7 @@ func mysqlExportTablesSQLWithProgressCtx(ctx context.Context, p *Paths, engine s
 			"--default-character-set=utf8mb4",
 			"--max-allowed-packet=256M",
 		}
+		args = appendMySQLClientConnArgs(dump, s, args)
 		if includeRoutines && len(tables) == 0 {
 			args = append(args, "--routines", "--events")
 		}

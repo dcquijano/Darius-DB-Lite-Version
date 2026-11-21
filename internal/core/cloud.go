@@ -268,6 +268,15 @@ func ParseCloudURI(raw string) (*CloudConnection, error) {
 			port = p
 		}
 	}
+	var panelURL string
+	if (engine == "mysql" || engine == "mariadb") && (port == 2082 || port == 2083 || port == 2086 || port == 2087) {
+		schemePanel := "https"
+		if port == 2082 || port == 2086 {
+			schemePanel = "http"
+		}
+		panelURL = fmt.Sprintf("%s://%s:%d", schemePanel, u.Hostname(), port)
+		port = 3306
+	}
 	var user, pass string
 	if u.User != nil {
 		user = u.User.Username()
@@ -294,6 +303,7 @@ func ParseCloudURI(raw string) (*CloudConnection, error) {
 		User:     user,
 		Password: pass,
 		SSLMode:  sslMode,
+		PanelURL: panelURL,
 	}.Normalized()
 	return &c, nil
 }

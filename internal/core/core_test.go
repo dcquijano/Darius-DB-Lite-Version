@@ -833,6 +833,14 @@ func TestCloudConnectionCpanelPortCheck(t *testing.T) {
 	if !strings.Contains(err.Error(), "cPanel web login") || !strings.Contains(err.Error(), "3306") {
 		t.Fatalf("unexpected error message for port 2083: %v", err)
 	}
+
+	parsed, perr := ParseCloudURI("mysql://testuser:pass%7B123@64.251.21.13:2083/test_db")
+	if perr != nil {
+		t.Fatalf("ParseCloudURI failed: %v", perr)
+	}
+	if parsed.Port != 3306 || parsed.Password != "pass{123" || parsed.PanelURL != "https://64.251.21.13:2083" {
+		t.Fatalf("unexpected ParseCloudURI cPanel normalization: %+v", parsed)
+	}
 }
 
 func TestPostgresPrepareAndRepairRestoresMissingConf(t *testing.T) {

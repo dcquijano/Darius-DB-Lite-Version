@@ -244,20 +244,38 @@
 
         <!-- SQL Browser -->
         <div class="browser-split" id="sqlBrowser" hidden>
-          <aside class="browser-pane">
+          <aside class="browser-pane" id="sqlBrowserPane">
             <div class="pane-head">
-              <span>Databases</span>
+              <span class="pane-head-left">
+                <span class="pane-title">Databases</span>
+                <span class="pane-count" id="sqlDbsCount" hidden>0</span>
+              </span>
               <button class="btn xs primary" id="btnNewDb">+ New</button>
             </div>
-            <div class="tree-list" id="sqlDbList"></div>
+            <div class="tree-list sql-db-list" id="sqlDbList"></div>
+            <div class="split-handle split-h" id="sqlPaneSplitH" title="Drag to resize Databases / Tables · Double-click to reset">
+              <div class="split-actions">
+                <button type="button" class="split-btn" data-split-act="collapse-a" title="Collapse Databases (expand Tables)">▲</button>
+                <button type="button" class="split-btn" data-split-act="collapse-b" title="Collapse Tables (expand Databases)">▼</button>
+              </div>
+            </div>
             <div class="pane-head sub">
-              <span id="sqlTablesTitle">Tables</span>
+              <span class="pane-head-left">
+                <span class="pane-title" id="sqlTablesTitle">Tables</span>
+                <span class="pane-count" id="sqlTablesCount" hidden>0</span>
+              </span>
               <button class="btn xs primary" id="btnNewTable" title="Create a new table in this database">+ New</button>
             </div>
-            <div class="tree-list" id="sqlTableList"></div>
+            <div class="tree-list sql-table-list" id="sqlTableList"></div>
           </aside>
-          <div class="browser-main">
-            <div class="editor-box">
+          <div class="split-handle split-v" id="sqlBrowserSplitV" title="Drag to resize sidebar · Double-click to widen/reset">
+            <div class="split-actions vertical">
+              <button type="button" class="split-btn" data-split-act="collapse-a" title="Collapse sidebar">‹</button>
+              <button type="button" class="split-btn" data-split-act="expand-a" title="Widen sidebar">›</button>
+            </div>
+          </div>
+          <div class="browser-main" id="sqlBrowserMain">
+            <div class="editor-box" id="sqlEditorBox">
               <div class="editor-bar">
                 <span class="chip" id="sqlActiveDb">No DB selected</span>
                 <span class="chip accent" id="sqlActiveTable" hidden></span>
@@ -273,7 +291,13 @@
               <textarea id="sqlEditor" class="code-area" spellcheck="false"
                 placeholder="SELECT 1; -- Click a table on the left or write SQL here..."></textarea>
             </div>
-            <div class="result-box">
+            <div class="split-handle split-h" id="sqlMainSplitH" title="Drag to resize SQL editor / results · Double-click to reset">
+              <div class="split-actions">
+                <button type="button" class="split-btn" data-split-act="collapse-a" title="Collapse SQL editor (expand results)">▲</button>
+                <button type="button" class="split-btn" data-split-act="collapse-b" title="Collapse results (expand SQL editor)">▼</button>
+              </div>
+            </div>
+            <div class="result-box" id="sqlResultBox">
               <div class="result-meta-bar">
                 <div class="result-meta-text" id="sqlMeta">Ready</div>
                 <div class="spacer"></div>
@@ -325,7 +349,7 @@
 
         <!-- Redis Browser -->
         <div class="browser-split" id="redisBrowser" hidden>
-          <aside class="browser-pane">
+          <aside class="browser-pane" id="redisBrowserPane">
             <div class="pane-head">
               <select id="redisDbSelect" class="select sm"></select>
               <button class="btn xs" id="btnRedisRefresh">↻</button>
@@ -339,11 +363,23 @@
               <button class="btn xs full" id="btnRedisMore">Load more keys</button>
             </div>
           </aside>
-          <div class="browser-main">
+          <div class="split-handle split-v" id="redisBrowserSplitV" title="Drag to resize sidebar · Double-click to widen/reset">
+            <div class="split-actions vertical">
+              <button type="button" class="split-btn" data-split-act="collapse-a" title="Collapse sidebar">‹</button>
+              <button type="button" class="split-btn" data-split-act="expand-a" title="Widen sidebar">›</button>
+            </div>
+          </div>
+          <div class="browser-main" id="redisBrowserMain">
             <div class="redis-inspector" id="redisInspector">
               <div class="empty-note">Select a key on the left to inspect it, or run commands below.</div>
             </div>
-            <div class="redis-cli">
+            <div class="split-handle split-h" id="redisMainSplitH" title="Drag to resize Inspector / CLI · Double-click to reset">
+              <div class="split-actions">
+                <button type="button" class="split-btn" data-split-act="collapse-a" title="Collapse inspector (expand CLI)">▲</button>
+                <button type="button" class="split-btn" data-split-act="collapse-b" title="Collapse CLI (expand inspector)">▼</button>
+              </div>
+            </div>
+            <div class="redis-cli" id="redisCliBox">
               <div class="cli-out" id="redisCliOut"></div>
               <form class="cli-form" id="redisCliForm">
                 <span class="cli-prompt">redis&gt;</span>

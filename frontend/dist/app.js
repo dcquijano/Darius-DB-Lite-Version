@@ -28,6 +28,7 @@
     sqlShowingAll: false,
     sqlPage: 1,
     sqlPageSize: 50,
+    sqlColWidths: null,
     redisDb: 0,
     redisCursor: "0",
     redisKeys: [],
@@ -166,6 +167,12 @@
     state.sqlShowingAll = false;
     state.sqlPage = 1;
     hideSqlPager();
+    if ($("sqlDbsCount")) $("sqlDbsCount").hidden = true;
+    if ($("sqlTablesTitle")) {
+      $("sqlTablesTitle").textContent = nextDb ? `Tables (${nextDb})` : "Tables";
+      $("sqlTablesTitle").title = nextDb ? `Tables in ${nextDb}` : "Tables";
+    }
+    if ($("sqlTablesCount")) $("sqlTablesCount").hidden = true;
   }
 
   function pickBestDbEngine() {
@@ -560,11 +567,13 @@
     if (isSql) {
       redisEl.hidden = true;
       sqlEl.hidden = false;
+      reapplySplitters();
       if (cloud && cloud.database && !state.sqlDb) state.sqlDb = cloud.database;
       await loadSqlDatabases();
     } else {
       sqlEl.hidden = true;
       redisEl.hidden = false;
+      reapplySplitters();
       await loadRedisDatabases();
     }
   }
@@ -594,6 +603,13 @@
 
   function renderSqlDbList() {
     $("sqlActiveDb").textContent = state.sqlDb ? `${state.dbEngine} / ${state.sqlDb}` : "No DB selected";
+    const dbsCountEl = $("sqlDbsCount");
+    if (dbsCountEl) {
+      const dbCount = state.sqlDbs.length;
+      dbsCountEl.textContent = String(dbCount);
+      dbsCountEl.title = `${dbCount} database${dbCount === 1 ? "" : "s"}`;
+      dbsCountEl.hidden = false;
+    }
     const list = $("sqlDbList");
     if (!state.sqlDbs.length) {
       list.innerHTML = `<div class="empty-note">No databases</div>`;
@@ -625,9 +641,21 @@
   }
 
   async function loadSqlTables(db) {
-    $("sqlTablesTitle").textContent = `Tables (${db})`;
+    const reqEngine = state.dbEngine;
+    const titleEl = $("sqlTablesTitle");
+    if (titleEl) {
+      titleEl.textContent = db ? `Tables (${db})` : "Tables";
+      titleEl.title = db ? `Tables in ${db}` : "Tables";
+    }
+    const countEl = $("sqlTablesCount");
+    if (countEl) {
+      countEl.textContent = "…";
+      countEl.title = db ? `Loading tables in ${db}...` : "Loading tables...";
+      countEl.hidden = !db;
+    }
     try {
-      const tables = await api().ListTables(state.dbEngine, db);
+      const tables = await api().ListTables(reqEngine, db);
+      if (state.dbEngine !== reqEngine || state.sqlDb !== db) return;
       state.sqlTables = tables || [];
       if (state.sqlTable && !state.sqlTables.some((t) => t.name === state.sqlTable)) {
         state.sqlTable = "";
@@ -636,6 +664,7 @@
       renderSqlTableList();
       updateSqlTableToolbar();
     } catch (e) {
+      if (state.dbEngine !== reqEngine || state.sqlDb !== db) return;
       state.sqlTables = [];
       state.sqlTable = "";
       state.sqlColumns = [];
@@ -646,6 +675,26 @@
   }
 
   function renderSqlTableList() {
+    const titleEl = $("sqlTablesTitle");
+    if (titleEl) {
+      titleEl.textContent = state.sqlDb ? `Tables (${state.sqlDb})` : "Tables";
+      titleEl.title = state.sqlDb ? `Tables in ${state.sqlDb}` : "Tables";
+    }
+    const countEl = $("sqlTablesCount");
+    if (countEl) {
+      if (!state.sqlDb) {
+        countEl.hidden = true;
+      } else {
+        const total = state.sqlTables.length;
+        const viewCount = state.sqlTables.filter((t) => t.kind && t.kind.toUpperCase().includes("VIEW")).length;
+        const tableCount = total - viewCount;
+        countEl.textContent = String(total);
+        countEl.hidden = false;
+        countEl.title = viewCount > 0
+          ? `${tableCount} table${tableCount === 1 ? "" : "s"}, ${viewCount} view${viewCount === 1 ? "" : "s"} (${total} total) in ${state.sqlDb}`
+          : `${total} table${total === 1 ? "" : "s"} in ${state.sqlDb}`;
+      }
+    }
     const list = $("sqlTableList");
     if (!state.sqlTables.length) {
       list.innerHTML = `<div class="empty-note">No tables</div>`;
@@ -848,8 +897,15 @@
     const endIdx = Math.min(startIdx + pageSize, total);
     const visible = indexedRows.slice(startIdx, endIdx);
 
+    const colsKey = `${state.sqlDb || ""}|${state.sqlTable || ""}|${canRowCrud ? "1:" : "0:"}${res.columns.join("\x00")}`;
+    const colOffset = canRowCrud ? 1 : 0;
     const actHead = canRowCrud ? `<th class="row-acts-col">Actions</th>` : "";
-    const thead = `<thead><tr>${actHead}${res.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>`;
+    const thead = `<thead><tr>${actHead}${res.columns
+      .map(
+        (c, ci) =>
+          `<th class="resizable-col" data-col-idx="${ci + colOffset}" title="${esc(c)}"><span class="th-label">${esc(c)}</span><span class="col-resizer" title="Drag to stretch column · Double-click to fit/reset"></span></th>`
+      )
+      .join("")}</tr></thead>`;
     const rowHtml = new Array(visible.length);
     for (let i = 0; i < visible.length; i++) {
       const { row, idx } = visible[i];
@@ -867,9 +923,426 @@
       }
       rowHtml[i] = `<tr data-row-idx="${idx}">${actCell}${cells}</tr>`;
     }
-    wrap.innerHTML = `<table class="data-table">${thead}<tbody>${rowHtml.join("")}</tbody></table>`;
+    wrap.innerHTML = `<table class="data-table" data-cols-key="${esc(colsKey)}">${thead}<tbody>${rowHtml.join("")}</tbody></table>`;
+    const tableEl = wrap.querySelector("table.data-table");
+    if (tableEl && state.sqlColWidths && state.sqlColWidths.colsKey === colsKey) {
+      applyTableColWidths(tableEl, state.sqlColWidths.widths);
+    }
     wrap.scrollTop = 0;
     renderSqlPager(res, total, res.rows.length, pageSize, totalPages, total === 0 ? 0 : startIdx + 1, endIdx);
+  }
+
+  function applyTableColWidths(table, widths) {
+    const ths = Array.from(table.querySelectorAll("thead th"));
+    if (!ths.length || ths.length !== widths.length) return;
+    let total = 0;
+    ths.forEach((th, idx) => {
+      const w = Math.max(48, Math.round(widths[idx]));
+      th.style.width = `${w}px`;
+      th.style.minWidth = `${w}px`;
+      th.style.maxWidth = `${w}px`;
+      total += w;
+    });
+    table.classList.add("is-col-resized");
+    table.style.width = `${total}px`;
+  }
+
+  function captureTableColWidths(table) {
+    return Array.from(table.querySelectorAll("thead th")).map((th) =>
+      Math.max(48, Math.round(th.getBoundingClientRect().width))
+    );
+  }
+
+  let textMeasureCtx = null;
+  function measureTextPx(text, font) {
+    if (!textMeasureCtx) {
+      const canvas = document.createElement("canvas");
+      textMeasureCtx = canvas.getContext("2d");
+    }
+    if (!textMeasureCtx) return String(text || "").length * 7.5;
+    textMeasureCtx.font = font;
+    return textMeasureCtx.measureText(String(text || "")).width;
+  }
+
+  function wireSqlColResizer() {
+    const wrap = $("sqlResults");
+    if (!wrap || wrap.dataset.colResizeWired) return;
+    wrap.dataset.colResizeWired = "1";
+
+    wrap.addEventListener("pointerdown", (e) => {
+      const handle = e.target.closest(".col-resizer");
+      if (!handle || e.button !== 0) return;
+      const th = handle.closest("th");
+      const table = th?.closest("table.data-table");
+      if (!th || !table) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const ths = Array.from(table.querySelectorAll("thead th"));
+      const colIdx = ths.indexOf(th);
+      if (colIdx < 0) return;
+
+      const widths = captureTableColWidths(table);
+      applyTableColWidths(table, widths);
+      const startX = e.clientX;
+      const startW = widths[colIdx];
+      handle.classList.add("active");
+      document.body.classList.add("is-resizing-col");
+
+      const onMove = (ev) => {
+        widths[colIdx] = Math.max(56, Math.round(startW + (ev.clientX - startX)));
+        applyTableColWidths(table, widths);
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        handle.classList.remove("active");
+        document.body.classList.remove("is-resizing-col");
+        state.sqlColWidths = { colsKey: table.dataset.colsKey || "", widths: widths.slice() };
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    });
+
+    wrap.addEventListener("dblclick", (e) => {
+      const handle = e.target.closest(".col-resizer");
+      if (!handle) return;
+      const th = handle.closest("th");
+      const table = th?.closest("table.data-table");
+      if (!th || !table) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const ths = Array.from(table.querySelectorAll("thead th"));
+      const colIdx = ths.indexOf(th);
+      if (colIdx < 0) return;
+
+      const headerTxt = th.querySelector(".th-label")?.textContent || th.textContent || "";
+      let maxW = measureTextPx(headerTxt, '600 12px "Segoe UI", system-ui, sans-serif') + 10;
+      const rows = table.querySelectorAll("tbody tr");
+      for (let i = 0; i < rows.length; i++) {
+        const cell = rows[i].children[colIdx];
+        if (!cell) continue;
+        const w = measureTextPx(cell.textContent, '12px "Cascadia Code", Consolas, monospace');
+        if (w > maxW) maxW = w;
+      }
+      const fitW = Math.min(Math.max(Math.ceil(maxW) + 26, 68), 760);
+      const widths = captureTableColWidths(table);
+      widths[colIdx] = Math.abs(widths[colIdx] - fitW) <= 3 && widths[colIdx] > 180 ? 180 : fitW;
+      applyTableColWidths(table, widths);
+      state.sqlColWidths = { colsKey: table.dataset.colsKey || "", widths: widths.slice() };
+    });
+  }
+
+  const SPLIT_PREFS_KEY = "dariusdb.ui.splits";
+  const splitRefreshers = [];
+  function reapplySplitters() {
+    splitRefreshers.forEach((fn) => fn());
+  }
+
+  function readSplitPrefs() {
+    try {
+      const raw = localStorage.getItem(SPLIT_PREFS_KEY);
+      return raw ? JSON.parse(raw) || {} : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeSplitPrefs(prefs) {
+    try {
+      localStorage.setItem(SPLIT_PREFS_KEY, JSON.stringify(prefs));
+    } catch { }
+  }
+
+  function bindVerticalSplit(cfg) {
+    const splitEl = $(cfg.splitId);
+    const paneEl = $(cfg.paneId);
+    const handleEl = $(cfg.handleId);
+    if (!splitEl || !paneEl || !handleEl) return;
+
+    const allPrefs = readSplitPrefs();
+    const saved = allPrefs[cfg.storageKey] || {};
+    let width = Number(saved.width) || cfg.defaultW;
+    let collapsed = !!saved.collapsed;
+
+    const save = () => {
+      const next = readSplitPrefs();
+      next[cfg.storageKey] = { width: Math.round(width), collapsed };
+      writeSplitPrefs(next);
+    };
+
+    const getMaxW = () => {
+      const cw = splitEl.clientWidth;
+      return cw > 0 ? Math.max(cfg.minW, Math.min(cfg.maxW, cw - 260)) : cfg.maxW;
+    };
+
+    const apply = () => {
+      const clampedW = Math.min(Math.max(width, cfg.minW), getMaxW());
+      paneEl.classList.toggle("is-collapsed", collapsed);
+      handleEl.classList.toggle("is-collapsed-a", collapsed);
+      paneEl.style.width = collapsed ? "" : `${clampedW}px`;
+
+      const btnCollapse = handleEl.querySelector('[data-split-act="collapse-a"]');
+      const btnExpand = handleEl.querySelector('[data-split-act="expand-a"]');
+      if (btnCollapse) btnCollapse.hidden = collapsed;
+      if (btnExpand) {
+        btnExpand.hidden = false;
+        btnExpand.title = collapsed
+          ? "Expand sidebar"
+          : clampedW >= cfg.wideW - 8
+            ? "Reset sidebar width"
+            : "Widen sidebar";
+      }
+    };
+
+    handleEl.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-split-act]");
+      if (!btn) return;
+      e.stopPropagation();
+      const act = btn.dataset.splitAct;
+      if (act === "collapse-a") {
+        collapsed = true;
+      } else if (act === "expand-a") {
+        if (collapsed) {
+          collapsed = false;
+        } else {
+          width = width >= cfg.wideW - 8 ? cfg.defaultW : cfg.wideW;
+        }
+      }
+      apply();
+      save();
+    });
+
+    handleEl.addEventListener("dblclick", (e) => {
+      if (e.target.closest(".split-btn")) return;
+      if (collapsed || Math.abs(width - cfg.defaultW) > 6) {
+        collapsed = false;
+        width = cfg.defaultW;
+      } else {
+        width = cfg.wideW;
+      }
+      apply();
+      save();
+    });
+
+    handleEl.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".split-btn") || e.button !== 0) return;
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = collapsed ? 0 : paneEl.getBoundingClientRect().width;
+      handleEl.classList.add("is-dragging");
+      document.body.classList.add("is-resizing-col");
+
+      const onMove = (ev) => {
+        const nextW = startW + (ev.clientX - startX);
+        if (nextW < 60) {
+          collapsed = true;
+        } else {
+          collapsed = false;
+          width = Math.min(Math.max(nextW, cfg.minW), getMaxW());
+        }
+        apply();
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        handleEl.classList.remove("is-dragging");
+        document.body.classList.remove("is-resizing-col");
+        save();
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    });
+
+    splitRefreshers.push(apply);
+    apply();
+  }
+
+  function bindHorizontalSplit(cfg) {
+    const topEl = $(cfg.topId);
+    const botEl = $(cfg.botId);
+    const handleEl = $(cfg.handleId);
+    if (!topEl || !botEl || !handleEl) return;
+
+    const allPrefs = readSplitPrefs();
+    const saved = allPrefs[cfg.storageKey] || {};
+    let pct = Number(saved.pct) || cfg.defaultPct;
+    let collapsed = saved.collapsed === "a" || saved.collapsed === "b" ? saved.collapsed : "";
+
+    const save = () => {
+      const next = readSplitPrefs();
+      next[cfg.storageKey] = { pct: Math.round(pct * 10) / 10, collapsed };
+      writeSplitPrefs(next);
+    };
+
+    const apply = () => {
+      const clampedPct = Math.min(Math.max(pct, 12), 88);
+      topEl.classList.toggle("is-collapsed", collapsed === "a");
+      botEl.classList.toggle("is-collapsed", collapsed === "b");
+      handleEl.classList.toggle("is-collapsed-a", collapsed === "a");
+      handleEl.classList.toggle("is-collapsed-b", collapsed === "b");
+
+      if (collapsed === "a") {
+        topEl.style.flex = "0 0 auto";
+        botEl.style.flex = "1 1 0px";
+      } else if (collapsed === "b") {
+        topEl.style.flex = "1 1 0px";
+        botEl.style.flex = "0 0 auto";
+      } else {
+        topEl.style.flex = `${clampedPct} 1 0px`;
+        botEl.style.flex = `${100 - clampedPct} 1 0px`;
+      }
+
+      const btnUp = handleEl.querySelector('[data-split-act="collapse-a"]');
+      const btnDown = handleEl.querySelector('[data-split-act="collapse-b"]');
+      if (btnUp) {
+        btnUp.hidden = collapsed === "a";
+        btnUp.title = collapsed === "b"
+          ? `Expand ${cfg.bottomLabel}`
+          : `Collapse ${cfg.topLabel} (expand ${cfg.bottomLabel})`;
+      }
+      if (btnDown) {
+        btnDown.hidden = collapsed === "b";
+        btnDown.title = collapsed === "a"
+          ? `Expand ${cfg.topLabel}`
+          : `Collapse ${cfg.bottomLabel} (expand ${cfg.topLabel})`;
+      }
+    };
+
+    handleEl.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-split-act]");
+      if (!btn) return;
+      e.stopPropagation();
+      const act = btn.dataset.splitAct;
+      if (act === "collapse-a") {
+        collapsed = collapsed === "b" ? "" : "a";
+      } else if (act === "collapse-b") {
+        collapsed = collapsed === "a" ? "" : "b";
+      }
+      apply();
+      save();
+    });
+
+    handleEl.addEventListener("dblclick", (e) => {
+      if (e.target.closest(".split-btn")) return;
+      collapsed = "";
+      pct = cfg.defaultPct;
+      apply();
+      save();
+    });
+
+    handleEl.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".split-btn") || e.button !== 0) return;
+      e.preventDefault();
+      const startY = e.clientY;
+      const startMode = collapsed;
+      const startTopH = topEl.getBoundingClientRect().height;
+      const startBotH = botEl.getBoundingClientRect().height;
+      const totalH = startTopH + startBotH;
+      if (totalH <= 0) return;
+
+      handleEl.classList.add("is-dragging");
+      document.body.classList.add("is-resizing-row");
+
+      const onMove = (ev) => {
+        const dy = ev.clientY - startY;
+        if (startMode === "a") {
+          if (dy <= 10) return;
+          collapsed = "";
+          const nextTop = Math.min(Math.max(cfg.minTopPx + dy, cfg.minTopPx), totalH - cfg.minBotPx);
+          pct = (nextTop / totalH) * 100;
+          apply();
+          return;
+        }
+        if (startMode === "b") {
+          if (dy >= -10) return;
+          collapsed = "";
+          const nextTop = Math.min(Math.max(totalH - cfg.minBotPx + dy, cfg.minTopPx), totalH - cfg.minBotPx);
+          pct = (nextTop / totalH) * 100;
+          apply();
+          return;
+        }
+        const nextTop = Math.min(Math.max(startTopH + dy, cfg.minTopPx), totalH - cfg.minBotPx);
+        pct = (nextTop / totalH) * 100;
+        apply();
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        handleEl.classList.remove("is-dragging");
+        document.body.classList.remove("is-resizing-row");
+        save();
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    });
+
+    splitRefreshers.push(apply);
+    apply();
+  }
+
+  function setupBrowserSplitters() {
+    bindVerticalSplit({
+      splitId: "sqlBrowser",
+      paneId: "sqlBrowserPane",
+      handleId: "sqlBrowserSplitV",
+      storageKey: "sqlSidebar",
+      defaultW: 240,
+      wideW: 380,
+      minW: 165,
+      maxW: 560,
+    });
+    bindHorizontalSplit({
+      topId: "sqlDbList",
+      botId: "sqlTableList",
+      handleId: "sqlPaneSplitH",
+      storageKey: "sqlDbTables",
+      defaultPct: 35,
+      minTopPx: 54,
+      minBotPx: 72,
+      topLabel: "Databases",
+      bottomLabel: "Tables",
+    });
+    bindHorizontalSplit({
+      topId: "sqlEditorBox",
+      botId: "sqlResultBox",
+      handleId: "sqlMainSplitH",
+      storageKey: "sqlEditorResult",
+      defaultPct: 38,
+      minTopPx: 90,
+      minBotPx: 96,
+      topLabel: "SQL editor",
+      bottomLabel: "results",
+    });
+    bindVerticalSplit({
+      splitId: "redisBrowser",
+      paneId: "redisBrowserPane",
+      handleId: "redisBrowserSplitV",
+      storageKey: "redisSidebar",
+      defaultW: 240,
+      wideW: 380,
+      minW: 165,
+      maxW: 560,
+    });
+    bindHorizontalSplit({
+      topId: "redisInspector",
+      botId: "redisCliBox",
+      handleId: "redisMainSplitH",
+      storageKey: "redisInspectorCli",
+      defaultPct: 60,
+      minTopPx: 90,
+      minBotPx: 96,
+      topLabel: "inspector",
+      bottomLabel: "CLI",
+    });
+    window.addEventListener("resize", reapplySplitters);
   }
 
   function buildRowKeyMap(rowIdx) {
@@ -3168,6 +3641,8 @@ try {
   async function init() {
     wireEvents();
     wireCloudEvents();
+    setupBrowserSplitters();
+    wireSqlColResizer();
 
     const [info, settings, statuses, catalog, cloudProfiles, schedules, winTask] = await Promise.all([
       api().Info(),

@@ -2475,7 +2475,7 @@
           }</td>
           <td>${isWebRoot || isMailpit || isMSSQL
             ? `<span class="muted">—</span>`
-            : `<input type="password" class="input sm eng-pass" value="${esc(es.password || "")}" placeholder="${id === "redis" ? "optional" : "blank = no password"}" />`
+            : `<div class="pass-wrap"><input type="password" class="input sm eng-pass" value="${esc(es.password || "")}" placeholder="${id === "redis" ? "optional" : "blank = no password"}" /><button type="button" class="pass-toggle-btn" title="Show password" aria-label="Show password" onclick="const i=this.previousElementSibling;const s=i.type==='password';i.type=s?'text':'password';this.textContent=s?'🙈':'👁️';this.title=s?'Hide password':'Show password';">👁️</button></div>`
           }</td>
         </tr>`;
       })
@@ -3857,6 +3857,11 @@ try {
       const s = getStatus(state.dbEngine);
       $("modalNewDbTitle").textContent = `Create ${s ? s.name : ""} Database`;
       $("formNewDb").reset();
+      $("newDbPass").type = "password";
+      if ($("btnToggleNewDbPass")) {
+        $("btnToggleNewDbPass").textContent = "👁️";
+        $("btnToggleNewDbPass").title = "Show password";
+      }
       $("modalNewDb").hidden = false;
       $("newDbName").focus();
     };
@@ -4614,6 +4619,11 @@ try {
 
     const openCloudFormModal = (existing = null, presetKey = "") => {
       $("formCloudProfile").reset();
+      $("cloudPass").type = "password";
+      if ($("btnToggleCloudPass")) {
+        $("btnToggleCloudPass").textContent = "👁️";
+        $("btnToggleCloudPass").title = "Show password";
+      }
       $("cloudEditId").value = existing?.id || "";
       $("cloudUriInput").value = "";
       $("cloudTestStatus").hidden = true;
@@ -4706,7 +4716,36 @@ try {
       if ($("cloudTestTitle") && title) $("cloudTestTitle").textContent = title;
       if ($("cloudTestPct")) $("cloudTestPct").textContent = `${pct}%`;
       if ($("cloudTestBar")) $("cloudTestBar").style.width = `${pct}%`;
-      if ($("cloudTestSub")) $("cloudTestSub").textContent = detail || "";
+      if ($("cloudTestSub")) {
+        const sub = $("cloudTestSub");
+        const raw = detail || "";
+        const m1045 = raw.match(/Access denied for user\s+['"]?([^'"@]+)['"]?@['"]?([^'"\s)]+)['"]?/i);
+        const portVal = Number($("cloudPort")?.value) || 0;
+        const isCpanelPort = portVal === 2083 || portVal === 2082 || portVal === 2086 || portVal === 2087 || raw.includes("2083") || raw.includes("2082");
+
+        if (mode === "error" && isCpanelPort) {
+          sub.innerHTML = `<div style="color:var(--red);font-weight:600;margin-bottom:6px">${esc(raw)}</div>
+            <div style="padding:8px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;line-height:1.45;color:var(--text)">
+              <strong style="color:var(--warn)">⚠️ Port ${portVal || 2083} is the cPanel Web Login, NOT MySQL!</strong><br>
+              cPanel web login uses HTTPS port 2083. Remote MySQL databases always listen on port <strong>3306</strong>.<br>
+              <button type="button" class="btn xs accent" style="margin-top:6px" onclick="window.__switchPort && window.__switchPort(3306)">Switch Port to 3306 &amp; Re-Test</button>
+            </div>`;
+        } else if (mode === "error" && m1045) {
+          const user = m1045[1];
+          const clientIp = m1045[2];
+          sub.innerHTML = `<div style="color:var(--red);font-weight:600;margin-bottom:6px">${esc(raw)}</div>
+            <div style="padding:8px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;line-height:1.45;color:var(--text)">
+              <strong style="color:var(--accent)">💡 How to Fix cPanel Error 1045 (Access Denied):</strong>
+              <ol style="margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
+                <li>Log in to your cPanel dashboard and open <strong>Remote MySQL®</strong>.</li>
+                <li>Add your client IP to allowed hosts: <code style="font-weight:700;color:var(--accent);user-select:all">${esc(clientIp)}</code> <button type="button" class="btn xs ghost" style="padding:1px 6px;font-size:11px" onclick="window.__copyText && window.__copyText('${esc(clientIp)}', 'Copied ${esc(clientIp)} to clipboard')">Copy IP</button> (or enter <code>%</code> wildcard to allow all remote hosts).</li>
+                <li>Under cPanel → <strong>MySQL® Databases</strong>, ensure user <strong>${esc(user)}</strong> exists, click <strong>👁️ Show password</strong> above to verify password, and verify it is added to the database with <strong>ALL PRIVILEGES</strong>.</li>
+              </ol>
+            </div>`;
+        } else {
+          sub.textContent = raw;
+        }
+      }
 
       const formBtn = $("btnTestCloudForm");
       if (formBtn && formBtn.disabled && mode === "running") {
@@ -4772,6 +4811,35 @@ try {
         toast(errMsg(err), "err");
       }
     };
+
+    window.__copyText = (text, msg) => {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+      toast(msg || `Copied ${text}`, "ok");
+    };
+    window.__switchPort = (p) => {
+      if ($("cloudPort")) $("cloudPort").value = p;
+      if ($("btnTestCloudForm")) $("btnTestCloudForm").click();
+    };
+
+    const wirePasswordToggle = (btnId, inputId) => {
+      const btn = $(btnId);
+      const inp = $(inputId);
+      if (!btn || !inp) return;
+      btn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const isPass = inp.type === "password";
+        inp.type = isPass ? "text" : "password";
+        btn.textContent = isPass ? "🙈" : "👁️";
+        btn.title = isPass ? "Hide password" : "Show password";
+        btn.setAttribute("aria-label", btn.title);
+        inp.focus();
+      };
+    };
+    wirePasswordToggle("btnToggleCloudPass", "cloudPass");
+    wirePasswordToggle("btnToggleNewDbPass", "newDbPass");
 
     const loadSyncLocalDbs = async () => {
       const eng = $("syncLocalEngine").value;

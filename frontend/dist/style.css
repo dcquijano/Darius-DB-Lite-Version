@@ -275,6 +275,41 @@ code, pre, textarea.code-area { font-family: var(--font-mono); }
 }
 .input.sm, .select.sm { padding: 4px 7px; font-size: 12px; }
 
+/* Password Show / Hide Toggle */
+.pass-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.pass-wrap .input {
+  width: 100%;
+  padding-right: 36px;
+}
+.pass-toggle-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  font-size: 13.5px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  color: var(--text-muted);
+  transition: color 0.15s, background-color 0.15s;
+}
+.pass-toggle-btn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
 /* Segmented Tabs */
 .seg-tabs {
   display: inline-flex;

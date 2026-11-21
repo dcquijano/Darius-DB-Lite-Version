@@ -707,7 +707,10 @@
         </label>
         <label class="field">
           <span>Password</span>
-          <input type="password" id="newDbPass" class="input" placeholder="Password for the new user" />
+          <div class="pass-wrap">
+            <input type="password" id="newDbPass" class="input" placeholder="Password for the new user" />
+            <button type="button" class="pass-toggle-btn" id="btnToggleNewDbPass" title="Show password" aria-label="Show password">👁️</button>
+          </div>
         </label>
         <div class="modal-actions">
           <button type="button" class="btn" id="btnCancelNewDb">Cancel</button>
@@ -1160,7 +1163,10 @@
           </label>
           <label class="field">
             <span>Password</span>
-            <input type="password" id="cloudPass" class="input" placeholder="Database password" autocomplete="off" />
+            <div class="pass-wrap">
+              <input type="password" id="cloudPass" class="input" placeholder="Database password" autocomplete="off" />
+              <button type="button" class="pass-toggle-btn" id="btnToggleCloudPass" title="Show password" aria-label="Show password">👁️</button>
+            </div>
           </label>
         </div>
 

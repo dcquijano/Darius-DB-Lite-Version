@@ -1,7 +1,7 @@
 {
   "name": "Darius DB (Lite Version 0.1.4)",
   "version": "0.1.4",
-  "build": "202611211518",
+  "build": "202611211546",
   "channel": "Lite Version",
   "releasedAt": "2026-11-21",
   "author": "Darius Cumpio",
@@ -10,8 +10,10 @@
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.4/DariusDB-0.1.4-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.4.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Added live percentage & stage progress loading for Cloud Test Connection, standalone DariusDB-Repair.exe & separated Repair vs Repair All!",
+  "announcement": "Darius DB (Lite Version 0.1.4) — Local + Cloud Database Manager! Added Show/Hide Password toggles (👁️/🙈), smart cPanel Remote MySQL Error 1045 troubleshooting & 1-click port 3306 fix!",
   "changelog": [
+    "Added Show/Hide Password toggles (👁️/🙈) to Cloud Database Profile, Create Database user modal, and Settings engine rows",
+    "Added smart cPanel Remote MySQL diagnostics: detects port 2083 web login with 1-click 'Switch to 3306 & Re-Test', and parses Error 1045 access denied with 1-click 'Copy Client IP' for cPanel Remote MySQL whitelist",
     "Added live 0%–100% percentage progress bar, stage status (validating, TCP probe, TLS/auth, version check), and elapsed timer to Cloud Test Connection",
     "Added standalone DariusDB-Repair.exe (native Win32 Repair All Installer Wizard) and installer/repair.ps1, bundled in DariusDB-Setup-0.1.4.exe, portable ZIP, Start Menu ('Repair All Darius DB'), and DariusDB-Uninstall.exe",
     "Separated 'Repair' (single service/engine only: '🔧 Repair Service Only' + '🔧 Run Repair') from 'Repair All' (full system & all engines: '🛠️ Repair All' + port/cache/LocalDB/PATH recovery + '🛠️ Run Repair All')",

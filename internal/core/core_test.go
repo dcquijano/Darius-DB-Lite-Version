@@ -821,4 +821,19 @@ func TestCloudConnectionWithProgressEmitsStages(t *testing.T) {
 	}
 }
 
+func TestCloudConnectionCpanelPortCheck(t *testing.T) {
+	res, err := TestCloudConnection(CloudConnection{
+		Engine: "mysql",
+		Host:   "64.251.21.13",
+		Port:   2083,
+	})
+	if err == nil || res == nil || res.OK {
+		t.Fatal("expected error when port 2083 is used for mysql")
+	}
+	if !strings.Contains(err.Error(), "cPanel web login") || !strings.Contains(err.Error(), "3306") {
+		t.Fatalf("unexpected error message for port 2083: %v", err)
+	}
+}
+
+
 

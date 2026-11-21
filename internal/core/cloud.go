@@ -325,6 +325,14 @@ func TestCloudConnectionWithProgress(c CloudConnection, emit func(CloudSyncProgr
 		report(100, "error", "Validation failed", err.Error())
 		return nil, err
 	}
+
+	// Detect common cPanel web port mistakes (cPanel web UI uses 2082/2083, WHM uses 2086/2087)
+	if (nc.Port == 2082 || nc.Port == 2083 || nc.Port == 2086 || nc.Port == 2087) && (nc.Engine == "mysql" || nc.Engine == "mariadb") {
+		msg := fmt.Sprintf("Port %d is the cPanel web login port, not the MySQL database port. In cPanel, MySQL listens on port 3306. Change Port to 3306.", nc.Port)
+		report(100, "error", fmt.Sprintf("Port %d is cPanel web login", nc.Port), msg)
+		return &CloudTestResult{OK: false, LatencyMs: 0, Message: msg}, errors.New(msg)
+	}
+
 	es := nc.ToEngineSettings()
 	start := time.Now()
 	addr := net.JoinHostPort(nc.Host, strconv.Itoa(nc.Port))
@@ -382,8 +390,20 @@ func TestCloudConnectionWithProgress(c CloudConnection, emit func(CloudSyncProgr
 	dbs, err := ListDatabases(nc.Engine, es)
 	lat := time.Since(start).Milliseconds()
 	if err != nil {
-		report(100, "error", fmt.Sprintf("Database handshake failed (%d ms)", lat), err.Error())
-		return &CloudTestResult{OK: false, LatencyMs: lat, Message: err.Error()}, err
+		errStr := err.Error()
+		if strings.Contains(errStr, "1045") || strings.Contains(strings.ToLower(errStr), "access denied") {
+			clientIP := ""
+			if parts := strings.Split(errStr, "@'"); len(parts) > 1 {
+				clientIP = strings.Split(parts[1], "'")[0]
+			}
+			hint := "In cPanel → 'Remote MySQL®', whitelist your public IP (or '%') to allow remote connections. Also verify username and password have ALL PRIVILEGES in cPanel → 'MySQL® Databases'."
+			if clientIP != "" {
+				hint = fmt.Sprintf("In cPanel → 'Remote MySQL®', add your client IP '%s' (or '%%') to allowed hosts. Also verify user and password have ALL PRIVILEGES in cPanel → 'MySQL® Databases'.", clientIP)
+			}
+			errStr = fmt.Sprintf("%s (%s)", errStr, hint)
+		}
+		report(100, "error", fmt.Sprintf("Database handshake failed (%d ms)", lat), errStr)
+		return &CloudTestResult{OK: false, LatencyMs: lat, Message: errStr}, errors.New(errStr)
 	}
 	targetDB := nc.Database
 	if targetDB == "" && len(dbs) > 0 {

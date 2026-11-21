@@ -3,6 +3,7 @@
 package core
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -377,14 +378,25 @@ type CloudSyncProgress struct {
 	Detail  string `json:"detail"`
 }
 
+// ErrSyncCancelled is returned when a running database sync is cancelled by the user.
+var ErrSyncCancelled = errors.New("database sync cancelled by user")
+
 // CloudSyncDatabase exports srcDB from srcEngine/srcCfg into a temporary SQL script
 // and imports it into dstDB on dstEngine/dstCfg (supporting Local -> Cloud and Cloud -> Local).
 func CloudSyncDatabase(p *Paths, srcEngine string, srcCfg EngineSettings, srcDB, dstEngine string, dstCfg EngineSettings, dstDB string) (string, error) {
-	return CloudSyncDatabaseWithProgress(p, srcEngine, srcCfg, srcDB, dstEngine, dstCfg, dstDB, nil)
+	return CloudSyncDatabaseWithContext(context.Background(), p, srcEngine, srcCfg, srcDB, dstEngine, dstCfg, dstDB, nil)
 }
 
 // CloudSyncDatabaseWithProgress runs CloudSyncDatabase while emitting stage & percentage progress updates.
 func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSettings, srcDB, dstEngine string, dstCfg EngineSettings, dstDB string, onProgress func(CloudSyncProgress)) (string, error) {
+	return CloudSyncDatabaseWithContext(context.Background(), p, srcEngine, srcCfg, srcDB, dstEngine, dstCfg, dstDB, onProgress)
+}
+
+// CloudSyncDatabaseWithContext runs CloudSyncDatabaseWithProgress and aborts promptly when ctx is cancelled.
+func CloudSyncDatabaseWithContext(ctx context.Context, p *Paths, srcEngine string, srcCfg EngineSettings, srcDB, dstEngine string, dstCfg EngineSettings, dstDB string, onProgress func(CloudSyncProgress)) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	lastPct := 0
 	report := func(pct int, state, stage, detail string) {
 		if pct > lastPct {
@@ -395,6 +407,17 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 		if onProgress != nil {
 			onProgress(CloudSyncProgress{Percent: pct, State: state, Stage: stage, Detail: detail})
 		}
+	}
+	isCancelled := func(err error) bool {
+		return errors.Is(err, context.Canceled) || errors.Is(err, ErrSyncCancelled) || ctx.Err() != nil
+	}
+	abortCancelled := func() (string, error) {
+		report(lastPct, "cancelled", "Sync Cancelled", "Database sync was cancelled by user.")
+		return "", ErrSyncCancelled
+	}
+
+	if ctx.Err() != nil {
+		return abortCancelled()
 	}
 
 	srcDB = strings.TrimSpace(srcDB)
@@ -423,6 +446,9 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 
 	report(5, "running", "Connecting to source...", fmt.Sprintf("Inspecting base tables in %s (%s)...", srcDB, strings.ToUpper(srcEngine)))
 	tables, err := ListTables(srcEngine, srcCfg, srcDB)
+	if ctx.Err() != nil {
+		return abortCancelled()
+	}
 	if err != nil {
 		outErr := fmt.Errorf("failed reading source tables: %w", err)
 		report(lastPct, "error", "Sync Failed", outErr.Error())
@@ -452,6 +478,8 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 			select {
 			case <-expDone:
 				return
+			case <-ctx.Done():
+				return
 			case <-tick.C:
 				steps++
 				var sz int64
@@ -471,7 +499,10 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 		}
 	}()
 
-	err = ExportDatabaseSelectionWithProgress(p, srcEngine, srcCfg, srcDB, tblNames, "sql", true, true, dumpPath, func(bp BackupProgress) {
+	err = ExportDatabaseSelectionWithContext(ctx, p, srcEngine, srcCfg, srcDB, tblNames, "sql", true, true, dumpPath, func(bp BackupProgress) {
+		if ctx.Err() != nil {
+			return
+		}
 		if bp.State == "running" {
 			pct := 16 + (bp.Percent * 38 / 100)
 			if pct > 54 {
@@ -481,6 +512,9 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 		}
 	})
 	close(expDone)
+	if isCancelled(err) {
+		return abortCancelled()
+	}
 	if err != nil {
 		outErr := fmt.Errorf("export failed: %w", err)
 		report(lastPct, "error", "Export Failed", outErr.Error())
@@ -494,7 +528,10 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 			text = strings.Replace(text, fmt.Sprintf("USE %s;\r\nGO\r\n", mssqlBracket(srcDB)), "", 1)
 		}
 		if dstEngine == "mssql" {
-			dstIdentity := fetchMSSQLTargetIdentityMap(dstCfg, dstDB)
+			dstIdentity := fetchMSSQLTargetIdentityMapCtx(ctx, dstCfg, dstDB)
+			if ctx.Err() != nil {
+				return abortCancelled()
+			}
 			text = reconcileMSSQLIdentityInserts(text, dstIdentity)
 			text = wrapMSSQLSyncRefresh(text, tables, dstDB)
 		}
@@ -504,6 +541,9 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 		dumpSize = st.Size()
 	}
 
+	if ctx.Err() != nil {
+		return abortCancelled()
+	}
 	report(55, "running", "Uploading & importing...", fmt.Sprintf("Exported %s (%d table(s)). Importing into %q (%s)...", formatByteSize(dumpSize), len(tblNames), dstDB, strings.ToUpper(dstEngine)))
 
 	impDone := make(chan struct{})
@@ -515,6 +555,8 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 		for {
 			select {
 			case <-impDone:
+				return
+			case <-ctx.Done():
 				return
 			case <-tick.C:
 				steps++
@@ -528,7 +570,10 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 		}
 	}()
 
-	restored, err := RestoreDatabaseWithProgress(p, dstEngine, dstCfg, dumpPath, dstDB, func(done, total int64) {
+	restored, err := RestoreDatabaseWithContext(ctx, p, dstEngine, dstCfg, dumpPath, dstDB, func(done, total int64) {
+		if ctx.Err() != nil {
+			return
+		}
 		if total > 0 {
 			pct := 56 + int(done*42/total)
 			if pct > 98 {
@@ -538,6 +583,9 @@ func CloudSyncDatabaseWithProgress(p *Paths, srcEngine string, srcCfg EngineSett
 		}
 	})
 	close(impDone)
+	if isCancelled(err) {
+		return abortCancelled()
+	}
 	if err != nil {
 		outErr := fmt.Errorf("import into %q failed: %w", dstDB, err)
 		report(lastPct, "error", "Import Failed", outErr.Error())
@@ -608,13 +656,17 @@ func wrapMSSQLSyncRefresh(sqlText string, tables []TableInfo, dstDB string) stri
 }
 
 func fetchMSSQLTargetIdentityMap(s EngineSettings, dbName string) map[string]bool {
+	return fetchMSSQLTargetIdentityMapCtx(context.Background(), s, dbName)
+}
+
+func fetchMSSQLTargetIdentityMapCtx(ctx context.Context, s EngineSettings, dbName string) map[string]bool {
 	out := map[string]bool{}
 	if strings.TrimSpace(dbName) == "" {
 		return out
 	}
 	q := "SET NOCOUNT ON; SELECT QUOTENAME(s.name) + N'.' + QUOTENAME(o.name), ISNULL(OBJECTPROPERTY(o.object_id, N'TableHasIdentity'), 0) " +
 		"FROM sys.objects o JOIN sys.schemas s ON o.schema_id = s.schema_id WHERE o.type = N'U';"
-	res, err := mssqlRunQueryWithLimit(s, dbName, q, maxShowRows)
+	res, err := mssqlRunQueryWithLimitCtx(ctx, s, dbName, q, maxShowRows)
 	if err != nil {
 		return out
 	}

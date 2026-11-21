@@ -475,10 +475,24 @@ func mssqlAuthArgs(target string, s EngineSettings) []string {
 var affectedRe = regexp.MustCompile(`^\((\d+) rows? affected\)$`)
 
 func mssqlRunQuery(s EngineSettings, dbName, q string) (*QueryResult, error) {
-	return mssqlRunQueryWithLimit(s, dbName, q, maxRows)
+	return mssqlRunQueryWithLimitCtx(context.Background(), s, dbName, q, maxRows)
+}
+
+func mssqlRunQueryCtx(ctx context.Context, s EngineSettings, dbName, q string) (*QueryResult, error) {
+	return mssqlRunQueryWithLimitCtx(ctx, s, dbName, q, maxRows)
 }
 
 func mssqlRunQueryWithLimit(s EngineSettings, dbName, q string, limit int) (*QueryResult, error) {
+	return mssqlRunQueryWithLimitCtx(context.Background(), s, dbName, q, limit)
+}
+
+func mssqlRunQueryWithLimitCtx(ctx context.Context, s EngineSettings, dbName, q string, limit int) (*QueryResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return nil, errors.New("query is empty")
@@ -522,17 +536,22 @@ func mssqlRunQueryWithLimit(s EngineSettings, dbName, q string, limit int) (*Que
 	args := append(append([]string{}, baseArgs...), authArgs...)
 
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	qCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, sqlcmd, args...)
+	cmd := exec.CommandContext(qCtx, sqlcmd, args...)
 	hideWindow(cmd)
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	// Automatic fallback to Windows Auth (-E) only on local instances
 	if !isRemoteMSSQLHost(s) && err != nil && len(authArgs) > 1 && strings.Contains(strings.ToLower(string(out)), "login failed") {
-		retryArgs := append(append([]string{}, baseArgs...), "-E")
-		retryCmd := exec.CommandContext(ctx, sqlcmd, retryArgs...)
+		retryCmd := exec.CommandContext(qCtx, sqlcmd, append(append([]string{}, baseArgs...), "-E")...)
 		hideWindow(retryCmd)
 		out, err = retryCmd.CombinedOutput()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 	}
 	dur := float64(time.Since(start).Microseconds()) / 1000.0
 	text := strings.ReplaceAll(string(out), "\r\n", "\n")

@@ -3,6 +3,7 @@ package core
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -609,6 +610,22 @@ func TestMSSQLMultilineAndTabFieldEncoding(t *testing.T) {
 	}
 	if got := decodeMSSQLFieldToTSQLExpr(`\n`); got != "CHAR(10)" {
 		t.Fatalf("unexpected newline-only T-SQL expr: %s", got)
+	}
+}
+
+func TestCloudSyncPreCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var events []CloudSyncProgress
+	_, err := CloudSyncDatabaseWithContext(ctx, &Paths{Root: t.TempDir()}, "mysql", EngineSettings{}, "src", "mysql", EngineSettings{}, "dst", func(p CloudSyncProgress) {
+		events = append(events, p)
+	})
+	if !errors.Is(err, ErrSyncCancelled) {
+		t.Fatalf("expected ErrSyncCancelled, got %v", err)
+	}
+	if len(events) == 0 || events[len(events)-1].State != "cancelled" {
+		t.Fatalf("expected final progress event state='cancelled', got %+v", events)
 	}
 }
 

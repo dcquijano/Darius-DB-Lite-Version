@@ -3136,7 +3136,7 @@ try {
         if (!$("modalRepair").hidden) closeRepair();
         if (!$("modalSysUpdater").hidden) closeSysUpdater();
         if ($("modalCloudForm") && !$("modalCloudForm").hidden) $("modalCloudForm").hidden = true;
-        if ($("modalCloudSync") && !$("modalCloudSync").hidden) $("modalCloudSync").hidden = true;
+        if ($("modalCloudSync") && !$("modalCloudSync").hidden) $("btnCloseCloudSync")?.click();
       }
     });
   }
@@ -3423,7 +3423,102 @@ try {
 
   function wireCloudEvents() {
     const closeCloudForm = () => ($("modalCloudForm").hidden = true);
-    const closeCloudSync = () => ($("modalCloudSync").hidden = true);
+    const syncJob = {
+      running: false,
+      cancelling: false,
+      minimized: false,
+      percent: 0,
+      state: "idle",
+      stage: "",
+      detail: "",
+      summary: "",
+    };
+    let syncHideTimer = null;
+
+    const updateFloatingSync = () => {
+      const bar = $("syncFloatingBar");
+      if (!bar) return;
+      const show = !!syncJob.minimized;
+      bar.hidden = !show;
+      document.body.classList.toggle("has-sync-floating", show);
+      if (!show) return;
+      if ($("syncFloatSpinner")) $("syncFloatSpinner").hidden = syncJob.state !== "running";
+      if ($("syncFloatStage")) $("syncFloatStage").textContent = syncJob.stage || syncJob.summary || "Syncing database...";
+      if ($("syncFloatPct")) $("syncFloatPct").textContent = `${syncJob.percent}%`;
+      if ($("syncFloatBar")) $("syncFloatBar").style.width = `${syncJob.percent}%`;
+      if ($("syncFloatDetail")) $("syncFloatDetail").textContent = syncJob.detail || syncJob.summary || "";
+      bar.className = "sync-floating" + (syncJob.state === "done" ? " success" : (syncJob.state === "error" || syncJob.state === "cancelled") ? " error" : "");
+      const fc = $("btnFloatCancelSync");
+      if (fc) {
+        fc.hidden = !syncJob.running;
+        fc.disabled = !!syncJob.cancelling;
+        fc.textContent = syncJob.cancelling ? "⏳ Cancelling..." : "🛑 Cancel";
+      }
+    };
+
+    const setSyncFormLocked = (locked) => {
+      [
+        "syncLocalEngine",
+        "syncLocalDb",
+        "syncCloudProfile",
+        "syncCloudDb",
+        "syncAlsoSaveSchedule",
+        "syncAutoTime",
+        "syncAutoBackupChk",
+        "syncAutoBackupTime",
+        "syncAutoKeepDays",
+        "btnSaveSyncScheduleOnly",
+      ].forEach((id) => {
+        if ($(id)) $(id).disabled = !!locked;
+      });
+      $("syncDirTabs")?.querySelectorAll(".seg").forEach((b) => {
+        b.disabled = !!locked;
+      });
+      if ($("btnMinimizeCloudSync")) {
+        $("btnMinimizeCloudSync").hidden = !locked;
+      }
+      const cbtn = $("btnCancelCloudSync");
+      if (cbtn) {
+        if (locked) {
+          cbtn.className = "btn danger-ghost";
+          cbtn.disabled = !!syncJob.cancelling;
+          cbtn.textContent = syncJob.cancelling ? "⏳ Cancelling..." : "🛑 Cancel Sync";
+        } else {
+          cbtn.className = "btn";
+          cbtn.disabled = false;
+          cbtn.textContent = "Cancel";
+        }
+      }
+    };
+
+    const minimizeCloudSync = () => {
+      if (!syncJob.running) {
+        $("modalCloudSync").hidden = true;
+        return;
+      }
+      syncJob.minimized = true;
+      $("modalCloudSync").hidden = true;
+      updateFloatingSync();
+    };
+
+    const restoreCloudSync = () => {
+      clearTimeout(syncHideTimer);
+      syncJob.minimized = false;
+      updateFloatingSync();
+      $("modalCloudSync").hidden = false;
+    };
+
+    const closeCloudSync = () => {
+      if (syncJob.running) {
+        minimizeCloudSync();
+        toast("Sync is still running — minimized to background. Click 🛑 Cancel to abort.", "info");
+        return;
+      }
+      clearTimeout(syncHideTimer);
+      syncJob.minimized = false;
+      updateFloatingSync();
+      $("modalCloudSync").hidden = true;
+    };
 
     const applyPresetToForm = (key) => {
       const p = CLOUD_PRESETS[key];
@@ -3570,12 +3665,21 @@ try {
     };
 
     const openCloudSyncModal = async (preselectCloudId = "") => {
+      if (syncJob.running) {
+        restoreCloudSync();
+        return;
+      }
       const sqlProfiles = (state.cloudProfiles || []).filter((p) => p.engine !== "redis");
       if (!sqlProfiles.length) {
         toast("Add a Cloud MySQL, MariaDB, PostgreSQL, or MS SQL profile first", "info");
         openCloudFormModal(null, "cpanel");
         return;
       }
+      clearTimeout(syncHideTimer);
+      syncJob.minimized = false;
+      syncJob.state = "idle";
+      updateFloatingSync();
+      setSyncFormLocked(false);
       const sel = $("syncCloudProfile");
       sel.innerHTML = sqlProfiles
         .map((p) => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.engine)} · ${esc(p.host)})</option>`)
@@ -3652,25 +3756,50 @@ try {
     }
 
     const setSyncProgress = (pct, mode, title, detail) => {
-      const box = $("cloudSyncBox");
-      if (!box) return;
       const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
-      box.hidden = false;
-      box.className = "sysup-fetch-box" + (mode === "done" ? " success" : mode === "error" ? " error" : "");
-      const sp = $("cloudSyncSpinner");
-      if (sp) sp.hidden = mode !== "running";
-      if ($("cloudSyncTitle")) $("cloudSyncTitle").textContent = title || "Syncing...";
-      if ($("cloudSyncPct")) $("cloudSyncPct").textContent = `${clamped}%`;
-      if ($("cloudSyncBar")) $("cloudSyncBar").style.width = `${clamped}%`;
-      if ($("cloudSyncSub")) $("cloudSyncSub").textContent = detail || "";
+      syncJob.percent = clamped;
+      syncJob.state = mode || "running";
+      syncJob.stage = title || "Syncing...";
+      syncJob.detail = detail || "";
+
+      const box = $("cloudSyncBox");
+      if (box) {
+        box.hidden = false;
+        box.className = "sysup-fetch-box" + (mode === "done" ? " success" : (mode === "error" || mode === "cancelled") ? " error" : "");
+        const sp = $("cloudSyncSpinner");
+        if (sp) sp.hidden = mode !== "running";
+        if ($("cloudSyncTitle")) $("cloudSyncTitle").textContent = syncJob.stage;
+        if ($("cloudSyncPct")) $("cloudSyncPct").textContent = `${clamped}%`;
+        if ($("cloudSyncBar")) $("cloudSyncBar").style.width = `${clamped}%`;
+        if ($("cloudSyncSub")) $("cloudSyncSub").textContent = syncJob.detail;
+      }
       const btn = $("btnRunCloudSync");
       if (btn && mode === "running") {
         btn.textContent = `⏳ Syncing ${clamped}%`;
       }
+      updateFloatingSync();
+    };
+
+    const cancelRunningSync = async () => {
+      if (!syncJob.running) {
+        closeCloudSync();
+        return;
+      }
+      if (syncJob.cancelling) return;
+      syncJob.cancelling = true;
+      setSyncFormLocked(true);
+      setSyncProgress(syncJob.percent, "running", "🛑 Cancelling sync...", "Stopping active export/import processes...");
+      try {
+        await api().CancelCloudSync();
+      } catch {
+        // Ignore IPC cancel error; the main CloudSyncDatabase promise settles the UI state
+      }
     };
 
     rt()?.EventsOn?.("cloud-sync-progress", (p) => {
-      if (!p || $("modalCloudSync")?.hidden) return;
+      if (!p) return;
+      if ($("modalCloudSync")?.hidden && !syncJob.running && !syncJob.minimized) return;
+      if (syncJob.cancelling && p.state === "running") return;
       setSyncProgress(p.percent, p.state || "running", p.stage || "Syncing...", p.detail || "");
     });
     rt()?.EventsOn?.("schedules-updated", (list) => {
@@ -3685,15 +3814,34 @@ try {
     $("syncLocalEngine").addEventListener("change", loadSyncLocalDbs);
     $("syncDirTabs").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-dir]");
-      if (!btn) return;
+      if (!btn || syncJob.running) return;
       $("syncDirTabs").querySelectorAll(".seg").forEach((b) => b.classList.toggle("active", b === btn));
     });
     $("btnOpenCloudSync").onclick = () => openCloudSyncModal("");
+    if ($("btnMinimizeCloudSync")) $("btnMinimizeCloudSync").onclick = minimizeCloudSync;
+    if ($("btnRestoreCloudSync")) $("btnRestoreCloudSync").onclick = restoreCloudSync;
+    if ($("btnFloatCancelSync")) {
+      $("btnFloatCancelSync").onclick = (e) => {
+        e.stopPropagation();
+        cancelRunningSync();
+      };
+    }
+    if ($("syncFloatingBar")) {
+      $("syncFloatingBar").onclick = (e) => {
+        if (e.target.closest("#btnFloatCancelSync")) return;
+        restoreCloudSync();
+      };
+    }
     $("btnCloseCloudSync").onclick = closeCloudSync;
-    $("btnCancelCloudSync").onclick = closeCloudSync;
+    $("btnCancelCloudSync").onclick = () => (syncJob.running ? cancelRunningSync() : closeCloudSync());
 
     $("formCloudSync").onsubmit = async (e) => {
       e.preventDefault();
+      if (syncJob.running) {
+        restoreCloudSync();
+        return;
+      }
+      clearTimeout(syncHideTimer);
       const dir = $("syncDirTabs").querySelector(".seg.active")?.dataset.dir || "push";
       const localEng = $("syncLocalEngine").value;
       const localDb = $("syncLocalDb").value.trim();
@@ -3702,6 +3850,11 @@ try {
       const btn = $("btnRunCloudSync");
       btn.disabled = true;
       btn.textContent = "⏳ Syncing 0%";
+      syncJob.running = true;
+      syncJob.cancelling = false;
+      syncJob.minimized = false;
+      syncJob.summary = dir === "push" ? `${localDb} → ${cloudDb}` : `${cloudDb} → ${localDb}`;
+      setSyncFormLocked(true);
       setSyncProgress(
         2,
         "running",
@@ -3717,17 +3870,46 @@ try {
         const msg = dir === "push"
           ? await api().CloudSyncDatabase(localEng, localDb, "cloud:" + cloudId, cloudDb)
           : await api().CloudSyncDatabase("cloud:" + cloudId, cloudDb, localEng, localDb);
+        syncJob.running = false;
+        syncJob.cancelling = false;
+        setSyncFormLocked(false);
         setSyncProgress(100, "done", "✅ Sync Complete!", msg || "Database synced successfully.");
         toast(msg || "Sync complete!", "ok");
         if (state.tab === "database") await loadSqlDatabases();
-        setTimeout(() => {
-          if (!$("modalCloudSync").hidden) closeCloudSync();
-        }, 900);
+        if (syncJob.minimized) {
+          syncHideTimer = setTimeout(() => {
+            if (!syncJob.running && syncJob.minimized) {
+              syncJob.minimized = false;
+              updateFloatingSync();
+            }
+          }, 2200);
+        } else {
+          syncHideTimer = setTimeout(() => {
+            if (!syncJob.running && !$("modalCloudSync").hidden) closeCloudSync();
+          }, 900);
+        }
       } catch (err) {
         const em = errMsg(err);
-        setSyncProgress(Number($("cloudSyncPct")?.textContent?.replace("%", "")) || 0, "error", "⚠️ Sync Failed", em);
-        toast(em, "err");
+        const wasCancelled = syncJob.cancelling || /cancel/i.test(em);
+        syncJob.running = false;
+        syncJob.cancelling = false;
+        setSyncFormLocked(false);
+        if (wasCancelled) {
+          setSyncProgress(syncJob.percent, "cancelled", "🛑 Sync Cancelled", "Database sync was cancelled by user.");
+          syncJob.minimized = false;
+          updateFloatingSync();
+          toast("Database sync cancelled.", "info");
+        } else {
+          setSyncProgress(syncJob.percent, "error", "⚠️ Sync Failed", em);
+          toast(em, "err");
+          if (syncJob.minimized) {
+            restoreCloudSync();
+          }
+        }
       } finally {
+        syncJob.running = false;
+        syncJob.cancelling = false;
+        setSyncFormLocked(false);
         btn.disabled = false;
         btn.textContent = "🔄 Sync Now";
       }

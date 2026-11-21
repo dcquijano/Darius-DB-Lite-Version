@@ -48,6 +48,17 @@ func RestoreDatabase(p *Paths, engine string, s EngineSettings, filePath, target
 
 // RestoreDatabaseWithProgress behaves like RestoreDatabase while streaming byte progress for large imports.
 func RestoreDatabaseWithProgress(p *Paths, engine string, s EngineSettings, filePath, targetDB string, onBytes func(done, total int64)) (string, error) {
+	return RestoreDatabaseWithContext(context.Background(), p, engine, s, filePath, targetDB, onBytes)
+}
+
+// RestoreDatabaseWithContext behaves like RestoreDatabaseWithProgress and aborts promptly when ctx is cancelled.
+func RestoreDatabaseWithContext(ctx context.Context, p *Paths, engine string, s EngineSettings, filePath, targetDB string, onBytes func(done, total int64)) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	filePath = strings.TrimSpace(filePath)
 	if filePath == "" {
 		return "", errors.New("no backup or SQL file selected")
@@ -73,19 +84,19 @@ func RestoreDatabaseWithProgress(p *Paths, engine string, s EngineSettings, file
 		if ext == ".bak" {
 			return targetDB, mssqlRestoreBak(p, s, filePath, targetDB)
 		}
-		return targetDB, mssqlImportSQL(s, filePath, targetDB)
+		return targetDB, mssqlImportSQLCtx(ctx, s, filePath, targetDB)
 
 	case "mariadb", "mysql":
 		if ext == ".bak" {
 			return "", fmt.Errorf(".bak is a Microsoft SQL Server backup format — switch to the MS SQL Server tab to restore %s", filepath.Base(filePath))
 		}
-		return targetDB, mysqlImportSQLWithProgress(p, engine, s, filePath, targetDB, st.Size(), onBytes)
+		return targetDB, mysqlImportSQLWithProgressCtx(ctx, p, engine, s, filePath, targetDB, st.Size(), onBytes)
 
 	case "postgresql":
 		if ext == ".bak" {
 			return "", fmt.Errorf(".bak is a Microsoft SQL Server backup format — switch to the MS SQL Server tab to restore %s", filepath.Base(filePath))
 		}
-		return targetDB, postgresRestore(p, s, filePath, targetDB, ext)
+		return targetDB, postgresRestoreCtx(ctx, p, s, filePath, targetDB, ext)
 
 	default:
 		return "", fmt.Errorf("restore/import is not supported for %s", engine)
@@ -200,6 +211,16 @@ func mssqlRestoreBak(p *Paths, s EngineSettings, bakPath, targetDB string) error
 }
 
 func mssqlImportSQL(s EngineSettings, sqlPath, targetDB string) error {
+	return mssqlImportSQLCtx(context.Background(), s, sqlPath, targetDB)
+}
+
+func mssqlImportSQLCtx(ctx context.Context, s EngineSettings, sqlPath, targetDB string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	sqlcmd := findSqlcmd()
 	if sqlcmd == "" {
 		return errors.New("sqlcmd.exe not found")
@@ -207,7 +228,10 @@ func mssqlImportSQL(s EngineSettings, sqlPath, targetDB string) error {
 	if targetDB != "" && !systemDBs[strings.ToLower(targetDB)] {
 		createQ := fmt.Sprintf("IF DB_ID(N'%s') IS NULL CREATE DATABASE %s;",
 			strings.ReplaceAll(targetDB, "'", "''"), mssqlBracket(targetDB))
-		_, _ = mssqlRunQuery(s, "master", createQ)
+		_, _ = mssqlRunQueryCtx(ctx, s, "master", createQ)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 	}
 	if targetDB == "" {
 		targetDB = "master"
@@ -223,11 +247,14 @@ func mssqlImportSQL(s EngineSettings, sqlPath, targetDB string) error {
 	}
 	args = append(args, mssqlAuthArgs(target, s)...)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	impCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, sqlcmd, args...)
+	cmd := exec.CommandContext(impCtx, sqlcmd, args...)
 	hideWindow(cmd)
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err != nil {
 		msg := formatSqlcmdError(string(out), err)
 		return errors.New(msg)
@@ -286,7 +313,7 @@ func mssqlExportSQL(s EngineSettings, dbName, outPath string) error {
 		if strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
 			continue
 		}
-		mssqlWriteTableSQL(&b, s, dbName, t, true, true)
+		_ = mssqlWriteTableSQLCtx(context.Background(), &b, s, dbName, t, true, true)
 	}
 	return os.WriteFile(outPath, []byte(b.String()), 0o644)
 }
@@ -372,6 +399,16 @@ func decodeMSSQLFieldToTSQLExpr(escaped string) string {
 }
 
 func mssqlWriteTableSQL(b *strings.Builder, s EngineSettings, dbName string, t TableInfo, includeSchema, includeData bool) {
+	_ = mssqlWriteTableSQLCtx(context.Background(), b, s, dbName, t, includeSchema, includeData)
+}
+
+func mssqlWriteTableSQLCtx(ctx context.Context, b io.Writer, s EngineSettings, dbName string, t TableInfo, includeSchema, includeData bool) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	tableName := t.Name
 	if idx := strings.IndexByte(tableName, '.'); idx >= 0 {
 		tableName = tableName[idx+1:]
@@ -390,7 +427,11 @@ func mssqlWriteTableSQL(b *strings.Builder, s EngineSettings, dbName string, t T
 		strings.ReplaceAll(t.Schema, "'", "''"), strings.ReplaceAll(tableName, "'", "''"),
 	)
 	var cols []mssqlColMeta
-	if colRes, err := mssqlRunQuery(s, dbName, colQ); err == nil {
+	colRes, err := mssqlRunQueryCtx(ctx, s, dbName, colQ)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err == nil {
 		for _, cr := range colRes.Rows {
 			cols = append(cols, mssqlColMeta{
 				name:       valAt(cr, 0),
@@ -439,7 +480,7 @@ func mssqlWriteTableSQL(b *strings.Builder, s EngineSettings, dbName string, t T
 			}
 			fmt.Fprintf(b, "  %s %s%s %s%s\r\n", mssqlBracket(c.name), typeSpec, idSpec, nullSpec, comma)
 		}
-		b.WriteString(");\r\nGO\r\n")
+		_, _ = io.WriteString(b, ");\r\nGO\r\n")
 	}
 
 	if includeData {
@@ -468,10 +509,13 @@ func mssqlWriteTableSQL(b *strings.Builder, s EngineSettings, dbName string, t T
 		} else if len(cols) == 0 {
 			selectQ = "SELECT * FROM " + fullIdent + ";"
 		} else {
-			return
+			return nil
 		}
 
-		dataRes, err := mssqlRunQueryWithLimit(s, dbName, selectQ, maxShowRows)
+		dataRes, err := mssqlRunQueryWithLimitCtx(ctx, s, dbName, selectQ, maxShowRows)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err == nil && len(dataRes.Rows) > 0 && len(dataRes.Columns) > 0 {
 			var colList []string
 			hasIdentity := false
@@ -503,9 +547,10 @@ func mssqlWriteTableSQL(b *strings.Builder, s EngineSettings, dbName string, t T
 			if hasIdentity {
 				fmt.Fprintf(b, "SET IDENTITY_INSERT %s OFF;\r\n", fullIdent)
 			}
-			b.WriteString("GO\r\n\r\n")
+			_, _ = io.WriteString(b, "GO\r\n\r\n")
 		}
 	}
+	return nil
 }
 
 func valAt(row []*string, idx int) string {
@@ -575,6 +620,16 @@ func mysqlImportSQL(p *Paths, engine string, s EngineSettings, sqlPath, targetDB
 }
 
 func mysqlImportSQLWithProgress(p *Paths, engine string, s EngineSettings, sqlPath, targetDB string, totalBytes int64, onBytes func(done, total int64)) error {
+	return mysqlImportSQLWithProgressCtx(context.Background(), p, engine, s, sqlPath, targetDB, totalBytes, onBytes)
+}
+
+func mysqlImportSQLWithProgressCtx(ctx context.Context, p *Paths, engine string, s EngineSettings, sqlPath, targetDB string, totalBytes int64, onBytes func(done, total int64)) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !nameRe.MatchString(targetDB) {
 		return errors.New("database name may only contain letters, digits, _ $ -")
 	}
@@ -582,12 +637,15 @@ func mysqlImportSQLWithProgress(p *Paths, engine string, s EngineSettings, sqlPa
 	isRemote := !strings.EqualFold(host, "127.0.0.1") && !strings.EqualFold(host, "localhost")
 	if db, err := openSQL(engine, s, ""); err == nil {
 		if !isRemote || !strings.EqualFold(targetDB, s.DefaultDB) {
-			_, _ = db.Exec("CREATE DATABASE IF NOT EXISTS " + quoteIdent(engine, targetDB) + " CHARACTER SET utf8mb4")
+			_, _ = db.ExecContext(ctx, "CREATE DATABASE IF NOT EXISTS "+quoteIdent(engine, targetDB)+" CHARACTER SET utf8mb4")
 		}
 		if !isRemote {
-			_, _ = db.Exec("SET GLOBAL max_allowed_packet=268435456")
+			_, _ = db.ExecContext(ctx, "SET GLOBAL max_allowed_packet=268435456")
 		}
 		db.Close()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// Prefer native client binary with --binary-mode=1 and --max-allowed-packet=256M for fast BLOB-safe streaming
@@ -614,9 +672,9 @@ func mysqlImportSQLWithProgress(p *Paths, engine string, s EngineSettings, sqlPa
 		if s.Password != "" {
 			args = append([]string{"-p" + s.Password}, args...)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		impCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, cli, args...)
+		cmd := exec.CommandContext(impCtx, cli, args...)
 		hideWindow(cmd)
 		if onBytes != nil && totalBytes > 0 {
 			cmd.Stdin = &countingProgressReader{r: f, total: totalBytes, onBytes: onBytes}
@@ -624,6 +682,9 @@ func mysqlImportSQLWithProgress(p *Paths, engine string, s EngineSettings, sqlPa
 			cmd.Stdin = f
 		}
 		out, err := cmd.CombinedOutput()
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
 		}
@@ -635,12 +696,15 @@ func mysqlImportSQLWithProgress(p *Paths, engine string, s EngineSettings, sqlPa
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	targetConn, err := openSQL(engine, s, targetDB)
 	if err != nil {
 		return err
 	}
 	defer targetConn.Close()
-	_, err = targetConn.Exec(string(b))
+	_, err = targetConn.ExecContext(ctx, string(b))
 	return err
 }
 
@@ -649,6 +713,16 @@ func mysqlBackupSQL(p *Paths, engine string, s EngineSettings, dbName, outPath s
 }
 
 func mysqlWriteGoDump(engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, onTable func(idx, total int, tblName string)) error {
+	return mysqlWriteGoDumpCtx(context.Background(), engine, s, dbName, tables, includeSchema, includeData, outPath, onTable)
+}
+
+func mysqlWriteGoDumpCtx(ctx context.Context, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, onTable func(idx, total int, tblName string)) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	db, err := openSQL(engine, s, dbName)
 	if err != nil {
 		return err
@@ -657,6 +731,9 @@ func mysqlWriteGoDump(engine string, s EngineSettings, dbName string, tables []s
 
 	allTables, err := ListTables(engine, s, dbName)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	selected := map[string]bool{}
@@ -682,22 +759,30 @@ func mysqlWriteGoDump(engine string, s EngineSettings, dbName string, tables []s
 	fmt.Fprintf(bw, "-- Darius DB (Lite Version 0.1.4) Binary-Safe SQL Export\n-- Engine: %s  Database: %s\n\nSET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\nSET UNIQUE_CHECKS=0;\nSET AUTOCOMMIT=0;\n\n", engine, dbName)
 
 	for i, t := range todo {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if onTable != nil {
 			onTable(i+1, len(todo), t.Name)
 		}
 		qt := quoteIdent(engine, t.Name)
 		if includeSchema {
 			var tbl, createSQL string
-			if err := db.QueryRow("SHOW CREATE TABLE "+qt).Scan(&tbl, &createSQL); err == nil {
+			if err := db.QueryRowContext(ctx, "SHOW CREATE TABLE "+qt).Scan(&tbl, &createSQL); err == nil {
 				fmt.Fprintf(bw, "DROP TABLE IF EXISTS %s;\n%s;\n\n", qt, createSQL)
+			} else if ctx.Err() != nil {
+				return ctx.Err()
 			}
 		}
 		if !includeData || strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
 			continue
 		}
 
-		rows, err := db.Query("SELECT * FROM " + qt)
+		rows, err := db.QueryContext(ctx, "SELECT * FROM "+qt)
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			return fmt.Errorf("query %s: %w", t.Name, err)
 		}
 		colTypes, _ := rows.ColumnTypes()
@@ -740,6 +825,10 @@ func mysqlWriteGoDump(engine string, s EngineSettings, dbName string, tables []s
 		}
 
 		for rows.Next() {
+			if err := ctx.Err(); err != nil {
+				rows.Close()
+				return err
+			}
 			if err := rows.Scan(ptrs...); err != nil {
 				rows.Close()
 				return fmt.Errorf("scan %s: %w", t.Name, err)
@@ -841,6 +930,16 @@ func findPostgresTool(p *Paths, s EngineSettings, toolName string) string {
 }
 
 func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string) error {
+	return postgresRestoreCtx(context.Background(), p, s, filePath, targetDB, ext)
+}
+
+func postgresRestoreCtx(ctx context.Context, p *Paths, s EngineSettings, filePath, targetDB, ext string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !nameRe.MatchString(targetDB) {
 		return errors.New("database name may only contain letters, digits, _ $ -")
 	}
@@ -848,17 +947,20 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 	isRemote := !strings.EqualFold(host, "127.0.0.1") && !strings.EqualFold(host, "localhost")
 	exists := false
 	if adminDB, err := openSQL("postgresql", s, fallbackStr(s.DefaultDB, "postgres")); err == nil {
-		_ = adminDB.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", targetDB).Scan(&exists)
+		_ = adminDB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", targetDB).Scan(&exists)
 		if !exists && (!isRemote || !strings.EqualFold(targetDB, s.DefaultDB)) {
-			_, _ = adminDB.Exec("CREATE DATABASE " + quoteIdent("postgresql", targetDB) + " ENCODING 'UTF8'")
+			_, _ = adminDB.ExecContext(ctx, "CREATE DATABASE "+quoteIdent("postgresql", targetDB)+" ENCODING 'UTF8'")
 		}
 		adminDB.Close()
 	} else if !isRemote {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	user := fallbackStr(s.User, "postgres")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	impCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
 	runPgRestore := func() error {
@@ -874,7 +976,7 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 			args = append(args, "--clean", "--if-exists")
 		}
 		args = append(args, filePath)
-		cmd := exec.CommandContext(ctx, pgRestore, args...)
+		cmd := exec.CommandContext(impCtx, pgRestore, args...)
 		hideWindow(cmd)
 		env := os.Environ()
 		if s.Password != "" {
@@ -885,6 +987,9 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 		}
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			msg := strings.TrimSpace(string(out))
 			if msg == "" {
@@ -900,7 +1005,7 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 	}
 
 	if psql := findPostgresTool(p, s, "psql.exe"); psql != "" {
-		cmd := exec.CommandContext(ctx, psql,
+		cmd := exec.CommandContext(impCtx, psql,
 			"-h", host, "-p", fmt.Sprint(s.Port), "-U", user,
 			"-d", targetDB, "-v", "ON_ERROR_STOP=1", "-f", filePath,
 		)
@@ -914,6 +1019,9 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 		}
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			msg := strings.TrimSpace(string(out))
 			// Fallback: if psql still identifies an archive dump, hand off to pg_restore automatically
@@ -934,12 +1042,15 @@ func postgresRestore(p *Paths, s EngineSettings, filePath, targetDB, ext string)
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	conn, err := openSQL("postgresql", s, targetDB)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	_, err = conn.Exec(string(b))
+	_, err = conn.ExecContext(ctx, string(b))
 	return err
 }
 
@@ -1124,6 +1235,17 @@ func ExportDatabaseSelection(p *Paths, engine string, s EngineSettings, dbName s
 
 // ExportDatabaseSelectionWithProgress exports with live stage & percentage progress callbacks.
 func ExportDatabaseSelectionWithProgress(p *Paths, engine string, s EngineSettings, dbName string, tables []string, format string, includeSchema, includeData bool, outPath string, onProgress func(BackupProgress)) error {
+	return ExportDatabaseSelectionWithContext(context.Background(), p, engine, s, dbName, tables, format, includeSchema, includeData, outPath, onProgress)
+}
+
+// ExportDatabaseSelectionWithContext exports with live stage & percentage progress callbacks and respects ctx cancellation.
+func ExportDatabaseSelectionWithContext(ctx context.Context, p *Paths, engine string, s EngineSettings, dbName string, tables []string, format string, includeSchema, includeData bool, outPath string, onProgress func(BackupProgress)) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	lastPct := 0
 	report := func(pct int, state, stage, detail string) {
 		if pct > lastPct {
@@ -1231,16 +1353,19 @@ func ExportDatabaseSelectionWithProgress(p *Paths, engine string, s EngineSettin
 	} else {
 		switch engine {
 		case "mariadb", "mysql":
-			err = mysqlExportTablesSQLWithProgress(p, engine, s, dbName, tables, includeSchema, includeData, outPath, len(tables) == 0, onTbl)
+			err = mysqlExportTablesSQLWithProgressCtx(ctx, p, engine, s, dbName, tables, includeSchema, includeData, outPath, len(tables) == 0, onTbl)
 		case "postgresql":
-			err = postgresExportTablesSQL(p, s, dbName, tables, includeSchema, includeData, outPath)
+			err = postgresExportTablesSQLCtx(ctx, p, s, dbName, tables, includeSchema, includeData, outPath)
 		case "mssql":
-			err = mssqlExportTablesSQLWithProgress(s, dbName, tables, includeSchema, includeData, outPath, onTbl)
+			err = mssqlExportTablesSQLWithProgressCtx(ctx, s, dbName, tables, includeSchema, includeData, outPath, onTbl)
 		default:
 			err = fmt.Errorf("export is not supported for %s", engine)
 		}
 	}
 	close(done)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err != nil {
 		report(lastPct, "error", "Backup Failed", err.Error())
 		return err
@@ -1555,6 +1680,16 @@ func mysqlExportTablesSQL(p *Paths, engine string, s EngineSettings, dbName stri
 }
 
 func mysqlExportTablesSQLWithProgress(p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, includeRoutines bool, onTable func(idx, total int, tblName string)) error {
+	return mysqlExportTablesSQLWithProgressCtx(context.Background(), p, engine, s, dbName, tables, includeSchema, includeData, outPath, includeRoutines, onTable)
+}
+
+func mysqlExportTablesSQLWithProgressCtx(ctx context.Context, p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, includeRoutines bool, onTable func(idx, total int, tblName string)) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
 	if dump := findMySQLClientTool(p, engine, s, "mariadb-dump.exe", "mysqldump.exe"); dump != "" {
 		args := []string{
@@ -1582,21 +1717,33 @@ func mysqlExportTablesSQLWithProgress(p *Paths, engine string, s EngineSettings,
 		if s.Password != "" {
 			args = append([]string{"-p" + s.Password}, args...)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		expCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, dump, args...)
+		cmd := exec.CommandContext(expCtx, dump, args...)
 		hideWindow(cmd)
 		if out, err := cmd.CombinedOutput(); err == nil {
 			return nil
+		} else if ctx.Err() != nil {
+			return ctx.Err()
 		} else if strings.EqualFold(host, "127.0.0.1") {
 			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
 		}
 	}
 
-	return mysqlWriteGoDump(engine, s, dbName, tables, includeSchema, includeData, outPath, onTable)
+	return mysqlWriteGoDumpCtx(ctx, engine, s, dbName, tables, includeSchema, includeData, outPath, onTable)
 }
 
 func postgresExportTablesSQL(p *Paths, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	return postgresExportTablesSQLCtx(context.Background(), p, s, dbName, tables, includeSchema, includeData, outPath)
+}
+
+func postgresExportTablesSQLCtx(ctx context.Context, p *Paths, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
 	if pgDump := findPostgresTool(p, s, "pg_dump.exe"); pgDump != "" {
 		user := fallbackStr(s.User, "postgres")
@@ -1615,9 +1762,9 @@ func postgresExportTablesSQL(p *Paths, s EngineSettings, dbName string, tables [
 		}
 		args = append(args, dbName)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		expCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, pgDump, args...)
+		cmd := exec.CommandContext(expCtx, pgDump, args...)
 		hideWindow(cmd)
 		env := os.Environ()
 		if s.Password != "" {
@@ -1629,14 +1776,26 @@ func postgresExportTablesSQL(p *Paths, s EngineSettings, dbName string, tables [
 		cmd.Env = env
 		if out, err := cmd.CombinedOutput(); err == nil {
 			return nil
+		} else if ctx.Err() != nil {
+			return ctx.Err()
 		} else if strings.EqualFold(host, "127.0.0.1") {
 			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
 		}
 	}
-	return postgresExportTablesPureGo(s, dbName, tables, includeSchema, includeData, outPath)
+	return postgresExportTablesPureGoCtx(ctx, s, dbName, tables, includeSchema, includeData, outPath)
 }
 
 func postgresExportTablesPureGo(s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	return postgresExportTablesPureGoCtx(context.Background(), s, dbName, tables, includeSchema, includeData, outPath)
+}
+
+func postgresExportTablesPureGoCtx(ctx context.Context, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	allTables, err := ListTables("postgresql", s, dbName)
 	if err != nil {
 		return err
@@ -1649,6 +1808,9 @@ func postgresExportTablesPureGo(s EngineSettings, dbName string, tables []string
 	var b strings.Builder
 	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) PostgreSQL SQL Export\n-- Database: %s\n\n", dbName)
 	for _, t := range allTables {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if len(selected) > 0 && !selected[strings.ToLower(t.Name)] {
 			continue
 		}
@@ -1714,8 +1876,21 @@ func mssqlExportTablesSQL(s EngineSettings, dbName string, tables []string, incl
 }
 
 func mssqlExportTablesSQLWithProgress(s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, onTable func(idx, total int, tblName string)) error {
+	return mssqlExportTablesSQLWithProgressCtx(context.Background(), s, dbName, tables, includeSchema, includeData, outPath, onTable)
+}
+
+func mssqlExportTablesSQLWithProgressCtx(ctx context.Context, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, onTable func(idx, total int, tblName string)) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	allTables, err := mssqlListTables(s, dbName)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	selected := map[string]bool{}
@@ -1734,16 +1909,29 @@ func mssqlExportTablesSQLWithProgress(s EngineSettings, dbName string, tables []
 		todo = append(todo, t)
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) MS SQL Server SQL Export\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
+	f, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	bw := bufio.NewWriterSize(f, 128*1024)
+
+	fmt.Fprintf(bw, "-- Darius DB (Lite Version 0.1.4) MS SQL Server SQL Export\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
 		dbName, time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(&b, "SET NOCOUNT ON;\r\nUSE %s;\r\nGO\r\n\r\n", mssqlBracket(dbName))
+	fmt.Fprintf(bw, "SET NOCOUNT ON;\r\nUSE %s;\r\nGO\r\n\r\n", mssqlBracket(dbName))
+	_ = bw.Flush()
 
 	for i, t := range todo {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if onTable != nil {
 			onTable(i+1, len(todo), t.Name)
 		}
-		mssqlWriteTableSQL(&b, s, dbName, t, includeSchema, includeData)
+		if err := mssqlWriteTableSQLCtx(ctx, bw, s, dbName, t, includeSchema, includeData); err != nil {
+			return err
+		}
+		_ = bw.Flush()
 	}
-	return os.WriteFile(outPath, []byte(b.String()), 0o644)
+	return bw.Flush()
 }

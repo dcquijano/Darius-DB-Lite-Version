@@ -1136,7 +1136,10 @@
     <div class="modal" style="width:540px;max-width:94vw">
       <div class="modal-head">
         <h3>🔄 Sync Database: Local ↔ Cloud</h3>
-        <button class="icon-btn" id="btnCloseCloudSync" aria-label="Close">✕</button>
+        <div class="modal-head-actions">
+          <button type="button" class="icon-btn" id="btnMinimizeCloudSync" title="Minimize while synchronizing" aria-label="Minimize" hidden>─</button>
+          <button type="button" class="icon-btn" id="btnCloseCloudSync" title="Close" aria-label="Close">✕</button>
+        </div>
       </div>
       <form id="formCloudSync" class="modal-body">
         <div class="seg-tabs" id="syncDirTabs" style="align-self:flex-start">
@@ -1379,6 +1382,25 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Minimized Background Sync Bar -->
+  <div id="syncFloatingBar" class="sync-floating" role="status" aria-live="polite" hidden>
+    <div class="sync-floating-top">
+      <div class="sync-floating-title-row">
+        <span id="syncFloatSpinner" class="sysup-spinner"></span>
+        <strong id="syncFloatStage">Syncing database...</strong>
+      </div>
+      <div class="sync-floating-meta">
+        <span id="syncFloatPct" class="sync-floating-pct">0%</span>
+        <button type="button" class="btn xs accent" id="btnRestoreCloudSync" title="Restore Sync window">↗ Open</button>
+        <button type="button" class="btn xs danger-ghost" id="btnFloatCancelSync" title="Cancel running sync">🛑 Cancel</button>
+      </div>
+    </div>
+    <div class="progress-bar" style="height:5px;margin:6px 0 4px">
+      <div id="syncFloatBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
+    </div>
+    <div id="syncFloatDetail" class="sync-floating-detail">Preparing transfer...</div>
   </div>
 
   <div class="toasts" id="toasts"></div>

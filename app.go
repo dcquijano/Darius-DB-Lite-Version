@@ -66,6 +66,10 @@ type App struct {
 	forceShow   bool
 	justUpdated bool
 	skipAdopt   bool
+
+	syncMu     sync.Mutex
+	syncCancel context.CancelFunc
+	syncActive bool
 }
 
 func NewApp(paths *core.Paths, st *core.SettingsStore) *App {
@@ -979,7 +983,38 @@ func (a *App) TestCloudProfile(conn core.CloudConnection) (*core.CloudTestResult
 	return res, err
 }
 
+func (a *App) CancelCloudSync() bool {
+	a.syncMu.Lock()
+	cancel := a.syncCancel
+	active := a.syncActive
+	a.syncMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return active
+}
+
 func (a *App) CloudSyncDatabase(srcTarget, srcDB, dstTarget, dstDB string) (string, error) {
+	baseCtx := a.ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	syncCtx, cancel := context.WithCancel(baseCtx)
+	a.syncMu.Lock()
+	if a.syncCancel != nil {
+		a.syncCancel()
+	}
+	a.syncCancel = cancel
+	a.syncActive = true
+	a.syncMu.Unlock()
+	defer func() {
+		cancel()
+		a.syncMu.Lock()
+		a.syncCancel = nil
+		a.syncActive = false
+		a.syncMu.Unlock()
+	}()
+
 	srcEng, srcEs, _ := a.resolveTarget(srcTarget)
 	dstEng, dstEs, _ := a.resolveTarget(dstTarget)
 	emit := func(prog core.CloudSyncProgress) {
@@ -991,6 +1026,10 @@ func (a *App) CloudSyncDatabase(srcTarget, srcDB, dstTarget, dstDB string) (stri
 		emit(core.CloudSyncProgress{Percent: 3, State: "running", Stage: "Checking local service...", Detail: fmt.Sprintf("Ensuring local %s is running...", strings.ToUpper(srcEng))})
 		var rErr error
 		srcEng, srcEs, rErr = core.EnsureLocalEngineReady(a.paths, a.settings, a.mgr, srcEng, srcEs)
+		if syncCtx.Err() != nil {
+			emit(core.CloudSyncProgress{Percent: 3, State: "cancelled", Stage: "Sync Cancelled", Detail: "Database sync was cancelled by user."})
+			return "", core.ErrSyncCancelled
+		}
 		if rErr != nil {
 			return "", rErr
 		}
@@ -999,11 +1038,15 @@ func (a *App) CloudSyncDatabase(srcTarget, srcDB, dstTarget, dstDB string) (stri
 		emit(core.CloudSyncProgress{Percent: 4, State: "running", Stage: "Checking local service...", Detail: fmt.Sprintf("Ensuring local %s is running...", strings.ToUpper(dstEng))})
 		var rErr error
 		dstEng, dstEs, rErr = core.EnsureLocalEngineReady(a.paths, a.settings, a.mgr, dstEng, dstEs)
+		if syncCtx.Err() != nil {
+			emit(core.CloudSyncProgress{Percent: 4, State: "cancelled", Stage: "Sync Cancelled", Detail: "Database sync was cancelled by user."})
+			return "", core.ErrSyncCancelled
+		}
 		if rErr != nil {
 			return "", rErr
 		}
 	}
-	return core.CloudSyncDatabaseWithProgress(a.paths, srcEng, srcEs, srcDB, dstEng, dstEs, dstDB, emit)
+	return core.CloudSyncDatabaseWithContext(syncCtx, a.paths, srcEng, srcEs, srcDB, dstEng, dstEs, dstDB, emit)
 }
 
 // ---------------------------------------------------------------- Daily Auto-Sync & 2:00 AM Auto-Backup (1-Week Purge)

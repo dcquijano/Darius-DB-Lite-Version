@@ -156,6 +156,8 @@
       initTerminalView();
     } else if (tab === "settings") {
       loadSettingsForm();
+    } else if (tab === "guide") {
+      window.DariusShortcutsGuide?.onTabActivated?.("guide");
     }
   }
 
@@ -4206,18 +4208,159 @@ try {
     $("btnConfirmCancel").onclick = () => closeConfirm(false);
     $("btnConfirmOk").onclick = () => closeConfirm(true);
 
-    window.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
-        if (!$("modalConfirm").hidden) closeConfirm(false);
-        if (!$("modalNewDb").hidden) closeNewDb();
-        if (!$("modalManual").hidden) closeManual();
-        if (!$("modalRestore").hidden) closeRestore();
-        if (!$("modalRepair").hidden) closeRepair();
-        if (!$("modalSysUpdater").hidden) closeSysUpdater();
-        if ($("modalCloudForm") && !$("modalCloudForm").hidden) $("modalCloudForm").hidden = true;
-        if ($("modalCloudSync") && !$("modalCloudSync").hidden) $("btnCloseCloudSync")?.click();
-      }
-    });
+    const closeTopModal = () => {
+      if ($("modalConfirm") && !$("modalConfirm").hidden) { closeConfirm(false); return true; }
+      if ($("modalScheduleSnapshots") && !$("modalScheduleSnapshots").hidden) { $("modalScheduleSnapshots").hidden = true; return true; }
+      if ($("modalScheduleForm") && !$("modalScheduleForm").hidden) { $("modalScheduleForm").hidden = true; return true; }
+      if ($("modalBackupProgress") && !$("modalBackupProgress").hidden) { $("modalBackupProgress").hidden = true; return true; }
+      if ($("modalCloudSync") && !$("modalCloudSync").hidden) { $("btnCloseCloudSync")?.click(); return true; }
+      if ($("modalCloudForm") && !$("modalCloudForm").hidden) { $("modalCloudForm").hidden = true; return true; }
+      if ($("modalSysUpdater") && !$("modalSysUpdater").hidden) { closeSysUpdater(); return true; }
+      if ($("modalRepair") && !$("modalRepair").hidden) { closeRepair(); return true; }
+      if ($("modalNewTable") && !$("modalNewTable").hidden) { closeNewTable(); return true; }
+      if ($("modalExport") && !$("modalExport").hidden) { closeExport(); return true; }
+      if ($("modalRowForm") && !$("modalRowForm").hidden) { $("modalRowForm").hidden = true; return true; }
+      if ($("modalRowShow") && !$("modalRowShow").hidden) { $("modalRowShow").hidden = true; return true; }
+      if ($("modalRestore") && !$("modalRestore").hidden) { closeRestore(); return true; }
+      if ($("modalManual") && !$("modalManual").hidden) { closeManual(); return true; }
+      if ($("modalNewDb") && !$("modalNewDb").hidden) { closeNewDb(); return true; }
+      return false;
+    };
+
+    const TERM_MODES = ["shell", "mariadb", "mysql", "postgresql", "mssql", "redis"];
+
+    if (window.DariusShortcutsGuide?.init) {
+      window.DariusShortcutsGuide.init({
+        getTab: () => state.tab,
+        switchTab,
+        openFolder: (kind) => api().OpenFolder(kind).catch((e) => toast(errMsg(e), "err")),
+        copyText,
+        toast,
+        clickBtn: (id) => {
+          const el = $(id);
+          if (!el || el.hidden || el.disabled) return false;
+          if ((id === "btnPagePrev" || id === "btnPageNext") && $("sqlPagerBar")?.hidden) return false;
+          el.click();
+          return true;
+        },
+        isAnyOtherModalOpen: (excludeId) =>
+          Array.from(document.querySelectorAll(".modal-backdrop")).some((m) => m.id !== excludeId && !m.hidden),
+        closeTopModal,
+        focusTerminal: () => {
+          switchTab("terminal");
+          setTimeout(() => $("termInput")?.focus(), 20);
+        },
+        clearTerminal: () => {
+          $("btnTermClear")?.click();
+        },
+        cycleTermMode: (delta) => {
+          const idx = Math.max(0, TERM_MODES.indexOf(state.termState?.mode || "shell"));
+          const next = TERM_MODES[(idx + delta + TERM_MODES.length) % TERM_MODES.length];
+          switchTermMode(next);
+        },
+        runSqlQuery: () => runSqlQuery(false),
+        openNewSqlTab: () => openNewSqlTab({ focus: true }),
+        closeActiveSqlTab: () => {
+          if (state.activeSqlTabId) closeSqlTab(state.activeSqlTabId);
+        },
+        cycleSqlTab: (delta) => {
+          const tabs = engineTabs(state.dbEngine);
+          if (tabs.length < 2) return;
+          const idx = Math.max(0, tabs.findIndex((t) => t.id === state.activeSqlTabId));
+          const next = tabs[(idx + delta + tabs.length) % tabs.length];
+          if (!next) return;
+          syncActiveTabFromDom();
+          applyTabToDom(next, { syncSidebar: true });
+        },
+        focusDbSearch: () => {
+          if ($("sqlBrowser") && !$("sqlBrowser").hidden) {
+            const flt = $("sqlRowFilter");
+            if (flt && !flt.hidden) {
+              flt.focus();
+              flt.select?.();
+              return true;
+            }
+            const ed = $("sqlEditor");
+            if (ed) {
+              ed.focus();
+              return true;
+            }
+          } else if ($("redisBrowser") && !$("redisBrowser").hidden) {
+            const pat = $("redisPattern");
+            if (pat) {
+              pat.focus();
+              pat.select?.();
+              return true;
+            }
+          }
+          return false;
+        },
+        focusGuideSearch: () => {
+          const inp = $("guideSearch");
+          if (inp) {
+            inp.focus();
+            inp.select?.();
+          }
+        },
+        toggleConfigLogMode: () => {
+          state.cfgMode = state.cfgMode === "config" ? "logs" : "config";
+          loadCfgOrLog();
+        },
+        saveConfig: (restart) => {
+          if (state.cfgMode !== "config") return;
+          if (restart) {
+            const btn = $("btnCfgSaveRestart");
+            if (btn && !btn.hidden && !btn.disabled) {
+              saveConfigFile(true);
+              return;
+            }
+          }
+          const saveBtn = $("btnCfgSave");
+          if (saveBtn && !saveBtn.disabled) saveConfigFile(false);
+        },
+        saveSettings: () => saveSettingsForm(),
+        refreshCurrentView: async () => {
+          try {
+            if (state.tab === "dashboard") {
+              state.statuses = (await api().Status()) || [];
+              renderDashboard();
+              toast("Refreshed service statuses", "info");
+            } else if (state.tab === "database") {
+              await loadDbView(true);
+            } else if (state.tab === "cloud") {
+              const [cloudProfiles, schedules, winTask] = await Promise.all([
+                api().CloudProfiles().catch(() => state.cloudProfiles),
+                api().Schedules().catch(() => state.schedules),
+                api().WindowsTaskStatus().catch(() => state.winTask),
+              ]);
+              state.cloudProfiles = cloudProfiles || [];
+              state.schedules = schedules || [];
+              state.winTask = winTask || state.winTask;
+              updateCloudBadge();
+              renderCloudView();
+              toast("Refreshed cloud profiles & schedules", "info");
+            } else if (state.tab === "versions") {
+              const btn = $("btnRefreshCatalog");
+              if (btn && !btn.disabled) btn.click();
+            } else if (state.tab === "config") {
+              if (state.cfgMode === "config") await loadConfigFile();
+              else await loadLogFile();
+            } else if (state.tab === "settings") {
+              await loadSettingsForm();
+              toast("Reloaded settings", "info");
+            } else if (state.tab === "guide") {
+              window.DariusShortcutsGuide?.onTabActivated?.("guide");
+            }
+          } catch (e) {
+            toast(errMsg(e), "err");
+          }
+        },
+      });
+    } else {
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeTopModal();
+      });
+    }
   }
 
   // ---- Init ----
@@ -4249,6 +4392,9 @@ try {
     $("appVersion").textContent = "Lite Version " + info.version;
     if ($("dashSystemBadge")) {
       $("dashSystemBadge").textContent = "Darius DB · Lite Version " + info.version;
+    }
+    if ($("guideVersionBadge")) {
+      $("guideVersionBadge").textContent = "Darius DB · Lite Version " + info.version;
     }
     $("rootPathLabel").textContent = info.root;
     applyTheme(settings.theme);
@@ -4462,6 +4608,9 @@ try {
         const syncBadge = s.autoSync
           ? `<span class="pill accent">🔄 ${dirLabel} @ ${esc(s.syncTime || "02:00")}</span>`
           : "";
+        const autoNameBadge = s.autoSync && s.syncDirection !== "push" && s.autoNameLocalDb
+          ? `<span class="pill">✨ Auto-named</span>`
+          : "";
         const backupBadge = s.autoBackup
           ? `<span class="pill">📦 .zip @ ${esc(s.backupTime || "02:00")} · Purge ≥ ${s.retentionDays || 7}d</span>`
           : "";
@@ -4476,13 +4625,14 @@ try {
               <strong style="font-size:14px">${esc(s.name)}</strong>
               <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap">
                 ${syncBadge}
+                ${autoNameBadge}
                 ${backupBadge}
               </div>
             </div>
             ${statusPill}
           </div>
           <div class="cloud-card-meta">
-            ${cloud ? esc(cloud.name) + " (" + esc(s.cloudDb || cloud.database || "") + ")" : esc(s.cloudDb || "Local only")} ↔ ${esc((s.localEngine || "mssql").toUpperCase())}/${esc(s.localDb || "-")}
+            ${cloud ? esc(cloud.name) + " (" + esc(s.cloudDb || cloud.database || "") + ")" : esc(s.cloudDb || "Local only")} ↔ ${esc((s.localEngine || "mssql").toUpperCase())}/${esc(s.localDb || (s.autoNameLocalDb ? (s.cloudDb || "auto") : "-"))}${s.autoNameLocalDb && s.syncDirection !== "push" ? "_<date_time>" : ""}
           </div>
           <div class="muted" style="font-size:11.5px;line-height:1.45">
             <div>${esc(syncStat)}</div>
@@ -4541,8 +4691,13 @@ try {
       [
         "syncLocalEngine",
         "syncLocalDb",
+        "btnQuickGenLocalDb",
         "syncCloudProfile",
         "syncCloudDb",
+        "syncAutoNameChk",
+        "syncAutoNameBase",
+        "syncAutoNameFmt",
+        "btnRefreshSyncAutoName",
         "syncAlsoSaveSchedule",
         "syncAutoTime",
         "syncAutoBackupChk",
@@ -4869,6 +5024,64 @@ try {
       }
     };
 
+    const AUTO_PULL_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const AUTO_PULL_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const buildAutoPullLocalDbName = (baseName, format = "date_day_year_ts", now = new Date()) => {
+      let clean = String(baseName || "")
+        .trim()
+        .replace(/[^A-Za-z0-9_-]+/g, "_")
+        .replace(/^[_-]+|[_-]+$/g, "");
+      if (!clean) clean = "pulled_db";
+      if (/^[0-9]/.test(clean)) clean = "db_" + clean;
+
+      const pad2 = (n) => String(n).padStart(2, "0");
+      const yyyy = String(now.getFullYear());
+      const mm = pad2(now.getMonth() + 1);
+      const dd = pad2(now.getDate());
+      const day = AUTO_PULL_DAYS[now.getDay()];
+      const mon = AUTO_PULL_MONTHS[now.getMonth()];
+      const hh = pad2(now.getHours());
+      const mi = pad2(now.getMinutes());
+      const ss = pad2(now.getSeconds());
+
+      let suffix;
+      if (format === "month_day_year_ts") suffix = `_${mon}_${dd}_${yyyy}_${day}_${hh}${mi}${ss}`;
+      else if (format === "date_year_ts") suffix = `_${yyyy}_${mm}_${dd}_${hh}${mi}${ss}`;
+      else if (format === "date_day_year") suffix = `_${yyyy}_${mm}_${dd}_${day}`;
+      else suffix = `_${yyyy}_${mm}_${dd}_${day}_${hh}${mi}${ss}`;
+
+      const maxBase = Math.max(1, 63 - suffix.length);
+      if (clean.length > maxBase) {
+        clean = clean.slice(0, maxBase).replace(/[_-]+$/g, "") || "db";
+      }
+      return clean + suffix;
+    };
+
+    const getSyncDirection = () =>
+      $("syncDirTabs")?.querySelector(".seg.active")?.dataset.dir || "push";
+    const getSyncAutoBaseName = () =>
+      ($("syncAutoNameBase")?.value || "").trim() || ($("syncCloudDb")?.value || "").trim();
+
+    const updateSyncAutoNameUI = ({ applyInput = false, now = new Date() } = {}) => {
+      const isPull = getSyncDirection() === "pull";
+      if ($("syncAutoNameBox")) $("syncAutoNameBox").hidden = !isPull;
+      if ($("btnQuickGenLocalDb")) $("btnQuickGenLocalDb").hidden = !isPull;
+      const autoOn = isPull && !!$("syncAutoNameChk")?.checked;
+      if ($("syncAutoNameOpts")) $("syncAutoNameOpts").hidden = !autoOn;
+      const cloudDb = ($("syncCloudDb")?.value || "").trim();
+      if ($("syncAutoNameBase")) {
+        $("syncAutoNameBase").placeholder = cloudDb ? `e.g. ${cloudDb}` : "e.g. alegria";
+      }
+      const fmt = $("syncAutoNameFmt")?.value || "date_day_year_ts";
+      const generated = buildAutoPullLocalDbName(getSyncAutoBaseName() || "alegria", fmt, now);
+      if ($("syncAutoNamePreview")) {
+        $("syncAutoNamePreview").textContent = `${generated} (${generated.length}/63)`;
+      }
+      if (autoOn && applyInput && $("syncLocalDb")) {
+        $("syncLocalDb").value = buildAutoPullLocalDbName(getSyncAutoBaseName(), fmt, now);
+      }
+    };
+
     const openCloudSyncModal = async (preselectCloudId = "") => {
       if (syncJob.running) {
         restoreCloudSync();
@@ -4898,6 +5111,10 @@ try {
         }
       }
       await loadSyncLocalDbs();
+      if ($("syncAutoNameChk")) $("syncAutoNameChk").checked = false;
+      if ($("syncAutoNameBase")) $("syncAutoNameBase").value = "";
+      if ($("syncAutoNameFmt")) $("syncAutoNameFmt").value = "date_day_year_ts";
+      updateSyncAutoNameUI({ applyInput: false });
       if ($("syncAlsoSaveSchedule")) $("syncAlsoSaveSchedule").checked = false;
       if ($("syncSchedMiniOpts")) $("syncSchedMiniOpts").hidden = true;
       if ($("btnSaveSyncScheduleOnly")) $("btnSaveSyncScheduleOnly").hidden = true;
@@ -4906,11 +5123,13 @@ try {
     };
 
     const saveScheduleFromSyncModal = async () => {
-      const dir = $("syncDirTabs").querySelector(".seg.active")?.dataset.dir || "pull";
+      const dir = getSyncDirection();
       const localEng = $("syncLocalEngine").value;
-      const localDb = $("syncLocalDb").value.trim();
+      const autoName = dir === "pull" && !!$("syncAutoNameChk")?.checked;
+      const autoFmt = $("syncAutoNameFmt")?.value || "date_day_year_ts";
       const cloudId = $("syncCloudProfile").value;
       const cloudDb = $("syncCloudDb").value.trim();
+      const localDb = autoName ? (getSyncAutoBaseName() || cloudDb) : $("syncLocalDb").value.trim();
       const c = (state.cloudProfiles || []).find((p) => p.id === cloudId);
       const syncTime = $("syncAutoTime")?.value || "02:00";
       const doBackup = $("syncAutoBackupChk") ? $("syncAutoBackupChk").checked : true;
@@ -4925,6 +5144,8 @@ try {
         cloudDb,
         localEngine: localEng,
         localDb,
+        autoNameLocalDb: autoName,
+        autoNameFormat: autoName ? autoFmt : "",
         autoSync: true,
         syncDirection: dir,
         syncTime,
@@ -4946,7 +5167,8 @@ try {
     }
     if ($("btnSaveSyncScheduleOnly")) {
       $("btnSaveSyncScheduleOnly").onclick = async () => {
-        if (!$("syncLocalDb").value.trim() || !$("syncCloudDb").value.trim()) {
+        const autoPullOn = getSyncDirection() === "pull" && !!$("syncAutoNameChk")?.checked;
+        if ((!autoPullOn && !$("syncLocalDb").value.trim()) || !$("syncCloudDb").value.trim()) {
           toast("Enter both Local Database and Cloud Database first", "err");
           return;
         }
@@ -5015,12 +5237,50 @@ try {
     $("syncCloudProfile").addEventListener("change", () => {
       const c = (state.cloudProfiles || []).find((p) => p.id === $("syncCloudProfile").value);
       if (c && c.database) $("syncCloudDb").value = c.database;
+      updateSyncAutoNameUI({ applyInput: !!$("syncAutoNameChk")?.checked });
+    });
+    $("syncCloudDb")?.addEventListener("input", () => {
+      updateSyncAutoNameUI({ applyInput: !!$("syncAutoNameChk")?.checked });
+    });
+    $("syncAutoNameChk")?.addEventListener("change", () => {
+      updateSyncAutoNameUI({ applyInput: !!$("syncAutoNameChk")?.checked });
+    });
+    $("syncAutoNameBase")?.addEventListener("input", () => {
+      updateSyncAutoNameUI({ applyInput: true });
+    });
+    $("syncAutoNameFmt")?.addEventListener("change", () => {
+      updateSyncAutoNameUI({ applyInput: true });
+    });
+    $("btnRefreshSyncAutoName")?.addEventListener("click", () => {
+      updateSyncAutoNameUI({ applyInput: true, now: new Date() });
+    });
+    $("btnQuickGenLocalDb")?.addEventListener("click", () => {
+      const base =
+        ($("syncAutoNameBase")?.value || "").trim() ||
+        ($("syncCloudDb")?.value || "").trim() ||
+        ($("syncLocalDb")?.value || "").trim();
+      const fmt = $("syncAutoNameFmt")?.value || "date_day_year_ts";
+      const generated = buildAutoPullLocalDbName(base, fmt, new Date());
+      $("syncLocalDb").value = generated;
+      if ($("syncAutoNamePreview")) {
+        $("syncAutoNamePreview").textContent = `${generated} (${generated.length}/63)`;
+      }
+      $("syncLocalDb").focus();
+      $("syncLocalDb").select?.();
+    });
+    $("syncLocalDb")?.addEventListener("input", () => {
+      // If user manually types into Local Database while Auto-generate is on, switch to manual so their edit sticks
+      if ($("syncAutoNameChk")?.checked) {
+        $("syncAutoNameChk").checked = false;
+        updateSyncAutoNameUI({ applyInput: false });
+      }
     });
     $("syncLocalEngine").addEventListener("change", loadSyncLocalDbs);
     $("syncDirTabs").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-dir]");
       if (!btn || syncJob.running) return;
       $("syncDirTabs").querySelectorAll(".seg").forEach((b) => b.classList.toggle("active", b === btn));
+      updateSyncAutoNameUI({ applyInput: !!$("syncAutoNameChk")?.checked });
     });
     $("btnOpenCloudSync").onclick = () => openCloudSyncModal("");
     if ($("btnMinimizeCloudSync")) $("btnMinimizeCloudSync").onclick = minimizeCloudSync;
@@ -5047,11 +5307,14 @@ try {
         return;
       }
       clearTimeout(syncHideTimer);
-      const dir = $("syncDirTabs").querySelector(".seg.active")?.dataset.dir || "push";
+      const dir = getSyncDirection();
       const localEng = $("syncLocalEngine").value;
-      const localDb = $("syncLocalDb").value.trim();
       const cloudId = $("syncCloudProfile").value;
       const cloudDb = $("syncCloudDb").value.trim();
+      if (dir === "pull" && $("syncAutoNameChk")?.checked) {
+        updateSyncAutoNameUI({ applyInput: true, now: new Date() });
+      }
+      const localDb = $("syncLocalDb").value.trim();
       const btn = $("btnRunCloudSync");
       btn.disabled = true;
       btn.textContent = "⏳ Syncing 0%";
@@ -5122,6 +5385,25 @@ try {
     };
 
     // ---- Daily Auto-Sync & 2:00 AM Auto-Backup Schedule Modal & Snapshot Viewer ----
+    const updateSchedAutoNameUI = () => {
+      const isPull = ($("schedSyncDir")?.value || "pull") === "pull";
+      if ($("schedAutoNameWrap")) $("schedAutoNameWrap").hidden = !isPull;
+      const autoOn = isPull && !!$("schedAutoNameLocal")?.checked;
+      if ($("schedAutoNameOpts")) $("schedAutoNameOpts").hidden = !autoOn;
+      if ($("schedLocalDb")) {
+        $("schedLocalDb").placeholder = autoOn
+          ? "Base name (e.g. alegria · blank = Cloud DB)"
+          : "e.g. hris";
+      }
+      if ($("schedAutoNamePreview")) {
+        const base = ($("schedLocalDb")?.value || "").trim() || ($("schedCloudDb")?.value || "").trim() || "alegria";
+        const fmt = $("schedAutoNameFmt")?.value || "date_day_year_ts";
+        const previewDate = new Date();
+        const [hh, mm] = String($("schedSyncTime")?.value || "02:00").split(":").map(Number);
+        if (Number.isFinite(hh) && Number.isFinite(mm)) previewDate.setHours(hh, mm, 0, 0);
+        $("schedAutoNamePreview").textContent = buildAutoPullLocalDbName(base, fmt, previewDate);
+      }
+    };
     const closeScheduleModal = () => ($("modalScheduleForm").hidden = true);
     const openScheduleModal = (existing = null) => {
       $("formSchedule").reset();
@@ -5143,6 +5425,8 @@ try {
         $("schedAutoSync").checked = !!existing.autoSync;
         $("schedSyncDir").value = existing.syncDirection || "pull";
         $("schedSyncTime").value = existing.syncTime || "02:00";
+        if ($("schedAutoNameLocal")) $("schedAutoNameLocal").checked = !!existing.autoNameLocalDb;
+        if ($("schedAutoNameFmt")) $("schedAutoNameFmt").value = existing.autoNameFormat || "date_day_year_ts";
         $("schedAutoBackup").checked = existing.autoBackup !== false;
         $("schedBackupSource").value = existing.backupSource || "cloud";
         $("schedBackupTime").value = existing.backupTime || "02:00";
@@ -5160,11 +5444,14 @@ try {
         $("schedAutoSync").checked = true;
         $("schedSyncDir").value = "pull";
         $("schedSyncTime").value = "02:00";
+        if ($("schedAutoNameLocal")) $("schedAutoNameLocal").checked = false;
+        if ($("schedAutoNameFmt")) $("schedAutoNameFmt").value = "date_day_year_ts";
         $("schedAutoBackup").checked = true;
         $("schedBackupSource").value = first ? "cloud" : "local";
         $("schedBackupTime").value = "02:00";
         $("schedRetentionDays").value = 7;
       }
+      updateSchedAutoNameUI();
       $("modalScheduleForm").hidden = false;
     };
 
@@ -5176,7 +5463,14 @@ try {
           $("schedLocalEngine").value = c.engine;
         }
       }
+      updateSchedAutoNameUI();
     });
+    $("schedSyncDir")?.addEventListener("change", updateSchedAutoNameUI);
+    $("schedAutoNameLocal")?.addEventListener("change", updateSchedAutoNameUI);
+    $("schedAutoNameFmt")?.addEventListener("change", updateSchedAutoNameUI);
+    $("schedLocalDb")?.addEventListener("input", updateSchedAutoNameUI);
+    $("schedCloudDb")?.addEventListener("input", updateSchedAutoNameUI);
+    $("schedSyncTime")?.addEventListener("change", updateSchedAutoNameUI);
     if ($("btnNewSchedule")) $("btnNewSchedule").onclick = () => openScheduleModal(null);
     if ($("btnAddSchedule")) $("btnAddSchedule").onclick = () => openScheduleModal(null);
     if ($("btnCloseScheduleForm")) $("btnCloseScheduleForm").onclick = closeScheduleModal;
@@ -5186,6 +5480,9 @@ try {
       $("formSchedule").onsubmit = async (e) => {
         e.preventDefault();
         const existing = (state.schedules || []).find((x) => x.id === $("schedEditId").value);
+        const dir = $("schedSyncDir").value || "pull";
+        const autoName = dir === "pull" && !!$("schedAutoNameLocal")?.checked;
+        const autoFmt = $("schedAutoNameFmt")?.value || "date_day_year_ts";
         const payload = {
           id: $("schedEditId").value.trim(),
           name: $("schedName").value.trim(),
@@ -5194,8 +5491,10 @@ try {
           cloudDb: $("schedCloudDb").value.trim(),
           localEngine: $("schedLocalEngine").value,
           localDb: $("schedLocalDb").value.trim(),
+          autoNameLocalDb: autoName,
+          autoNameFormat: autoName ? autoFmt : "",
           autoSync: $("schedAutoSync").checked,
-          syncDirection: $("schedSyncDir").value || "pull",
+          syncDirection: dir,
           syncTime: $("schedSyncTime").value || "02:00",
           autoBackup: $("schedAutoBackup").checked,
           backupSource: $("schedBackupSource").value || "cloud",

@@ -72,6 +72,7 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
   - `DariusDB-Uninstall.exe` — native 3-step Win32 wizard with **Uninstall** and **Repair** modes, live progress bar, scrolling log, and safe database preservation (`data/`, `www/`, `etc/`).
 - **Developer CLI (`darius.exe`) for Visual Studio, VS Code & Terminals** — Automatically added to your Windows `PATH` (`C:\DariusDB`). Run `darius status`, `darius start all`, `darius repair`, `darius restore`, `darius backup`, `darius env mssql MyApp`, `darius sql mssql "SELECT @@VERSION"`, `darius createdb`, `darius versions`, `darius update`, and `darius install` from any IDE or terminal.
 - **Pre-configured Multi-Mode Terminal** — Switch between Windows Shell, MariaDB, MySQL, PostgreSQL (`psql`), MS SQL (`sqlcmd`), and Redis CLI inside the app.
+- **Built-in Step-by-Step Guide & Keyboard Shortcuts (`Alt+8` / `F1`)** — Interactive quick-start checklist, collapsible step-by-step manual, searchable keyboard shortcuts popup (`F1` / `Ctrl+/` / `?`), global navigation (`Alt+1`–`Alt+8`), service controls (`Ctrl+Shift+S` / `X` / `R` / `A` / `U`), SQL tab/query hotkeys, and one-click CLI copy reference.
 
 ---
 

@@ -18,12 +18,13 @@
    - [Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.4.exe`)](#option-a-using-the-standalone-windows-installer-dariusdb-setup-014exe)
    - [Option B: 100% Portable (No Installation Required)](#option-b-100-portable-no-installation-required)
 3. [First-Time Setup & Daily Usage Guide](#3-first-time-setup--daily-usage-guide)
-4. [Using the Launcher (`DariusDB-Launcher.exe`)](#4-using-the-launcher-dariusdb-launcherexe)
-5. [Developer CLI (`darius`) for Visual Studio, VS Code & Terminals](#5-developer-cli-darius-for-visual-studio-vs-code--terminals)
-6. [How to Uninstall Darius DB](#6-how-to-uninstall-darius-db)
-7. [How to Build from Source & Create Your Own Installer](#7-how-to-build-from-source--create-your-own-installer)
-8. [Troubleshooting](#8-troubleshooting)
-9. [Credits & Release Info](#9-credits--release-info)
+4. [Keyboard Shortcuts Reference](#4-keyboard-shortcuts-reference)
+5. [Using the Launcher (`DariusDB-Launcher.exe`)](#5-using-the-launcher-dariusdb-launcherexe)
+6. [Developer CLI (`darius`) for Visual Studio, VS Code & Terminals](#6-developer-cli-darius-for-visual-studio-vs-code--terminals)
+7. [How to Uninstall Darius DB](#7-how-to-uninstall-darius-db)
+8. [How to Build from Source & Create Your Own Installer](#8-how-to-build-from-source--create-your-own-installer)
+9. [Troubleshooting](#9-troubleshooting)
+10. [Credits & Release Info](#10-credits--release-info)
 
 ---
 
@@ -73,65 +74,150 @@
 
 ## 3. First-Time Setup & Daily Usage Guide
 
-### Step 1: Download Your Database Engines
+> **Built-in In-App Guide:** Inside Darius DB, open **Guide & Help** in the left sidebar (or press **`Alt + 8`**) for an interactive quick-start checklist, collapsible step-by-step walkthroughs, copyable CLI commands, and a searchable shortcuts reference. Press **`F1`**, **`Ctrl + /`**, or **`?`** anytime for the quick Keyboard Shortcuts popup.
 
-1. Open Darius DB and click **Versions** in the left sidebar (or click **Install Engines** on the welcome banner).
-2. Select an engine tab at the top: **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, or **Redis**.
-3. Click **Download** next to the version you want (e.g., MariaDB `13.0.2` / `12.3.4` LTS, MySQL `9.7.2` / `8.4.11` LTS, PostgreSQL `18.7` / `17.12`, MS SQL Server 2025 `17.0.1000.7`, or Redis `8.10.3`).
-   - Prefer an offline archive? Click **Install .zip** and select any official Windows portable `.zip` you already downloaded.
-4. Wait for the progress bar to finish downloading and extracting into `bin/<engine>/`.
+### Step 1: Download Your Database & Web Engines
 
-### Step 2: Start Your Databases
+1. Open Darius DB and click **Versions** in the left sidebar (or press **`Alt + 4`** / click **Install Engines** on the welcome banner).
+2. Select an engine tab at the top: **Apache**, **PHP**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, **Redis**, or **Mailpit**.
+3. Click **↻ Check Newest Versions** (**`Alt + R`**) to discover the latest upstream releases.
+4. Click **Download** next to the version you want (e.g., MariaDB `13.0.2` / `12.3.4` LTS, MySQL `9.7.2` / `8.4.11` LTS, PostgreSQL `18.7` / `17.12`, MS SQL Server 2025 `17.0.1000.7`, Redis `8.10.3`, PHP `8.4`/`8.3`/`8.2`, or Mailpit).
+   - Prefer an offline archive? Click **Import .zip** (**`Alt + I`**) and select any official Windows portable `.zip` you already downloaded.
+5. Wait for the progress bar to finish downloading and extracting into `bin/<engine>/`.
 
-1. Return to the **Dashboard** tab.
-2. Click **Start All** to start all enabled engines at once, or click **Start** on an individual engine card.
-3. On the very first start, Darius DB automatically generates clean default config files (`etc/mariadb/my.ini`, `etc/redis/redis.conf`) and initializes the engine's `data/` folder.
-4. Once running, the status dot turns green and displays the active **port** and **PID**.
+### Step 2: Start Services, Auto-Run & Local Web Hosting (`www/`)
 
-### Step 3: Browse Databases, Create Users & Run SQL / Redis Commands
+1. Return to the **Dashboard** tab (**`Alt + 1`**).
+2. Click **Start All** (**`Ctrl + Shift + S`**) to start all enabled engines at once, or click **Start** on an individual engine row. Press **`Ctrl + Shift + X`** for **Stop All**.
+3. Use the **Auto-Run Bar** at the top of Dashboard to choose which engines auto-start when Darius DB opens (or pick quick presets like *MySQL + Apache* or *Match Running*).
+4. **Host local websites & PHP apps (`www/`):** Start **Apache** (`:8080`, integrated with PHP 8.x), place files in `www/` or click **Deploy .zip**, and open `http://localhost:8080/`. Start **Mailpit** (`:8025` Web UI / `:1025` SMTP) to inspect local outgoing emails.
+5. On the very first start, Darius DB automatically generates clean default config files (`etc/*`) and initializes each engine's `data/` folder. Once running, the status dot turns green and displays the active **port** and **PID**.
 
-1. Click **Browse** on any running engine card (or open the **Database** tab).
+### Step 3: Browse Databases, Multi-Tab SQL, Row CRUD & Redis
+
+1. Click **Browse** on any running engine card (or press **`Alt + 2`** to open **Database**).
 2. **For MariaDB, MySQL, PostgreSQL, and MS SQL Server:**
-   - Click **+ New** to create a database (and optionally create a dedicated user/login with password and full privileges on that database in one step!).
-   - Click any database on the left to list its tables and views.
-   - Click any table to preview `SELECT * FROM ... LIMIT 100;`.
-   - Write any SQL query in the editor and press **`Ctrl + Enter`** to run it.
-   - Click **Copy URI** to copy a ready-to-paste connection string (`mysql://...`, `postgresql://...`) for `.env` files!
+   - Click **+ New** (**`Alt + D`**) to create a database (and optionally create a dedicated user/login with password and full privileges on that database in one step!).
+   - Click **+ New** (**`Alt + T`**) in the Tables pane to create a table visually, or click any table to preview its rows.
+   - Open extra SQL query tabs with **`Alt + N`**, switch tabs with **`Alt + [`** / **`Alt + ]`**, and close a tab with **`Alt + W`**.
+   - Write any SQL query in the editor and press **`Ctrl + Enter`** to run it, or **`Ctrl + Shift + Enter`** for **Show All** (removes `LIMIT` / `TOP`).
+   - Double-click any row (or use **+ Create** via **`Alt + =`**, **Show**, **Edit**, **Delete**) for full visual Row CRUD. Filter visible rows with **`Ctrl + F`** and paginate with **`Alt + ←`** / **`Alt + →`**.
+   - Click **Copy URI** (**`Alt + C`**) or **VS / .env** to copy ready-to-paste connection strings for Visual Studio and VS Code!
 3. **For Redis:**
    - Pick a logical DB (`db0`–`db15`) from the dropdown.
-   - Filter keys by pattern (e.g. `session:*`) and click **Scan**.
+   - Focus the pattern box (**`Ctrl + F`**), filter keys (e.g. `session:*`), and press `Enter` / click **Scan**.
    - Click a key to inspect its value (JSON strings are automatically formatted), TTL, and size, or delete it.
    - Use the interactive **`redis>`** command bar at the bottom (`SET hello world`, `GET hello`, `INFO server`, etc.).
 
-### Step 4: Switch Between Multiple Engine Versions
+### Step 4: Import, Export, Full `.zip` Backup & `.bak` Restore
+
+1. **Import (`Alt + I`):** In the **Database** tab, click **📥 Import**, browse for `.sql`, `.csv` (auto-creates columns from CSV headers), MS SQL `.bak`, or PostgreSQL `.backup`, confirm the target database name (auto-created if new), and click **Import Now**.
+2. **Export (`Alt + E`):** Click **📤 Export** to export the *Entire Database*, *Current Table*, or *Selected Tables* in `.sql` (toggle Structure / Data), `.zip`, or single-table `.csv`.
+3. **Full `.zip` Backup (`Alt + B`):** Click **📦 Backup .zip** to generate a portable `.zip` snapshot containing the full SQL dump, per-table CSV files, and `manifest.json`.
+
+### Step 5: Cloud Databases & Daily 2:00 AM Auto-Sync / Auto-Backup
+
+1. Open **Cloud** (**`Alt + 3`**) and pick a **Quick Provider Preset** (cPanel/Plesk/Hostinger, MonsterASP.NET/SmarterASP, Supabase/Neon, Aiven/TiDB/PlanetScale, AWS RDS/Azure, or Redis Cloud) or click **+ Add Cloud DB** (**`Alt + N`**).
+2. Paste a connection URI or ADO.NET string into **Quick Auto-Fill** and click **Parse**, then click **🔌 Test Connection** and **Save Profile**.
+3. Click **Browse** on any Cloud profile to query, edit rows, import, and export live remote databases directly in the Database tab.
+4. Click **🔄 Local ↔ Cloud Sync** (**`Alt + S`**) to push Local → Cloud or pull Cloud → Local (you can minimize the sync dialog to a floating background bar). When pulling **Cloud → Local**, you can optionally check **✨ Auto-generate Local DB name (Date, Day, Year & Timestamp)** — or click **✨ Auto** once — to auto-name the local database (e.g. `alegria_2026_11_22_Sun_132136`, `alegria_Nov_22_2026_Sun_132136`, or daily `alegria_2026_11_22_Sun`), or leave it unchecked to type/pick any manual Local Database name.
+5. Click **⏰ Auto Sync & Backup (2 AM)** (**`Alt + B`**) to configure daily pulls (with optional per-pull auto-generated dated DB names) and 2:00 AM `.zip` snapshots into `backups/` with automatic **7-day snapshot purge** (plus an optional **🪟 Win 2 AM Task** Windows Task Scheduler registration).
+
+### Step 6: Switch Between Multiple Engine Versions
 
 1. Download two or more versions of an engine in **Versions** (for example, MariaDB `11.4.14` and `10.11.20`, or PostgreSQL `18.7` and `16.16`).
 2. Switch the active version directly from the dropdown on the **Dashboard** card (or click **Use Version** in **Versions**).
 3. If the service is running, Darius DB automatically stops the old version and starts the new one.
 4. Each major version keeps its own data directory (`data/mariadb-11.4`, `data/postgresql-17`, etc.) so switching versions never corrupts your data.
 
-### Step 5: Edit Configs & Change Ports
+### Step 7: Edit Configs, View Logs & Change Ports
 
-- **Change ports or admin credentials:** Open **Settings**, edit the Port / Admin User / Password table, and click **Save Settings**. Restart the service for the new port to take effect.
-- **Edit raw config files (`my.ini`, `postgresql.conf`, `redis.conf`):** Open **Config & Logs** → **Config File**, make edits, and press **`Ctrl + S`** (or click **Save & Restart** if running). Click **Notepad** if you prefer editing externally.
-- **View logs:** Switch to **Service Log** in **Config & Logs** (auto-refreshes every 2 seconds).
+- **Change ports or admin credentials:** Open **Settings** (**`Alt + 7`**), edit the Port / Admin User / Password table, and press **`Ctrl + S`** (or click **Save Settings**). Restart the service for the new port to take effect.
+- **Edit raw config files (`httpd.conf`, `my.ini`, `postgresql.conf`, `mssql.conf`, `redis.conf`):** Open **Config & Logs** (**`Alt + 5`**) → **Config File**, make edits, and press **`Ctrl + S`** to save or **`Ctrl + Shift + Enter`** to **Save & Restart**. Click **Notepad** if you prefer editing externally.
+- **View logs:** Press **`Alt + L`** (or click **Service Log**) in **Config & Logs** (auto-refreshes every 2 seconds).
 
-### Step 6: Open the Pre-Configured Terminal
+### Step 8: Use the Built-in Multi-Mode Terminal
 
-Click **Terminal** in the bottom-left sidebar (or run `DariusDB-Launcher.exe --terminal`). A Command Prompt opens with:
-- Active `mariadb`/`mysql`, `psql`, and `redis-cli` binaries already prepended to `PATH`.
-- `PGHOST`, `PGPORT`, `PGUSER`, `MYSQL_HOST`, `MYSQL_TCP_PORT`, and `DARIUSDB_HOME` set automatically.
+Click **Terminal** in the sidebar (or press **`Alt + 6`** / **`Ctrl + \``**, or run `DariusDB-Launcher.exe --terminal`).
+- Switch modes between **Shell (CMD)**, **MariaDB**, **MySQL**, **PostgreSQL (`psql`)**, **MS SQL (`sqlcmd`)**, and **Redis CLI** via tabs or **`Alt + [`** / **`Alt + ]`**.
+- Use **`↑`** / **`↓`** for command history, **`Ctrl + L`** to clear output, and **`Ctrl + C`** to cancel a running command.
+- Active engine binaries and environment variables (`PGHOST`, `PGPORT`, `PGUSER`, `MYSQL_HOST`, `MYSQL_TCP_PORT`, `DARIUSDB_HOME`) are pre-configured automatically.
 
-### Step 7: System Tray & Auto-Start on Windows Boot
+### Step 9: Self-Healing Repair, System Updater & System Tray
 
-- Clicking the window's **`×`** button minimizes Darius DB quietly into the **Windows System Tray** (when *Close window to tray* is enabled in Settings).
-- **Left-click** the tray icon to restore the window.
-- **Right-click** the tray icon for quick actions: Start All, Stop All, start/stop individual engines, Open Terminal, Open Data Folder, or Quit.
-- Enable **Run on Windows boot** and **Auto-start enabled services** in **Settings** for a hands-free automatic workflow.
+- **🔧 Repair Service (`Ctrl + Shift + R`):** Diagnoses and repairs a single engine (folders, configs, stale PID locks) while keeping `data/` safe.
+- **🛠️ Repair All (`Ctrl + Shift + A`):** Full-system diagnostics across folders, `settings.json`, stale PIDs/orphans, blocked ports, SQL/UI caches, LocalDB, and Windows `PATH`.
+- **⬆️ System Updater (`Ctrl + Shift + U`):** Checks GitHub releases/commits and upgrades Darius DB in-place while keeping `data/` and `www/` untouched.
+- **System Tray & Auto-Start:** Clicking **`×`** (or pressing **`Ctrl + Shift + H`**) hides Darius DB quietly into the **Windows System Tray** (when *Close window to tray* is enabled in Settings). Left-click the tray icon to restore; right-click for quick actions. Enable **Run on Windows boot** and **Auto-start enabled services** in **Settings** for a hands-free workflow.
 
 ---
 
-## 4. Using the Launcher (`DariusDB-Launcher.exe`)
+## 4. Keyboard Shortcuts Reference
+
+Press **`F1`**, **`Ctrl + /`**, or **`?`** (outside text inputs) anywhere inside Darius DB to open the searchable **Keyboard Shortcuts** popup.
+
+### Navigation (Anywhere)
+| Shortcut | Action |
+|---|---|
+| `Alt + 1` or `Ctrl + 1` | Open **Dashboard (Services)** |
+| `Alt + 2` or `Ctrl + 2` | Open **Database Browser** |
+| `Alt + 3` or `Ctrl + 3` | Open **Cloud Databases** |
+| `Alt + 4` or `Ctrl + 4` | Open **Versions Manager** |
+| `Alt + 5` or `Ctrl + 5` | Open **Config & Logs** |
+| `Alt + 6` or `Ctrl + 6` | Open **Built-in Terminal** |
+| `Alt + 7` or `Ctrl + 7` | Open **Settings** |
+| `Alt + 8` or `Ctrl + 8` | Open **Guide & Shortcuts** |
+| `F1`, `Ctrl + /`, or `?` | Toggle **Keyboard Shortcuts Popup** |
+| `Esc` | Close active popup / modal |
+
+### Global Service & System Controls (Anywhere)
+| Shortcut | Action |
+|---|---|
+| `Ctrl + Shift + S` | **Start All** enabled services |
+| `Ctrl + Shift + X` | **Stop All** running services |
+| `Ctrl + Shift + R` | Open **Repair Service** dialog |
+| `Ctrl + Shift + A` | Open **Repair All (Full System)** dialog |
+| `Ctrl + Shift + U` | Open **System Version Updater** |
+| `Ctrl + Shift + O` | Open **Portable Root Folder** in Explorer |
+| `Ctrl + Shift + H` | **Hide** window to Windows System Tray |
+| `Ctrl + \`` | Jump to **Built-in Terminal** & focus prompt |
+| `F5` | Refresh active view (without reloading app) |
+
+### Database Browser (Database Tab)
+| Shortcut | Action |
+|---|---|
+| `Ctrl + Enter` | **Run SQL Query** in active tab |
+| `Ctrl + Shift + Enter` | **Show All** rows (removes `LIMIT` / `TOP`) |
+| `Alt + N` | Open **New SQL Query Tab** |
+| `Alt + W` | **Close** current SQL query tab |
+| `Alt + [` / `Alt + ]` | Switch to **Previous / Next SQL Query Tab** |
+| `Ctrl + Shift + K` | **Clear** SQL editor |
+| `Ctrl + F` | Focus **Row Filter** (SQL) or **Key Pattern** (Redis) |
+| `Alt + D` | Create **New Database** (+ user) |
+| `Alt + T` | Create **New Table** |
+| `Alt + =` | **+ Create Row** in active table |
+| `Alt + I` | **Import** `.sql` / `.csv` / `.bak` |
+| `Alt + E` | **Export** database or selected tables |
+| `Alt + B` | Create **Full `.zip` Backup** |
+| `Alt + C` | **Copy Connection URI** |
+| `Alt + R` | **Refresh** databases, tables, or Redis keys |
+| `Alt + ←` / `Alt + →` | **Previous / Next** results page |
+
+### Cloud, Versions, Config & Logs, Terminal & Settings
+| Scope | Shortcut | Action |
+|---|---|---|
+| **Cloud** | `Alt + N` / `Alt + S` / `Alt + B` | Add Cloud DB / Local ↔ Cloud Sync / New 2:00 AM Schedule |
+| **Versions** | `Alt + R` / `Alt + I` / `Alt + M` | Check Newest Versions / Import `.zip` / Manual URL |
+| **Config & Logs** | `Ctrl + S` / `Ctrl + Shift + Enter` | Save Config File / Save & Restart Running Service |
+| **Config & Logs** | `Alt + L` / `Alt + R` | Toggle Config ↔ Service Log / Reload |
+| **Terminal** | `↑` / `↓` / `Ctrl + L` / `Ctrl + C` | History / Clear Output / Cancel Running Command |
+| **Terminal** | `Alt + [` / `Alt + ]` | Cycle Terminal Mode (Shell / MariaDB / MySQL / psql / sqlcmd / Redis) |
+| **Settings** | `Ctrl + S` | **Save Settings** (`settings.json`) |
+| **Guide** | `Ctrl + F` | Search guide steps, topics & shortcuts |
+
+---
+
+## 5. Using the Launcher (`DariusDB-Launcher.exe`)
 
 `DariusDB-Launcher.exe` is a tiny (~2 MB) native helper placed beside `DariusDB.exe`.
 
@@ -146,7 +232,7 @@ Click **Terminal** in the bottom-left sidebar (or run `DariusDB-Launcher.exe --t
 
 ---
 
-## 5. Developer CLI (`darius`) for Visual Studio, VS Code & Terminals
+## 6. Developer CLI (`darius`) for Visual Studio, VS Code & Terminals
 
 `darius.exe` is installed automatically into `C:\DariusDB` and registered in your Windows User `PATH` (or click **Add CLI & DB Tools to Windows PATH** in **Settings**).
 
@@ -199,7 +285,7 @@ darius gui
 
 ---
 
-## 6. How to Uninstall Darius DB
+## 7. How to Uninstall Darius DB
 
 ### Method 1: Windows Settings (Recommended)
 
@@ -232,7 +318,7 @@ If you used the portable folder without running an installer:
 
 ---
 
-## 7. How to Build from Source & Create Your Own Installer
+## 8. How to Build from Source & Create Your Own Installer
 
 ### Prerequisites
 
@@ -284,7 +370,7 @@ Pushing a version tag (for example `git tag v0.1.4 && git push origin v0.1.4`) t
 
 ---
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 - **"Port XXXX is already used by another program"** — Another local database server, container, or Windows service is already listening on that port. Open **Settings**, assign a different port (e.g. `3307` or `5433`), save, and start again.
 - **PostgreSQL `postgresql.conf` not found yet** — PostgreSQL creates `postgresql.conf` inside `data/postgresql-<major>/` during its first start (`initdb`). Start PostgreSQL once, then edit it in **Config & Logs**.
@@ -293,7 +379,7 @@ Pushing a version tag (for example `git tag v0.1.4 && git push origin v0.1.4`) t
 
 ---
 
-## 9. Credits & Release Info
+## 10. Credits & Release Info
 
 | Field | Details |
 |---|---|

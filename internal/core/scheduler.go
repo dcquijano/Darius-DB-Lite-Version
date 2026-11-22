@@ -30,6 +30,8 @@ type BackupSyncSchedule struct {
 	CloudDB          string `json:"cloudDb,omitempty"`
 	LocalEngine      string `json:"localEngine"`      // mariadb | mysql | postgresql | mssql
 	LocalDB          string `json:"localDb"`
+	AutoNameLocalDB  bool   `json:"autoNameLocalDb,omitempty"`
+	AutoNameFormat   string `json:"autoNameFormat,omitempty"` // date_day_year_ts | month_day_year_ts | date_year_ts | date_day_year
 	AutoSync         bool   `json:"autoSync"`
 	SyncDirection    string `json:"syncDirection"`    // pull | push (default pull: Cloud -> Local)
 	SyncTime         string `json:"syncTime"`         // HH:MM 24h local time (default 02:00)
@@ -80,6 +82,58 @@ func normalizeHHMM(raw string) string {
 	return fmt.Sprintf("%02d:%02d", hh, mm)
 }
 
+var autoPullDBCleanRe = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+
+// NormalizeAutoNameFormat returns a supported Pull Cloud -> Local auto-naming format.
+func NormalizeAutoNameFormat(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "month_day_year_ts":
+		return "month_day_year_ts"
+	case "date_year_ts":
+		return "date_year_ts"
+	case "date_day_year":
+		return "date_day_year"
+	default:
+		return "date_day_year_ts"
+	}
+}
+
+// FormatAutoPullLocalDBName builds a SQL-safe Local Database name (<= 63 chars,
+// matching nameRe across MySQL, MariaDB, PostgreSQL, and MS SQL) from a base name
+// and local date/day/year/timestamp, e.g. "alegria_2026_11_22_Sun_132136".
+func FormatAutoPullLocalDBName(base, format string, now time.Time) string {
+	clean := autoPullDBCleanRe.ReplaceAllString(strings.TrimSpace(base), "_")
+	clean = strings.Trim(clean, "_-")
+	if clean == "" {
+		clean = "pulled_db"
+	}
+	if clean[0] >= '0' && clean[0] <= '9' {
+		clean = "db_" + clean
+	}
+	var suffix string
+	switch NormalizeAutoNameFormat(format) {
+	case "month_day_year_ts":
+		suffix = now.Format("_Jan_02_2006_Mon_150405")
+	case "date_year_ts":
+		suffix = now.Format("_2006_01_02_150405")
+	case "date_day_year":
+		suffix = now.Format("_2006_01_02_Mon")
+	default:
+		suffix = now.Format("_2006_01_02_Mon_150405")
+	}
+	maxBase := 63 - len(suffix)
+	if maxBase < 1 {
+		maxBase = 1
+	}
+	if len(clean) > maxBase {
+		clean = strings.TrimRight(clean[:maxBase], "_-")
+		if clean == "" {
+			clean = "db"
+		}
+	}
+	return clean + suffix
+}
+
 func (s BackupSyncSchedule) Normalized() BackupSyncSchedule {
 	out := s
 	if strings.TrimSpace(out.ID) == "" {
@@ -93,6 +147,9 @@ func (s BackupSyncSchedule) Normalized() BackupSyncSchedule {
 		out.LocalEngine = "mssql"
 	}
 	out.LocalDB = strings.TrimSpace(out.LocalDB)
+	if out.AutoNameLocalDB || strings.TrimSpace(out.AutoNameFormat) != "" {
+		out.AutoNameFormat = NormalizeAutoNameFormat(out.AutoNameFormat)
+	}
 	out.SyncDirection = strings.ToLower(strings.TrimSpace(out.SyncDirection))
 	if out.SyncDirection != "push" {
 		out.SyncDirection = "pull"
@@ -508,6 +565,7 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 	humanNow := now.Format("2006-01-02 15:04")
 	var parts []string
 	var firstErr error
+	effectiveLocalDB := sched.LocalDB
 
 	// 1) Auto-Sync (default Pull Cloud -> Local)
 	if doSync && sched.AutoSync {
@@ -521,6 +579,10 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 		} else {
 			cloudDB := fallbackStr(sched.CloudDB, cloudConn.Database)
 			localDB := fallbackStr(sched.LocalDB, cloudDB)
+			if sched.SyncDirection != "push" && sched.AutoNameLocalDB {
+				localDB = FormatAutoPullLocalDBName(localDB, sched.AutoNameFormat, now)
+				effectiveLocalDB = localDB
+			}
 			var msg string
 			var syncErr error
 			if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
@@ -580,33 +642,33 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 				if cloudConn != nil {
 					runZip(cloudEng, cloudEs, fallbackStr(sched.CloudDB, cloudConn.Database), "_cloud")
 				}
-				if sched.LocalDB != "" {
+				if effectiveLocalDB != "" {
 					if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
 						if bErr == nil {
 							bErr = rErr
 						}
 					} else {
-						runZip(effEng, effEs, sched.LocalDB, "_local")
+						runZip(effEng, effEs, effectiveLocalDB, "_local")
 					}
 				}
 			case "cloud":
 				if cloudConn != nil {
 					runZip(cloudEng, cloudEs, fallbackStr(sched.CloudDB, cloudConn.Database), "")
-				} else if sched.LocalDB != "" {
+				} else if effectiveLocalDB != "" {
 					if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
 						bErr = rErr
 					} else {
-						runZip(effEng, effEs, sched.LocalDB, "")
+						runZip(effEng, effEs, effectiveLocalDB, "")
 					}
 				} else {
 					bErr = errors.New("cloud profile not found for scheduled backup")
 				}
 			default: // local
-				if sched.LocalDB != "" {
+				if effectiveLocalDB != "" {
 					if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
 						bErr = rErr
 					} else {
-						runZip(effEng, effEs, sched.LocalDB, "")
+						runZip(effEng, effEs, effectiveLocalDB, "")
 					}
 				} else {
 					bErr = errors.New("local database name is required for backup")

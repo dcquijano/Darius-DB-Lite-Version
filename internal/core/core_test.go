@@ -954,5 +954,44 @@ func TestRunCmdCaptureCancelsPromptly(t *testing.T) {
 	}
 }
 
+func TestFormatAutoPullLocalDBName(t *testing.T) {
+	ts := time.Date(2026, 11, 22, 13, 21, 36, 0, time.Local)
+
+	cases := []struct {
+		base, fmt, want string
+	}{
+		{"alegria", "date_day_year_ts", "alegria_2026_11_22_Sun_132136"},
+		{"alegria", "month_day_year_ts", "alegria_Nov_22_2026_Sun_132136"},
+		{"alegria", "date_year_ts", "alegria_2026_11_22_132136"},
+		{"alegria", "date_day_year", "alegria_2026_11_22_Sun"},
+		{"alegria", "", "alegria_2026_11_22_Sun_132136"},
+		{"  Alegria DB!  ", "date_day_year_ts", "Alegria_DB_2026_11_22_Sun_132136"},
+		{"2026sales", "date_day_year", "db_2026sales_2026_11_22_Sun"},
+		{"", "date_day_year", "pulled_db_2026_11_22_Sun"},
+	}
+	for _, tc := range cases {
+		got := FormatAutoPullLocalDBName(tc.base, tc.fmt, ts)
+		if got != tc.want {
+			t.Errorf("FormatAutoPullLocalDBName(%q, %q) = %q, want %q", tc.base, tc.fmt, got, tc.want)
+		}
+		if !nameRe.MatchString(got) {
+			t.Errorf("generated DB name %q does not satisfy nameRe", got)
+		}
+	}
+
+	// Long cloud DB name must be safely truncated to <= 63 chars while preserving full suffix
+	longBase := strings.Repeat("a", 60)
+	gotLong := FormatAutoPullLocalDBName(longBase, "date_day_year_ts", ts)
+	if len(gotLong) > 63 || !strings.HasSuffix(gotLong, "_2026_11_22_Sun_132136") || !nameRe.MatchString(gotLong) {
+		t.Fatalf("unexpected truncated DB name: %q (len=%d)", gotLong, len(gotLong))
+	}
+
+	norm := (BackupSyncSchedule{AutoNameLocalDB: true, AutoNameFormat: "unknown"}).Normalized()
+	if !norm.AutoNameLocalDB || norm.AutoNameFormat != "date_day_year_ts" {
+		t.Fatalf("expected normalized AutoNameFormat=date_day_year_ts, got %+v", norm)
+	}
+}
+
+
 
 

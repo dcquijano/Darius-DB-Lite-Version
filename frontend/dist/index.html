@@ -1479,7 +1479,8 @@
             <label class="field">
               <span>Direction</span>
               <select id="schedSyncDir" class="select">
-                <option value="pull" selected>📥 Pull Cloud → Local (Recommended)</option>
+                <option value="pull" selected>📥 Pull Cloud → Local DB (Recommended)</option>
+                <option value="pull_folder">📁 Pull Cloud → Generated Folder (No Local DB)</option>
                 <option value="push">📤 Push Local → Cloud</option>
               </select>
             </label>
@@ -1488,13 +1489,20 @@
               <input type="time" id="schedSyncTime" class="input" value="02:00" />
             </label>
           </div>
+          <div id="schedSyncFolderRow" class="field" hidden>
+            <span>Output Folder (blank = <code>backups/&lt;schedule&gt;/syncs/</code> · does not create a Local DB)</span>
+            <div class="input-row">
+              <input type="text" id="schedSyncFolder" class="input sm" placeholder="Default: backups/<schedule>/syncs/" />
+              <button type="button" class="btn xs accent" id="btnBrowseSyncFolder">📂 Browse</button>
+            </div>
+          </div>
           <div id="schedAutoNameWrap" class="auto-name-sched-wrap">
             <label class="check-row" style="font-size:11.5px">
               <input type="checkbox" id="schedAutoNameLocal" />
-              <span>✨ Auto-generate new Local DB name on each daily Pull (Date, Day, Year &amp; Timestamp)</span>
+              <span id="schedAutoNameLabel">✨ Auto-generate new Local DB name on each daily Pull (Date, Day, Year &amp; Timestamp)</span>
             </label>
             <div id="schedAutoNameOpts" class="auto-name-sched-opts" hidden>
-              <select id="schedAutoNameFmt" class="select sm" aria-label="Auto-generated Local DB name format">
+              <select id="schedAutoNameFmt" class="select sm" aria-label="Auto-generated Pull name format">
                 <option value="date_day_year_ts" selected>name_YYYY_MM_DD_Day_HHMMSS</option>
                 <option value="month_day_year_ts">name_Mon_DD_YYYY_Day_HHMMSS</option>
                 <option value="date_year_ts">name_YYYY_MM_DD_HHMMSS</option>

@@ -1255,6 +1255,31 @@ func TestFormatAutoBackupZipNameAndParseSnapshotTime(t *testing.T) {
 	}
 }
 
+func TestSchedulePullFolderNormalizationAndPaths(t *testing.T) {
+	p := NewPaths(t.TempDir())
+	s1 := (BackupSyncSchedule{
+		Name:          "Alegria Daily",
+		SyncDirection: "pull_folder",
+		AutoSync:      true,
+	}).Normalized()
+	if s1.SyncDirection != "pull_folder" {
+		t.Fatalf("expected SyncDirection=pull_folder preserved, got %q", s1.SyncDirection)
+	}
+	defDir := ScheduleSyncDir(p, s1)
+	if !strings.HasSuffix(filepath.ToSlash(defDir), "/Alegria_Daily/syncs") {
+		t.Fatalf("unexpected default ScheduleSyncDir: %q", defDir)
+	}
+	customDir := filepath.Join(p.Root, "my-exports")
+	s2 := (BackupSyncSchedule{
+		Name:          "Alegria Daily",
+		SyncDirection: "pull_folder",
+		SyncFolder:    "  " + customDir + "  ",
+	}).Normalized()
+	if got := ScheduleSyncDir(p, s2); got != customDir {
+		t.Fatalf("expected custom ScheduleSyncDir %q, got %q", customDir, got)
+	}
+}
+
 
 
 

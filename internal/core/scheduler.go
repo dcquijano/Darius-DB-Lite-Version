@@ -33,9 +33,10 @@ type BackupSyncSchedule struct {
 	LocalDB          string `json:"localDb"`
 	AutoNameLocalDB  bool   `json:"autoNameLocalDb,omitempty"`
 	AutoNameFormat   string `json:"autoNameFormat,omitempty"` // date_day_year_ts | month_day_year_ts | date_year_ts | date_day_year
-	AutoSync         bool   `json:"autoSync"`
-	SyncDirection    string `json:"syncDirection"`    // pull | push (default pull: Cloud -> Local)
-	SyncTime         string `json:"syncTime"`         // HH:MM 24h local time (default 02:00)
+	AutoSync             bool   `json:"autoSync"`
+	SyncDirection        string `json:"syncDirection"` // pull | pull_folder | push (default pull: Cloud -> Local DB)
+	SyncFolder           string `json:"syncFolder,omitempty"`
+	SyncTime             string `json:"syncTime"` // HH:MM 24h local time (default 02:00)
 	AutoBackup           bool   `json:"autoBackup"`
 	AutoNameBackup       bool   `json:"autoNameBackup,omitempty"`
 	AutoNameBackupFormat string `json:"autoNameBackupFormat,omitempty"` // date_day_year_ts | month_day_year_ts | date_year_ts | date_day_year
@@ -376,9 +377,10 @@ func (s BackupSyncSchedule) Normalized() BackupSyncSchedule {
 		out.AutoNameBackupFormat = NormalizeAutoNameFormat(out.AutoNameBackupFormat)
 	}
 	out.SyncDirection = strings.ToLower(strings.TrimSpace(out.SyncDirection))
-	if out.SyncDirection != "push" {
+	if out.SyncDirection != "push" && out.SyncDirection != "pull_folder" {
 		out.SyncDirection = "pull"
 	}
+	out.SyncFolder = strings.TrimSpace(out.SyncFolder)
 	out.SyncTime = normalizeHHMM(out.SyncTime)
 	out.BackupTime = normalizeHHMM(out.BackupTime)
 	out.BackupSource = strings.ToLower(strings.TrimSpace(out.BackupSource))
@@ -423,6 +425,15 @@ func ScheduleBackupDir(p *Paths, sched BackupSyncSchedule) string {
 		base = p.Backups
 	}
 	return filepath.Join(base, slug)
+}
+
+// ScheduleSyncDir returns the base folder where Pull Cloud -> Folder runs save
+// generated dated subfolders (defaults to backups/<schedule>/syncs if SyncFolder is blank).
+func ScheduleSyncDir(p *Paths, sched BackupSyncSchedule) string {
+	if d := strings.TrimSpace(sched.SyncFolder); d != "" {
+		return d
+	}
+	return filepath.Join(ScheduleBackupDir(p, sched), "syncs")
 }
 
 var (
@@ -925,6 +936,95 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 				Detail:     err.Error(),
 			})
 			emitProg(syncEnd, "running", syncPrefix+"Sync failed", err.Error())
+		} else if sched.SyncDirection == "pull_folder" {
+			cloudDB := fallbackStr(sched.CloudDB, cloudConn.Database)
+			baseName := fallbackStr(sched.LocalDB, cloudDB)
+			baseDir := ScheduleSyncDir(sc.p, sched)
+			var folderName, zipFileName string
+			if sched.AutoNameLocalDB {
+				folderName = FormatAutoPullLocalDBName(baseName, sched.AutoNameFormat, now)
+				zipFileName = folderName + ".zip"
+			} else {
+				safe := cleanDBNameRe.ReplaceAllString(strings.TrimSpace(baseName), "_")
+				safe = strings.Trim(safe, "_-")
+				if safe == "" {
+					safe = "database"
+				}
+				folderName = safe
+				zipFileName = fmt.Sprintf("%s_%s.zip", safe, stamp)
+			}
+			runDir := filepath.Join(baseDir, folderName)
+			outZip := filepath.Join(runDir, zipFileName)
+			srcDesc := fmt.Sprintf("Cloud:%s/%s", cloudConn.Name, cloudDB)
+			dstDesc := runDir
+			sc.recordLog(SyncLogEntry{
+				ScheduleID: sched.ID,
+				Name:       sched.Name,
+				Trigger:    trigger,
+				Action:     "sync",
+				Direction:  "pull_folder",
+				Source:     srcDesc,
+				Target:     dstDesc,
+				Status:     "started",
+				Detail:     fmt.Sprintf("Started %s pull-to-folder export (no local DB · scheduled @ %s)", strings.ToLower(trigTag), sched.SyncTime),
+			})
+			emitProg(syncStart, "running", syncPrefix+"Creating output folder...", fmt.Sprintf("Preparing %s...", runDir))
+			var msg string
+			var syncErr error
+			if mkErr := os.MkdirAll(runDir, 0o755); mkErr != nil {
+				syncErr = mkErr
+			} else {
+				syncErr = ExportDatabaseFullZipWithProgress(sc.p, cloudEng, cloudEs, cloudDB, nil, true, true, outZip, func(bp BackupProgress) {
+					if bp.State == "running" {
+						mapped := mapProgressRange(bp.Percent, syncStart+2, syncEnd)
+						emitProg(mapped, "running", syncPrefix+fallbackStr(bp.Stage, "Exporting Cloud DB to folder..."), bp.Detail)
+					}
+				})
+				if syncErr == nil {
+					msg = fmt.Sprintf("Saved %s into folder %s", zipFileName, runDir)
+				}
+			}
+			durMs := time.Since(syncStartedAt).Milliseconds()
+			if syncErr != nil {
+				firstErr = syncErr
+				_ = sc.updateScheduleStatus(id, func(cur *BackupSyncSchedule) {
+					cur.LastSyncAt, cur.LastSyncStatus = humanNow, fmt.Sprintf("err [%s]: %s", trigTag, syncErr.Error())
+				})
+				sc.recordLog(SyncLogEntry{
+					ScheduleID: sched.ID,
+					Name:       sched.Name,
+					Trigger:    trigger,
+					Action:     "sync",
+					Direction:  "pull_folder",
+					Source:     srcDesc,
+					Target:     dstDesc,
+					Status:     "error",
+					DurationMs: durMs,
+					Detail:     syncErr.Error(),
+				})
+			} else {
+				_ = sc.updateScheduleStatus(id, func(cur *BackupSyncSchedule) {
+					cur.LastSyncAt = humanNow
+					cur.LastSyncStatus = fmt.Sprintf("ok [%s] · %s", trigTag, msg)
+					if trigger == "scheduled" {
+						cur.LastSyncDate = today
+					}
+				})
+				sc.recordLog(SyncLogEntry{
+					ScheduleID: sched.ID,
+					Name:       sched.Name,
+					Trigger:    trigger,
+					Action:     "sync",
+					Direction:  "pull_folder",
+					Source:     srcDesc,
+					Target:     dstDesc,
+					Status:     "ok",
+					DurationMs: durMs,
+					Detail:     msg,
+				})
+				parts = append(parts, msg)
+				emitProg(syncEnd, "running", syncPrefix+"Folder export complete", msg)
+			}
 		} else {
 			cloudDB := fallbackStr(sched.CloudDB, cloudConn.Database)
 			localDB := fallbackStr(sched.LocalDB, cloudDB)

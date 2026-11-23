@@ -4640,12 +4640,17 @@ try {
     grid.innerHTML = list
       .map((s) => {
         const cloud = (state.cloudProfiles || []).find((p) => p.id === s.cloudId);
-        const dirLabel = s.syncDirection === "push" ? "Push Local → Cloud" : "Pull Cloud → Local";
+        const dirLabel =
+          s.syncDirection === "push"
+            ? "Push Local → Cloud"
+            : s.syncDirection === "pull_folder"
+              ? "Pull Cloud → Folder"
+              : "Pull Cloud → Local DB";
         const syncBadge = s.autoSync
-          ? `<span class="pill accent">🔄 ${dirLabel} @ ${esc(s.syncTime || "02:00")}</span>`
+          ? `<span class="pill accent">${s.syncDirection === "pull_folder" ? "📁" : "🔄"} ${dirLabel} @ ${esc(s.syncTime || "02:00")}</span>`
           : "";
         const autoNameBadge = s.autoSync && s.syncDirection !== "push" && s.autoNameLocalDb
-          ? `<span class="pill">✨ Auto-named</span>`
+          ? `<span class="pill">✨ ${s.syncDirection === "pull_folder" ? "Auto-folder" : "Auto-named"}</span>`
           : "";
         const backupBadge = s.autoBackup
           ? `<span class="pill">📦 .zip @ ${esc(s.backupTime || "02:00")} · Purge ≥ ${s.retentionDays || 7}d${s.autoNameBackup ? " · ✨ Auto-named" : ""}</span>`
@@ -4691,7 +4696,11 @@ try {
             ${statusPill}
           </div>
           <div class="cloud-card-meta">
-            ${cloud ? esc(cloud.name) + " (" + esc(s.cloudDb || cloud.database || "") + ")" : esc(s.cloudDb || "Local only")} ↔ ${esc((s.localEngine || "mssql").toUpperCase())}/${esc(s.localDb || (s.autoNameLocalDb ? (s.cloudDb || "auto") : "-"))}${s.autoNameLocalDb && s.syncDirection !== "push" ? "_<date_time>" : ""}
+            ${cloud ? esc(cloud.name) + " (" + esc(s.cloudDb || cloud.database || "") + ")" : esc(s.cloudDb || "Local only")} ${
+              s.syncDirection === "pull_folder"
+                ? `→ 📁 ${esc(s.syncFolder || "backups/" + s.name + "/syncs")}`
+                : `↔ ${esc((s.localEngine || "mssql").toUpperCase())}/${esc(s.localDb || (s.autoNameLocalDb ? (s.cloudDb || "auto") : "-"))}${s.autoNameLocalDb && s.syncDirection !== "push" ? "_<date_time>" : ""}`
+            }
           </div>
           ${nextLines.length ? `<div class="sched-next-line">${esc(nextLines.join(" · "))}</div>` : ""}
           ${liveHtml}
@@ -5461,14 +5470,24 @@ try {
 
     // ---- Daily Auto-Sync & 2:00 AM Auto-Backup Schedule Modal & Snapshot Viewer ----
     const updateSchedAutoNameUI = () => {
-      const isPull = ($("schedSyncDir")?.value || "pull") === "pull";
+      const dir = $("schedSyncDir")?.value || "pull";
+      const isPull = dir === "pull" || dir === "pull_folder";
+      const isFolder = dir === "pull_folder";
+      if ($("schedSyncFolderRow")) $("schedSyncFolderRow").hidden = !isFolder;
       if ($("schedAutoNameWrap")) $("schedAutoNameWrap").hidden = !isPull;
+      if ($("schedAutoNameLabel")) {
+        $("schedAutoNameLabel").textContent = isFolder
+          ? "✨ Auto-generate dated Folder & .zip name on each daily Pull (Date, Day, Year & Timestamp)"
+          : "✨ Auto-generate new Local DB name on each daily Pull (Date, Day, Year & Timestamp)";
+      }
       const autoOn = isPull && !!$("schedAutoNameLocal")?.checked;
       if ($("schedAutoNameOpts")) $("schedAutoNameOpts").hidden = !autoOn;
       if ($("schedLocalDb")) {
-        $("schedLocalDb").placeholder = autoOn
-          ? "Base name (e.g. alegria · blank = Cloud DB)"
-          : "e.g. hris";
+        $("schedLocalDb").placeholder = isFolder
+          ? "Optional folder base name (blank = Cloud DB)"
+          : autoOn
+            ? "Base name (e.g. alegria · blank = Cloud DB)"
+            : "e.g. hris";
       }
       if ($("schedAutoNamePreview")) {
         const base = ($("schedLocalDb")?.value || "").trim() || ($("schedCloudDb")?.value || "").trim() || "alegria";
@@ -5476,7 +5495,14 @@ try {
         const previewDate = new Date();
         const [hh, mm] = String($("schedSyncTime")?.value || "02:00").split(":").map(Number);
         if (Number.isFinite(hh) && Number.isFinite(mm)) previewDate.setHours(hh, mm, 0, 0);
-        $("schedAutoNamePreview").textContent = buildAutoPullLocalDbName(base, fmt, previewDate);
+        const gen = buildAutoPullLocalDbName(base, fmt, previewDate);
+        if (isFolder) {
+          const folderPrefix = ($("schedSyncFolder")?.value || "").trim();
+          const rootHint = folderPrefix ? folderPrefix.replace(/[\\/]+$/, "") : "backups/<schedule>/syncs";
+          $("schedAutoNamePreview").textContent = `${rootHint}/${gen}/${gen}.zip`;
+        } else {
+          $("schedAutoNamePreview").textContent = gen;
+        }
       }
 
       const bkpAutoOn = !!$("schedAutoNameBackup")?.checked;
@@ -5515,6 +5541,7 @@ try {
         $("schedLocalDb").value = existing.localDb || "";
         $("schedAutoSync").checked = !!existing.autoSync;
         $("schedSyncDir").value = existing.syncDirection || "pull";
+        if ($("schedSyncFolder")) $("schedSyncFolder").value = existing.syncFolder || "";
         $("schedSyncTime").value = existing.syncTime || "02:00";
         if ($("schedAutoNameLocal")) $("schedAutoNameLocal").checked = !!existing.autoNameLocalDb;
         if ($("schedAutoNameFmt")) $("schedAutoNameFmt").value = existing.autoNameFormat || "date_day_year_ts";
@@ -5536,6 +5563,7 @@ try {
         $("schedEnabled").checked = true;
         $("schedAutoSync").checked = true;
         $("schedSyncDir").value = "pull";
+        if ($("schedSyncFolder")) $("schedSyncFolder").value = "";
         $("schedSyncTime").value = "02:00";
         if ($("schedAutoNameLocal")) $("schedAutoNameLocal").checked = false;
         if ($("schedAutoNameFmt")) $("schedAutoNameFmt").value = "date_day_year_ts";
@@ -5560,7 +5588,29 @@ try {
       }
       updateSchedAutoNameUI();
     });
-    $("schedSyncDir")?.addEventListener("change", updateSchedAutoNameUI);
+    $("schedSyncDir")?.addEventListener("change", () => {
+      if ($("schedSyncDir").value === "pull_folder" && $("schedAutoNameLocal") && !$("schedAutoNameLocal").checked) {
+        $("schedAutoNameLocal").checked = true;
+      }
+      updateSchedAutoNameUI();
+    });
+    $("schedSyncFolder")?.addEventListener("input", updateSchedAutoNameUI);
+    if ($("btnBrowseSyncFolder")) {
+      $("btnBrowseSyncFolder").onclick = async () => {
+        try {
+          const picked = await api().BrowseFolderDialog(
+            "Select Destination Folder for Pulled Cloud Exports",
+            ($("schedSyncFolder")?.value || "").trim()
+          );
+          if (picked) {
+            $("schedSyncFolder").value = picked;
+            updateSchedAutoNameUI();
+          }
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      };
+    }
     $("schedAutoNameLocal")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedAutoNameFmt")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedAutoNameBackup")?.addEventListener("change", updateSchedAutoNameUI);
@@ -5580,7 +5630,7 @@ try {
         e.preventDefault();
         const existing = (state.schedules || []).find((x) => x.id === $("schedEditId").value);
         const dir = $("schedSyncDir").value || "pull";
-        const autoName = dir === "pull" && !!$("schedAutoNameLocal")?.checked;
+        const autoName = (dir === "pull" || dir === "pull_folder") && !!$("schedAutoNameLocal")?.checked;
         const autoFmt = $("schedAutoNameFmt")?.value || "date_day_year_ts";
         const autoBkpName = !!$("schedAutoNameBackup")?.checked;
         const autoBkpFmt = $("schedAutoNameBackupFmt")?.value || "date_day_year_ts";
@@ -5596,6 +5646,7 @@ try {
           autoNameFormat: autoName ? autoFmt : "",
           autoSync: $("schedAutoSync").checked,
           syncDirection: dir,
+          syncFolder: dir === "pull_folder" ? ($("schedSyncFolder")?.value || "").trim() : "",
           syncTime: $("schedSyncTime").value || "02:00",
           autoBackup: $("schedAutoBackup").checked,
           autoNameBackup: autoBkpName,

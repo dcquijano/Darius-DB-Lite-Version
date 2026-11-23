@@ -1267,12 +1267,32 @@ func (a *App) OpenScheduleFolder(id string) error {
 	for _, s := range a.Schedules() {
 		if s.ID == id {
 			dir := core.ScheduleBackupDir(a.paths, s)
+			if s.SyncDirection == "pull_folder" && (strings.TrimSpace(s.SyncFolder) != "" || !s.AutoBackup) {
+				dir = core.ScheduleSyncDir(a.paths, s)
+			}
 			_ = os.MkdirAll(dir, 0o755)
 			return core.OpenFolder(dir)
 		}
 	}
 	_ = os.MkdirAll(a.paths.Backups, 0o755)
 	return core.OpenFolder(a.paths.Backups)
+}
+
+func (a *App) BrowseFolderDialog(title, defaultDir string) (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("window not ready")
+	}
+	if strings.TrimSpace(title) == "" {
+		title = "Select Destination Folder"
+	}
+	opts := runtime.OpenDialogOptions{Title: title}
+	if d := strings.TrimSpace(defaultDir); d != "" {
+		opts.DefaultDirectory = d
+	} else if a.paths != nil && a.paths.Backups != "" {
+		_ = os.MkdirAll(a.paths.Backups, 0o755)
+		opts.DefaultDirectory = a.paths.Backups
+	}
+	return runtime.OpenDirectoryDialog(a.ctx, opts)
 }
 
 func (a *App) WindowsTaskStatus() map[string]interface{} {

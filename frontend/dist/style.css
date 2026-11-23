@@ -1819,8 +1819,11 @@ body.has-sync-floating .toasts { bottom: 110px; }
 }
 .cloud-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
   gap: 12px;
+}
+#cloudScheduleGrid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr));
 }
 .cloud-card {
   display: flex;
@@ -1831,18 +1834,32 @@ body.has-sync-floating .toasts { bottom: 110px; }
   border: 1px solid var(--border);
   border-radius: 10px;
   min-width: 0;
+  overflow: hidden;
 }
 .cloud-card-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
+}
+.cloud-card-head > div:first-child {
+  min-width: 0;
+  flex: 1;
+}
+.cloud-card-head strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.cloud-card-head > .pill {
+  flex-shrink: 0;
 }
 .cloud-card-meta {
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--text-muted);
-  word-break: break-all;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .cloud-card-actions {
   display: flex;
@@ -2675,14 +2692,171 @@ body.has-sync-floating .toasts { bottom: 110px; }
   color: var(--accent);
   font-weight: 600;
 }
+.sched-route-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  min-width: 0;
+}
+.sched-route-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.sched-route-k {
+  flex-shrink: 0;
+  min-width: 48px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+.sched-route-v {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.sched-timing-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(20, 184, 166, 0.06);
+  border: 1px solid rgba(20, 184, 166, 0.2);
+  min-width: 0;
+}
+.sched-timing-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+.sched-timing-label {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.sched-timing-val {
+  color: var(--accent);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
 .sched-purge-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 5px;
+  border-top: 1px dashed var(--border);
   font-size: 11px;
   color: var(--text-muted);
   line-height: 1.4;
 }
+.sched-purge-line:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
 .sched-purge-line strong {
   color: var(--text);
   font-weight: 600;
+}
+.sched-purge-val-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.sched-status-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  min-width: 0;
+}
+.sched-status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sched-status-item + .sched-status-item {
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.sched-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+.sched-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.sched-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.sched-status-dot.ok { background: var(--green); }
+.sched-status-dot.err { background: var(--red); }
+.sched-status-ts {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.sched-status-msg {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.sched-status-msg.err {
+  color: var(--red);
+}
+.sched-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 9px;
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+}
+.sched-actions-main,
+.sched-actions-util {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
 }
 .purge-guide-box {
   display: flex;

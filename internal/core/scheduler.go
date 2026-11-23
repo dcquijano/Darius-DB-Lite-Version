@@ -41,7 +41,7 @@ type BackupSyncSchedule struct {
 	AutoNameBackup       bool   `json:"autoNameBackup,omitempty"`
 	AutoNameBackupFormat string `json:"autoNameBackupFormat,omitempty"` // date_day_year_ts | month_day_year_ts | date_year_ts | date_day_year
 	BackupTime           string `json:"backupTime"`                     // HH:MM 24h local time (default 02:00)
-	BackupSource     string `json:"backupSource"`     // cloud | local | both (default cloud if CloudID set else local)
+	BackupSource     string `json:"backupSource"`     // cloud | cloud_folder | local | both (default cloud if CloudID set else local)
 	RetentionDays    int    `json:"retentionDays"`    // days before snapshot purge (default 7 = 1 week)
 	BackupDir        string `json:"backupDir,omitempty"`
 	CreatedAt        string `json:"createdAt,omitempty"`
@@ -391,7 +391,7 @@ func (s BackupSyncSchedule) Normalized() BackupSyncSchedule {
 	out.SyncTime = normalizeHHMM(out.SyncTime)
 	out.BackupTime = normalizeHHMM(out.BackupTime)
 	out.BackupSource = strings.ToLower(strings.TrimSpace(out.BackupSource))
-	if out.BackupSource != "local" && out.BackupSource != "cloud" && out.BackupSource != "both" {
+	if out.BackupSource != "local" && out.BackupSource != "cloud" && out.BackupSource != "both" && out.BackupSource != "cloud_folder" {
 		if out.CloudID != "" {
 			out.BackupSource = "cloud"
 		} else {
@@ -443,13 +443,98 @@ func ScheduleSyncDir(p *Paths, sched BackupSyncSchedule) string {
 	return filepath.Join(ScheduleBackupDir(p, sched), "syncs")
 }
 
+// SchedulePurgeDirs returns all deduplicated directories managed by sched for snapshot
+// listing and retention purging (BackupDir plus SyncFolder when pull_folder is active).
+func SchedulePurgeDirs(p *Paths, sched BackupSyncSchedule) []string {
+	var dirs []string
+	seen := map[string]bool{}
+	add := func(d string) {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			return
+		}
+		clean := filepath.Clean(d)
+		key := strings.ToLower(clean)
+		if !seen[key] {
+			seen[key] = true
+			dirs = append(dirs, clean)
+		}
+	}
+	add(ScheduleBackupDir(p, sched))
+	if sched.SyncDirection == "pull_folder" || strings.TrimSpace(sched.SyncFolder) != "" {
+		add(ScheduleSyncDir(p, sched))
+	}
+	return dirs
+}
+
 var (
-	snapshotTimestampRe        = regexp.MustCompile(`_(\d{8})_(\d{6})\.(zip|sql|bak)$`)
-	snapshotDateDayYearTsRe    = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_[a-z]{3}_(\d{6})\.(zip|sql|bak)$`)
-	snapshotMonthDayYearTsRe   = regexp.MustCompile(`_([a-z]{3}_\d{2}_\d{4})_[a-z]{3}_(\d{6})\.(zip|sql|bak)$`)
-	snapshotDateYearTsRe       = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_(\d{6})\.(zip|sql|bak)$`)
-	snapshotDateDayYearOnlyRe  = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_[a-z]{3}\.(zip|sql|bak)$`)
+	snapshotTimestampRe       = regexp.MustCompile(`_(\d{8})_(\d{6})\.(zip|sql|bak)$`)
+	snapshotDateDayYearTsRe   = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_[a-z]{3}_(\d{6})\.(zip|sql|bak)$`)
+	snapshotMonthDayYearTsRe  = regexp.MustCompile(`_([a-z]{3}_\d{2}_\d{4})_[a-z]{3}_(\d{6})\.(zip|sql|bak)$`)
+	snapshotDateYearTsRe      = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_(\d{6})\.(zip|sql|bak)$`)
+	snapshotDateDayYearOnlyRe = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_[a-z]{3}\.(zip|sql|bak)$`)
+
+	folderTimestampRe       = regexp.MustCompile(`_(\d{8})_(\d{6})$`)
+	folderDateDayYearTsRe   = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_[a-z]{3}_(\d{6})$`)
+	folderMonthDayYearTsRe  = regexp.MustCompile(`_([a-z]{3}_\d{2}_\d{4})_[a-z]{3}_(\d{6})$`)
+	folderDateYearTsRe      = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_(\d{6})$`)
+	folderDateDayYearOnlyRe = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_[a-z]{3}$`)
 )
+
+func parseSnapshotFolderTime(name string) (time.Time, bool) {
+	low := strings.ToLower(strings.TrimSpace(name))
+	if m := folderDateDayYearTsRe.FindStringSubmatch(low); m != nil {
+		if t, err := time.ParseInLocation("2006_01_02_150405", m[1]+"_"+m[2], time.Local); err == nil {
+			return t, true
+		}
+	}
+	if m := folderMonthDayYearTsRe.FindStringSubmatch(low); m != nil {
+		monCap := strings.ToUpper(m[1][:1]) + m[1][1:]
+		if t, err := time.ParseInLocation("Jan_02_2006_150405", monCap+"_"+m[2], time.Local); err == nil {
+			return t, true
+		}
+	}
+	if m := folderDateYearTsRe.FindStringSubmatch(low); m != nil {
+		if t, err := time.ParseInLocation("2006_01_02_150405", m[1]+"_"+m[2], time.Local); err == nil {
+			return t, true
+		}
+	}
+	if m := folderDateDayYearOnlyRe.FindStringSubmatch(low); m != nil {
+		if t, err := time.ParseInLocation("2006_01_02", m[1], time.Local); err == nil {
+			return t, true
+		}
+	}
+	if m := folderTimestampRe.FindStringSubmatch(low); m != nil {
+		if t, err := time.ParseInLocation("20060102_150405", m[1]+"_"+m[2], time.Local); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// isGeneratedSnapshotFolder verifies that a directory strictly matches a dated Darius DB
+// snapshot folder name AND contains only .zip/.sql/.bak archive files (no nested dirs or
+// unrelated user files) before it can be listed or deleted by retention purge.
+func isGeneratedSnapshotFolder(fullPath, name string) (bool, time.Time, int64) {
+	ts, ok := parseSnapshotFolderTime(name)
+	if !ok {
+		return false, time.Time{}, 0
+	}
+	sub, err := os.ReadDir(fullPath)
+	if err != nil || len(sub) == 0 {
+		return false, time.Time{}, 0
+	}
+	var totalSize int64
+	for _, f := range sub {
+		if f.IsDir() || !isSnapshotArchive(f.Name()) {
+			return false, time.Time{}, 0
+		}
+		if fi, ierr := f.Info(); ierr == nil {
+			totalSize += fi.Size()
+		}
+	}
+	return true, ts, totalSize
+}
 
 func parseSnapshotTime(name string, modTime time.Time) time.Time {
 	low := strings.ToLower(name)
@@ -487,8 +572,8 @@ func isSnapshotArchive(name string) bool {
 	return ext == ".zip" || ext == ".sql" || ext == ".bak"
 }
 
-// PurgeOldSnapshots deletes backup snapshots in dir whose age meets or exceeds
-// retentionDays (default 7 days / 1 week).
+// PurgeOldSnapshots deletes backup snapshot archives AND generated dated snapshot folders
+// in dir whose age meets or exceeds retentionDays (default 7 days / 1 week).
 func PurgeOldSnapshots(dir string, retentionDays int, now time.Time) (int, []string, error) {
 	if retentionDays <= 0 {
 		retentionDays = 7
@@ -503,7 +588,16 @@ func PurgeOldSnapshots(dir string, retentionDays int, now time.Time) (int, []str
 	cutoff := now.Add(-time.Duration(retentionDays) * 24 * time.Hour)
 	var purged []string
 	for _, e := range entries {
-		if e.IsDir() || !isSnapshotArchive(e.Name()) {
+		full := filepath.Join(dir, e.Name())
+		if e.IsDir() {
+			if ok, snapTime, _ := isGeneratedSnapshotFolder(full, e.Name()); ok && !snapTime.After(cutoff) {
+				if rerr := os.RemoveAll(full); rerr == nil {
+					purged = append(purged, e.Name()+"/")
+				}
+			}
+			continue
+		}
+		if !isSnapshotArchive(e.Name()) {
 			continue
 		}
 		info, err := e.Info()
@@ -512,7 +606,6 @@ func PurgeOldSnapshots(dir string, retentionDays int, now time.Time) (int, []str
 		}
 		snapTime := parseSnapshotTime(e.Name(), info.ModTime())
 		if !snapTime.After(cutoff) {
-			full := filepath.Join(dir, e.Name())
 			if rerr := os.Remove(full); rerr == nil {
 				purged = append(purged, e.Name())
 			}
@@ -521,34 +614,43 @@ func PurgeOldSnapshots(dir string, retentionDays int, now time.Time) (int, []str
 	return len(purged), purged, nil
 }
 
-// ListSnapshots returns all stored snapshots for sched ordered newest-first with age & retention info.
-func ListSnapshots(p *Paths, sched BackupSyncSchedule, now time.Time) ([]BackupSnapshotInfo, error) {
-	dir := ScheduleBackupDir(p, sched)
-	if !dirExists(dir) {
-		return []BackupSnapshotInfo{}, nil
+// PurgeScheduleAllDirs purges expired snapshot archives and generated dated folders
+// across every directory managed by sched (BackupDir and pull_folder SyncFolder).
+func PurgeScheduleAllDirs(p *Paths, sched BackupSyncSchedule, now time.Time) (int, []string, error) {
+	total := 0
+	var allNames []string
+	var firstErr error
+	for _, d := range SchedulePurgeDirs(p, sched) {
+		n, names, err := PurgeOldSnapshots(d, sched.RetentionDays, now)
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		total += n
+		allNames = append(allNames, names...)
 	}
+	return total, allNames, firstErr
+}
+
+// ListSnapshots returns all stored snapshot archives and generated dated folders for sched
+// ordered newest-first with age & retention purge guide info.
+func ListSnapshots(p *Paths, sched BackupSyncSchedule, now time.Time) ([]BackupSnapshotInfo, error) {
 	ret := sched.RetentionDays
 	if ret <= 0 {
 		ret = 7
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
 	}
 	type item struct {
 		t    time.Time
 		info BackupSnapshotInfo
 	}
 	var list []item
-	for _, e := range entries {
-		if e.IsDir() || !isSnapshotArchive(e.Name()) {
-			continue
+	seenPath := map[string]bool{}
+
+	appendEntry := func(displayName, fullPath string, size int64, sizeText string, snapTime time.Time) {
+		key := strings.ToLower(filepath.Clean(fullPath))
+		if seenPath[key] {
+			return
 		}
-		st, err := e.Info()
-		if err != nil {
-			continue
-		}
-		snapTime := parseSnapshotTime(e.Name(), st.ModTime())
+		seenPath[key] = true
 		age := now.Sub(snapTime)
 		if age < 0 {
 			age = 0
@@ -570,10 +672,10 @@ func ListSnapshots(p *Paths, sched BackupSyncSchedule, now time.Time) ([]BackupS
 		list = append(list, item{
 			t: snapTime,
 			info: BackupSnapshotInfo{
-				Name:           e.Name(),
-				Path:           filepath.Join(dir, e.Name()),
-				Size:           st.Size(),
-				SizeText:       formatByteSize(st.Size()),
+				Name:           displayName,
+				Path:           fullPath,
+				Size:           size,
+				SizeText:       sizeText,
 				CreatedAt:      snapTime.Format("2006-01-02 15:04"),
 				CreatedDisplay: formatPurgeDateGuide(snapTime),
 				AgeDays:        ageDays,
@@ -583,6 +685,34 @@ func ListSnapshots(p *Paths, sched BackupSyncSchedule, now time.Time) ([]BackupS
 				Expired:        expired,
 			},
 		})
+	}
+
+	for _, dir := range SchedulePurgeDirs(p, sched) {
+		if !dirExists(dir) {
+			continue
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			full := filepath.Join(dir, e.Name())
+			if e.IsDir() {
+				if ok, snapTime, folderSize := isGeneratedSnapshotFolder(full, e.Name()); ok {
+					appendEntry(e.Name()+"/", full, folderSize, formatByteSize(folderSize)+" · 📁 Folder", snapTime)
+				}
+				continue
+			}
+			if !isSnapshotArchive(e.Name()) {
+				continue
+			}
+			st, err := e.Info()
+			if err != nil {
+				continue
+			}
+			snapTime := parseSnapshotTime(e.Name(), st.ModTime())
+			appendEntry(e.Name(), full, st.Size(), formatByteSize(st.Size()), snapTime)
+		}
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].t.After(list[j].t) })
 	out := make([]BackupSnapshotInfo, len(list))
@@ -792,17 +922,17 @@ func (sc *Scheduler) RunDueSchedules(now time.Time) {
 		if !sched.Enabled {
 			continue
 		}
-		// Always enforce 1-week snapshot retention even if today's backup hasn't triggered yet
-		if sched.AutoBackup {
-			dir := ScheduleBackupDir(sc.p, sched)
-			if purgedN, purgedNames, _ := PurgeOldSnapshots(dir, sched.RetentionDays, now); purgedN > 0 {
+		// Always enforce snapshot retention (for both .zip archives and generated dated folders)
+		if sched.AutoBackup || (sched.AutoSync && sched.SyncDirection == "pull_folder") {
+			purgeDirs := SchedulePurgeDirs(sc.p, sched)
+			if purgedN, purgedNames, _ := PurgeScheduleAllDirs(sc.p, sched, now); purgedN > 0 {
 				cutoff := now.Add(-time.Duration(sched.RetentionDays) * 24 * time.Hour)
 				sc.recordLog(SyncLogEntry{
 					ScheduleID: sched.ID,
 					Name:       sched.Name,
 					Trigger:    "scheduled",
 					Action:     "purge",
-					Target:     dir,
+					Target:     strings.Join(purgeDirs, "; "),
 					Status:     "ok",
 					Detail:     fmt.Sprintf("Purged %d expired snapshot(s) (>= %d days, cutoff %s): %s", purgedN, sched.RetentionDays, formatPurgeDateGuide(cutoff), strings.Join(purgedNames, ", ")),
 				})
@@ -1214,6 +1344,39 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 						runZip(effEng, effEs, effectiveLocalDB, "_local", localStart, bkpEnd)
 					}
 				}
+			case "cloud_folder":
+				if cloudConn != nil {
+					cloudDB := fallbackStr(sched.CloudDB, cloudConn.Database)
+					baseName := fallbackStr(sched.LocalDB, cloudDB)
+					var folderName string
+					if sched.AutoNameBackup {
+						folderName = FormatAutoPullLocalDBName(baseName, sched.AutoNameBackupFormat, now)
+					} else {
+						safe := cleanDBNameRe.ReplaceAllString(strings.TrimSpace(baseName), "_")
+						safe = strings.Trim(safe, "_-")
+						if safe == "" {
+							safe = "database"
+						}
+						folderName = fmt.Sprintf("%s_%s", safe, stamp)
+					}
+					runDir := filepath.Join(dir, folderName)
+					outZip := filepath.Join(runDir, folderName+".zip")
+					if mkErr := os.MkdirAll(runDir, 0o755); mkErr != nil {
+						bErr = mkErr
+					} else {
+						bErr = ExportDatabaseFullZipWithProgress(sc.p, cloudEng, cloudEs, cloudDB, nil, true, true, outZip, func(bp BackupProgress) {
+							if bp.State == "running" {
+								mapped := mapProgressRange(bp.Percent, bkpStart, bkpEnd)
+								emitProg(mapped, "running", bkpPrefix+fallbackStr(bp.Stage, "Exporting Cloud DB to folder..."), bp.Detail)
+							}
+						})
+						if bErr == nil {
+							snapFiles = append(snapFiles, folderName+"/"+folderName+".zip")
+						}
+					}
+				} else {
+					bErr = errors.New("cloud profile not found for scheduled folder backup")
+				}
 			case "cloud":
 				if cloudConn != nil {
 					runZip(cloudEng, cloudEs, fallbackStr(sched.CloudDB, cloudConn.Database), "", bkpStart, bkpEnd)
@@ -1239,7 +1402,7 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 			}
 
 			emitProg(97, "running", bkpPrefix+"Checking snapshot retention...", fmt.Sprintf("Purging snapshots older than %d day(s)...", sched.RetentionDays))
-			purgedN, _, _ := PurgeOldSnapshots(dir, sched.RetentionDays, now)
+			purgedN, _, _ := PurgeScheduleAllDirs(sc.p, sched, now)
 			durMs := time.Since(bkpStartedAt).Milliseconds()
 			if bErr != nil {
 				if firstErr == nil {

@@ -24,7 +24,7 @@ const (
 )
 
 // CLIAppBuild identifies the build timestamp (overridden via -ldflags at build time).
-var CLIAppBuild = "202611231409"
+var CLIAppBuild = "202611231427"
 
 // RunCLI executes a CLI subcommand and returns an process exit code.
 func RunCLI(root string, args []string) int {
@@ -560,7 +560,7 @@ func RunCLI(root string, args []string) int {
 			total := 0
 			for _, item := range st.Get().Schedules {
 				s := item.Normalized()
-				n, _, _ := PurgeOldSnapshots(ScheduleBackupDir(paths, s), s.RetentionDays, time.Now())
+				n, _, _ := PurgeScheduleAllDirs(paths, s, time.Now())
 				total += n
 			}
 			fmt.Printf("Purged %d expired backup snapshot(s).\n", total)

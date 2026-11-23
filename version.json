@@ -1,19 +1,20 @@
 {
   "name": "Darius DB (Lite Version 0.1.5)",
   "version": "0.1.5",
-  "build": "202611231409",
+  "build": "202611231427",
   "channel": "Lite Version",
   "releasedAt": "2026-11-23",
   "author": "Darius Cumpio",
-  "latestCommit": "8fbdbd3",
+  "latestCommit": "fce1198",
   "generatedFromGit": true,
   "installerUrl": "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing",
   "directSetupUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-Setup-0.1.5.exe",
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-0.1.5-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.5.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Add Pull Cloud to Generated Folder (No Local DB) direction option with folder picker; Add optional auto-generated dated .zip filename option to Daily Auto-Backup with full retention purge support; Fix scheduled sync due-time tracking, add live Auto-Sync display & Sync Trace Logs modal, and configure binary-only public releases repo.",
+  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Add Purge Date/Day/Month/Time guide, fix confirm modal stacking above Sync Logs, and stop auto-version bot commits; Add Pull Cloud to Generated Folder (No Local DB) direction option with folder picker; Add optional auto-generated dated .zip filename option to Daily Auto-Backup with full retention purge support.",
   "changelog": [
+    "[fce1198] Add Purge Date/Day/Month/Time guide, fix confirm modal stacking above Sync Logs, and stop auto-version bot commits (build 202611231409) (2026-11-23)",
     "[8fbdbd3] Auto-refresh GitHub Release on main push with fallback to current repo and changelog notes (2026-11-23)",
     "[8928f86] Add Pull Cloud to Generated Folder (No Local DB) direction option with folder picker (build 202611231302) (2026-11-23)",
     "[2c2562d] Add optional auto-generated dated .zip filename option to Daily Auto-Backup with full retention purge support (build 202611231244) (2026-11-23)",
@@ -57,7 +58,6 @@
     "[0d1d050] Add Daily Auto-Sync (Pull Cloud -> Local), 2 AM Auto-Backup, and 1-Week Snapshot Purge (2026-11-20)",
     "[fa26346] Release Darius DB Lite Version 0.1.4 (2026-11-20)",
     "[f3c6aed] Fix MSSQL timestamp/rowversion Msg 273 error on sync and export (2026-11-20)",
-    "[9a05b12] Add real-time percentage progress loading to Database Backup and Export (2026-11-20)",
-    "[f2f374d] Add real-time percentage progress bar to Local <-> Cloud Sync (2026-11-20)"
+    "[9a05b12] Add real-time percentage progress loading to Database Backup and Export (2026-11-20)"
   ]
 }

@@ -1343,6 +1343,90 @@ func TestIsAutomatedCommitFiltering(t *testing.T) {
 	}
 }
 
+func TestPurgeAndListGeneratedSnapshotFoldersSafety(t *testing.T) {
+	p := NewPaths(t.TempDir())
+	customBkpDir := filepath.Join(p.Root, "custom_purge_folder")
+	customSyncDir := filepath.Join(p.Root, "custom_sync_folder")
+	sched := (BackupSyncSchedule{
+		ID:            "sched_folder_purge",
+		Name:          "canyoneeringdb Daily",
+		AutoSync:      true,
+		SyncDirection: "pull_folder",
+		SyncFolder:    customSyncDir,
+		AutoBackup:    true,
+		BackupSource:  "cloud_folder",
+		BackupDir:     customBkpDir,
+		RetentionDays: 7,
+	}).Normalized()
+
+	if sched.BackupSource != "cloud_folder" {
+		t.Fatalf("expected BackupSource=cloud_folder preserved, got %q", sched.BackupSource)
+	}
+	if dirs := SchedulePurgeDirs(p, sched); len(dirs) != 2 {
+		t.Fatalf("expected 2 purge dirs (BackupDir + SyncFolder), got %v", dirs)
+	}
+
+	now := time.Date(2026, 11, 30, 12, 30, 0, 0, time.Local)
+	// 1. Expired generated folder in customBkpDir (created 8 days ago) -> MUST purge
+	expiredBkp := filepath.Join(customBkpDir, "tsujkcilc_canyoneeringdb_2026_11_22_Sun_123000")
+	// 2. Fresh generated folder in customBkpDir (created 2 days ago) -> MUST keep & list
+	freshBkp := filepath.Join(customBkpDir, "tsujkcilc_canyoneeringdb_2026_11_28_Sat_123000")
+	// 3. Expired generated folder in customSyncDir (created 9 days ago) -> MUST purge via PurgeScheduleAllDirs
+	expiredSync := filepath.Join(customSyncDir, "tsujkcilc_canyoneeringdb_2026_11_21_Sat_123000")
+	// 4. Safety test: old dated folder containing an unrelated user file -> MUST NOT delete
+	unsafeDated := filepath.Join(customBkpDir, "tsujkcilc_canyoneeringdb_2026_11_10_Tue_123000")
+	// 5. Safety test: unrelated user folder -> MUST NOT delete
+	userFolder := filepath.Join(customBkpDir, "my_important_docs")
+
+	for _, d := range []string{expiredBkp, freshBkp, expiredSync, unsafeDated, userFolder} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(expiredBkp, "tsujkcilc_canyoneeringdb_2026_11_22_Sun_123000.zip"), []byte("zip1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(freshBkp, "tsujkcilc_canyoneeringdb_2026_11_28_Sat_123000.zip"), []byte("zip2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(expiredSync, "tsujkcilc_canyoneeringdb_2026_11_21_Sat_123000.zip"), []byte("zip3"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unsafeDated, "tsujkcilc_canyoneeringdb_2026_11_10_Tue_123000.zip"), []byte("zip4"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unsafeDated, "keep-me.txt"), []byte("user note"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userFolder, "report.pdf"), []byte("pdf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// ListSnapshots should list the 3 valid generated folders (and ignore unsafeDated/userFolder)
+	snaps, err := ListSnapshots(p, sched, now)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snaps) != 3 {
+		t.Fatalf("expected 3 generated folders listed, got %d (%+v)", len(snaps), snaps)
+	}
+	if snaps[0].Name != "tsujkcilc_canyoneeringdb_2026_11_28_Sat_123000/" || snaps[0].PurgeStamp != "2026_12_05_Sat_123000" {
+		t.Errorf("unexpected newest folder snapshot: %+v", snaps[0])
+	}
+
+	// PurgeScheduleAllDirs should purge ONLY expiredBkp and expiredSync
+	n, purged, err := PurgeScheduleAllDirs(p, sched, now)
+	if err != nil || n != 2 {
+		t.Fatalf("expected 2 expired generated folders purged, got n=%d purged=%v err=%v", n, purged, err)
+	}
+	if dirExists(expiredBkp) || dirExists(expiredSync) {
+		t.Fatal("expired generated folders should have been purged")
+	}
+	if !dirExists(freshBkp) || !dirExists(unsafeDated) || !dirExists(userFolder) {
+		t.Fatal("fresh generated folder or user-protected folders must never be deleted")
+	}
+}
+
 
 
 

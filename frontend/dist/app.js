@@ -4565,7 +4565,7 @@ try {
           : `<span class="pill">Ready</span>`;
         const sched = (state.schedules || []).find((s) => s.cloudId === c.id && s.enabled);
         const autoPill = sched
-          ? `<span class="pill running" title="Scheduled daily @ ${esc(sched.backupTime || sched.syncTime)}">⏰ Auto ${esc(sched.syncDirection === "pull" ? "Pull" : "Push")} / ${sched.retentionDays || 7}d</span>`
+          ? `<span class="pill running" title="Scheduled daily @ ${esc(sched.backupTime || sched.syncTime)}">⏰ Auto ${esc(sched.syncDirection === "push" ? "Push" : "Pull")} / ${sched.retentionDays || 7}d</span>`
           : "";
         return `<div class="cloud-card" data-cid="${esc(c.id)}">
           <div class="cloud-card-head">
@@ -4717,7 +4717,7 @@ try {
           ? `<span class="pill">✨ ${s.syncDirection === "pull_folder" ? "Auto-folder" : "Auto-named"}</span>`
           : "";
         const backupBadge = s.autoBackup
-          ? `<span class="pill">📦 .zip @ ${esc(s.backupTime || "02:00")} · Purge ≥ ${s.retentionDays || 7}d${s.autoNameBackup ? " · ✨ Auto-named" : ""}</span>`
+          ? `<span class="pill">${s.backupSource === "cloud_folder" ? "📁 Folder" : "📦 .zip"} @ ${esc(s.backupTime || "02:00")} · Purge ≥ ${s.retentionDays || 7}d${s.autoNameBackup ? (s.backupSource === "cloud_folder" ? " · ✨ Auto-folder" : " · ✨ Auto-named") : ""}</span>`
           : "";
         const live = liveScheduledRuns[s.id];
         const isLiveRunning = !!(live && live.state === "running");
@@ -4726,19 +4726,37 @@ try {
           : s.enabled
             ? `<span class="pill running">Active</span>`
             : `<span class="pill">Paused</span>`;
-        const nextLines = [];
+        const nextRows = [];
         if (s.enabled && s.autoSync) {
-          nextLines.push(`Next auto-sync: ${computeNextScheduleText(s.syncTime, s.lastSyncDate, s.createdAt)}`);
+          nextRows.push(`<div class="sched-timing-row"><span class="sched-timing-label">⏰ Next Auto-Sync</span><span class="sched-timing-val">${esc(computeNextScheduleText(s.syncTime, s.lastSyncDate, s.createdAt))}</span></div>`);
         }
         if (s.enabled && s.autoBackup) {
-          nextLines.push(`Next auto-backup: ${computeNextScheduleText(s.backupTime, s.lastBackupDate, s.createdAt)}`);
+          nextRows.push(`<div class="sched-timing-row"><span class="sched-timing-label">📦 Next Auto-Backup</span><span class="sched-timing-val">${esc(computeNextScheduleText(s.backupTime, s.lastBackupDate, s.createdAt))}</span></div>`);
         }
         const purgeGuide = s.autoBackup ? computeSchedulePurgeGuide(s) : null;
         const purgeGuideHtml = purgeGuide
-          ? `<div class="sched-purge-line" title="Purge stamp: ${esc(purgeGuide.purgeStamp)} · Cutoff now: files on/before ${esc(purgeGuide.cutoffText)}">🗑 Purge guide (≥${purgeGuide.retDays}d): ${esc(purgeGuide.sourceLabel)} purges <strong>${esc(purgeGuide.purgeAtText)}</strong> <code class="purge-stamp-tag">${esc(purgeGuide.purgeStamp)}</code></div>`
+          ? `<div class="sched-purge-line" title="Purge stamp: ${esc(purgeGuide.purgeStamp)} · Cutoff now: files on/before ${esc(purgeGuide.cutoffText)}">
+              <span>🗑 Purge guide (≥${purgeGuide.retDays}d · ${esc(purgeGuide.sourceLabel)})</span>
+              <span class="sched-purge-val-group"><strong>${esc(purgeGuide.purgeAtText)}</strong><code class="purge-stamp-tag">${esc(purgeGuide.purgeStamp)}</code></span>
+            </div>`
           : "";
-        const syncStat = s.lastSyncAt ? `Last sync (${s.lastSyncAt}): ${s.lastSyncStatus || "ok"}` : "Sync: pending next scheduled time";
-        const bkpStat = s.lastBackupAt ? `Last backup (${s.lastBackupAt}): ${s.lastBackupStatus || "ok"}` : "Backup: pending next scheduled run";
+        const timingPanelHtml = nextRows.length || purgeGuideHtml
+          ? `<div class="sched-timing-panel">${nextRows.join("")}${purgeGuideHtml}</div>`
+          : "";
+
+        const syncIsErr = /^err\b/i.test(String(s.lastSyncStatus || "").trim());
+        const syncIsOk = !!s.lastSyncAt && !syncIsErr;
+        const syncMsgText = s.lastSyncAt ? String(s.lastSyncStatus || "ok") : "Pending next scheduled time";
+        const bkpIsErr = /^err\b/i.test(String(s.lastBackupStatus || "").trim());
+        const bkpIsOk = !!s.lastBackupAt && !bkpIsErr;
+        const bkpMsgText = s.lastBackupAt ? String(s.lastBackupStatus || "ok") : "Pending next scheduled run";
+
+        const sourceText = cloud ? `${cloud.name} (${s.cloudDb || cloud.database || ""})` : (s.cloudDb || "Local only");
+        const destText =
+          s.syncDirection === "pull_folder"
+            ? `📁 ${s.syncFolder || "backups/" + s.name + "/syncs"}`
+            : `${(s.localEngine || "mssql").toUpperCase()}/${s.localDb || (s.autoNameLocalDb ? (s.cloudDb || "auto") : "-")}${s.autoNameLocalDb && s.syncDirection !== "push" ? "_<date_time>" : ""}`;
+
         const liveHtml = isLiveRunning
           ? `<div class="sched-live-box">
               <div class="sched-live-top">
@@ -4748,14 +4766,14 @@ try {
               <div class="progress-bar" style="height:5px;margin:5px 0 3px">
                 <div class="progress-fill" style="width:${Math.max(2, Math.min(100, Math.round(live.percent || 0)))}%"></div>
               </div>
-              <div class="muted" style="font-size:11px;word-break:break-word">${esc(live.detail || "")}</div>
+              <div class="muted" style="font-size:11px;overflow-wrap:anywhere;word-break:break-word">${esc(live.detail || "")}</div>
             </div>`
           : "";
-        return `<div class="cloud-card" data-sid="${esc(s.id)}">
+        return `<div class="cloud-card sched-card" data-sid="${esc(s.id)}">
           <div class="cloud-card-head">
             <div>
               <strong style="font-size:14px">${esc(s.name)}</strong>
-              <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap">
+              <div style="display:flex;gap:5px;margin-top:5px;flex-wrap:wrap">
                 ${syncBadge}
                 ${autoNameBadge}
                 ${backupBadge}
@@ -4763,29 +4781,48 @@ try {
             </div>
             ${statusPill}
           </div>
-          <div class="cloud-card-meta">
-            ${cloud ? esc(cloud.name) + " (" + esc(s.cloudDb || cloud.database || "") + ")" : esc(s.cloudDb || "Local only")} ${
-              s.syncDirection === "pull_folder"
-                ? `→ 📁 ${esc(s.syncFolder || "backups/" + s.name + "/syncs")}`
-                : `↔ ${esc((s.localEngine || "mssql").toUpperCase())}/${esc(s.localDb || (s.autoNameLocalDb ? (s.cloudDb || "auto") : "-"))}${s.autoNameLocalDb && s.syncDirection !== "push" ? "_<date_time>" : ""}`
-            }
+          <div class="sched-route-box">
+            <div class="sched-route-row">
+              <span class="sched-route-k">From</span>
+              <span class="sched-route-v" title="${esc(sourceText)}">${esc(sourceText)}</span>
+            </div>
+            <div class="sched-route-row">
+              <span class="sched-route-k">${s.syncDirection === "push" ? "Cloud" : "Target"}</span>
+              <span class="sched-route-v" title="${esc(destText)}">${esc(destText)}</span>
+            </div>
+            ${s.autoBackup && s.backupDir ? `<div class="sched-route-row"><span class="sched-route-k">Backup</span><span class="sched-route-v" title="${esc(s.backupDir)}">📁 ${esc(s.backupDir)}</span></div>` : ""}
           </div>
-          ${nextLines.length ? `<div class="sched-next-line">${esc(nextLines.join(" · "))}</div>` : ""}
-          ${purgeGuideHtml}
+          ${timingPanelHtml}
           ${liveHtml}
-          <div class="muted" style="font-size:11.5px;line-height:1.45">
-            <div>${esc(syncStat)}</div>
-            <div>${esc(bkpStat)}</div>
+          <div class="sched-status-box">
+            <div class="sched-status-item">
+              <div class="sched-status-head">
+                <span class="sched-status-tag"><span class="sched-status-dot${syncIsOk ? " ok" : syncIsErr ? " err" : ""}"></span>Last Sync</span>
+                <span class="sched-status-ts">${esc(s.lastSyncAt || "—")}</span>
+              </div>
+              <div class="sched-status-msg${syncIsErr ? " err" : ""}" title="${esc(syncMsgText)}">${esc(syncMsgText)}</div>
+            </div>
+            <div class="sched-status-item">
+              <div class="sched-status-head">
+                <span class="sched-status-tag"><span class="sched-status-dot${bkpIsOk ? " ok" : bkpIsErr ? " err" : ""}"></span>Last Backup</span>
+                <span class="sched-status-ts">${esc(s.lastBackupAt || "—")}</span>
+              </div>
+              <div class="sched-status-msg${bkpIsErr ? " err" : ""}" title="${esc(bkpMsgText)}">${esc(bkpMsgText)}</div>
+            </div>
           </div>
-          <div class="cloud-card-actions">
-            <button type="button" class="btn xs primary" data-sact="run">▶ Run Now</button>
-            <button type="button" class="btn xs accent" data-sact="logs" title="View Sync &amp; Backup trace log for this schedule">📋 Logs</button>
-            <button type="button" class="btn xs accent" data-sact="snaps">📦 Snapshots</button>
-            <button type="button" class="btn xs" data-sact="purge" title="Purge snapshots >= ${s.retentionDays || 7} days old">🗑 Purge</button>
-            <button type="button" class="btn xs" data-sact="folder">📁 Folder</button>
-            <button type="button" class="btn xs ghost" data-sact="toggle">${s.enabled ? "Pause" : "Enable"}</button>
-            <button type="button" class="btn xs ghost" data-sact="edit">Edit</button>
-            <button type="button" class="btn xs danger-ghost" data-sact="del">✕</button>
+          <div class="sched-card-footer">
+            <div class="sched-actions-main">
+              <button type="button" class="btn xs primary" data-sact="run">▶ Run Now</button>
+              <button type="button" class="btn xs accent" data-sact="logs" title="View Sync &amp; Backup trace log for this schedule">📋 Logs</button>
+              <button type="button" class="btn xs accent" data-sact="snaps">📦 Snapshots</button>
+              <button type="button" class="btn xs" data-sact="purge" title="Purge snapshots >= ${s.retentionDays || 7} days old">🗑 Purge</button>
+              <button type="button" class="btn xs" data-sact="folder">📁 Folder</button>
+            </div>
+            <div class="sched-actions-util">
+              <button type="button" class="btn xs ghost" data-sact="toggle">${s.enabled ? "Pause" : "Enable"}</button>
+              <button type="button" class="btn xs ghost" data-sact="edit">Edit</button>
+              <button type="button" class="btn xs danger-ghost" data-sact="del" aria-label="Delete schedule" title="Delete schedule">✕</button>
+            </div>
           </div>
         </div>`;
       })
@@ -5574,20 +5611,38 @@ try {
         }
       }
 
+      const bkpSrc = $("schedBackupSource")?.value || "cloud";
+      const isBkpFolder = bkpSrc === "cloud_folder";
+      if ($("schedBackupDirRow")) {
+        $("schedBackupDirRow").hidden = !isBkpFolder && !($("schedBackupDir")?.value || "").trim();
+      }
+      if ($("schedAutoBackupNameLabel")) {
+        $("schedAutoBackupNameLabel").textContent = isBkpFolder
+          ? "✨ Auto-generate dated Folder & .zip name on each daily Backup (Date, Day, Year & Timestamp)"
+          : "✨ Auto-generate new Backup .zip filename on each daily Backup (Date, Day, Year & Timestamp)";
+      }
       const bkpAutoOn = !!$("schedAutoNameBackup")?.checked;
       if ($("schedAutoBackupNameOpts")) $("schedAutoBackupNameOpts").hidden = !bkpAutoOn;
       if ($("schedAutoBackupNamePreview")) {
-        const bkpSrc = $("schedBackupSource")?.value || "cloud";
         const base =
           bkpSrc === "local"
             ? ($("schedLocalDb")?.value || "").trim() || ($("schedCloudDb")?.value || "").trim() || "alegria"
-            : ($("schedCloudDb")?.value || "").trim() || ($("schedLocalDb")?.value || "").trim() || "alegria";
+            : isBkpFolder
+              ? ($("schedLocalDb")?.value || "").trim() || ($("schedCloudDb")?.value || "").trim() || "alegria"
+              : ($("schedCloudDb")?.value || "").trim() || ($("schedLocalDb")?.value || "").trim() || "alegria";
         const fmt = $("schedAutoNameBackupFmt")?.value || "date_day_year_ts";
         const previewDate = new Date();
         const [bhh, bmm] = String($("schedBackupTime")?.value || "02:00").split(":").map(Number);
         if (Number.isFinite(bhh) && Number.isFinite(bmm)) previewDate.setHours(bhh, bmm, 0, 0);
         const suffix = bkpSrc === "both" ? "_cloud" : "";
-        $("schedAutoBackupNamePreview").textContent = buildAutoPullLocalDbName(base + suffix, fmt, previewDate) + ".zip";
+        const genBkp = buildAutoPullLocalDbName(base + suffix, fmt, previewDate);
+        if (isBkpFolder) {
+          const bkpFolderPrefix = ($("schedBackupDir")?.value || "").trim();
+          const bkpRootHint = bkpFolderPrefix ? bkpFolderPrefix.replace(/[\\/]+$/, "") : "backups/<schedule>";
+          $("schedAutoBackupNamePreview").textContent = `${bkpRootHint}/${genBkp}/${genBkp}.zip`;
+        } else {
+          $("schedAutoBackupNamePreview").textContent = genBkp + ".zip";
+        }
       }
 
       if ($("schedPurgeGuide")) {
@@ -5637,6 +5692,7 @@ try {
         if ($("schedAutoNameFmt")) $("schedAutoNameFmt").value = existing.autoNameFormat || "date_day_year_ts";
         $("schedAutoBackup").checked = existing.autoBackup !== false;
         $("schedBackupSource").value = existing.backupSource || "cloud";
+        if ($("schedBackupDir")) $("schedBackupDir").value = existing.backupDir || "";
         $("schedBackupTime").value = existing.backupTime || "02:00";
         $("schedRetentionDays").value = existing.retentionDays || 7;
         if ($("schedAutoNameBackup")) $("schedAutoNameBackup").checked = !!existing.autoNameBackup;
@@ -5659,6 +5715,7 @@ try {
         if ($("schedAutoNameFmt")) $("schedAutoNameFmt").value = "date_day_year_ts";
         $("schedAutoBackup").checked = true;
         $("schedBackupSource").value = first ? "cloud" : "local";
+        if ($("schedBackupDir")) $("schedBackupDir").value = "";
         $("schedBackupTime").value = "02:00";
         $("schedRetentionDays").value = 7;
         if ($("schedAutoNameBackup")) $("schedAutoNameBackup").checked = false;
@@ -5706,7 +5763,29 @@ try {
     $("schedAutoBackup")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedAutoNameBackup")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedAutoNameBackupFmt")?.addEventListener("change", updateSchedAutoNameUI);
-    $("schedBackupSource")?.addEventListener("change", updateSchedAutoNameUI);
+    $("schedBackupSource")?.addEventListener("change", () => {
+      if ($("schedBackupSource").value === "cloud_folder" && $("schedAutoNameBackup") && !$("schedAutoNameBackup").checked) {
+        $("schedAutoNameBackup").checked = true;
+      }
+      updateSchedAutoNameUI();
+    });
+    $("schedBackupDir")?.addEventListener("input", updateSchedAutoNameUI);
+    if ($("btnBrowseBackupDir")) {
+      $("btnBrowseBackupDir").onclick = async () => {
+        try {
+          const picked = await api().BrowseFolderDialog(
+            "Select Destination & Purge Folder for Auto-Backup",
+            ($("schedBackupDir")?.value || "").trim()
+          );
+          if (picked) {
+            $("schedBackupDir").value = picked;
+            updateSchedAutoNameUI();
+          }
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      };
+    }
     $("schedBackupTime")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedRetentionDays")?.addEventListener("input", updateSchedAutoNameUI);
     $("schedRetentionDays")?.addEventListener("change", updateSchedAutoNameUI);
@@ -5745,6 +5824,7 @@ try {
           autoNameBackup: autoBkpName,
           autoNameBackupFormat: autoBkpName ? autoBkpFmt : "",
           backupSource: $("schedBackupSource").value || "cloud",
+          backupDir: ($("schedBackupDir")?.value || "").trim(),
           backupTime: $("schedBackupTime").value || "02:00",
           retentionDays: Math.max(1, Number($("schedRetentionDays").value) || 7),
           createdAt: existing?.createdAt || "",

@@ -1253,7 +1253,7 @@ func (a *App) PurgeScheduleSnapshots(id string) (int, error) {
 	total := 0
 	for _, s := range a.Schedules() {
 		if id == "" || s.ID == id {
-			n, _, err := core.PurgeOldSnapshots(core.ScheduleBackupDir(a.paths, s), s.RetentionDays, time.Now())
+			n, _, err := core.PurgeScheduleAllDirs(a.paths, s, time.Now())
 			if err != nil && id != "" {
 				return total, err
 			}

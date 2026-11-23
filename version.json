@@ -5,15 +5,16 @@
   "channel": "Lite Version",
   "releasedAt": "2026-11-23",
   "author": "Darius Cumpio",
-  "latestCommit": "171aebf",
+  "latestCommit": "587c740",
   "generatedFromGit": true,
   "installerUrl": "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing",
   "directSetupUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-Setup-0.1.5.exe",
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-0.1.5-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.5.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Release Lite Version 0.1.5 with auto-generated version.json, Darius DB logo/favicon, reliable Stop/Start All shortcuts, and export-ignore archives; Add 0-100% progress loading modals for Schedule Run/Backup Now and enlarge Add Cloud DB modal; Add Dashboard Guides/Shortcuts header buttons and visual step-by-step screenshots with lightbox.",
+  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Fix scheduled sync due-time tracking, add live Auto-Sync display & Sync Trace Logs modal, and configure binary-only public releases repo; Release Lite Version 0.1.5 with auto-generated version.json, Darius DB logo/favicon, reliable Stop/Start All shortcuts, and export-ignore archives; Add 0-100% progress loading modals for Schedule Run/Backup Now and enlarge Add Cloud DB modal.",
   "changelog": [
+    "[587c740] Fix scheduled sync due-time tracking, add live Auto-Sync display & Sync Trace Logs modal, and configure binary-only public releases repo (build 202611231119) (2026-11-23)",
     "[171aebf] Preserve committed version.json BuildID during tagged Release builds (2026-11-23)",
     "[4cb17ce] Release Lite Version 0.1.5 with auto-generated version.json, Darius DB logo/favicon, reliable Stop/Start All shortcuts, and export-ignore archives (2026-11-23)",
     "[2d1b762] Add 0-100% progress loading modals for Schedule Run/Backup Now and enlarge Add Cloud DB modal (build 202611230952) (2026-11-23)",
@@ -57,7 +58,6 @@
     "[f2f374d] Add real-time percentage progress bar to Local <-> Cloud Sync (2026-11-20)",
     "[244c33d] Fix Cloud and Sync modal widths, select ellipsis, and grid overflow (2026-11-20)",
     "[4462a51] Add SQL result pagination (50, 100 up to Max/All) and navigation controls (2026-11-20)",
-    "[30b4081] Fix nil-pointer panic on auto-update relaunch with --show --updated --all-off (2026-11-20)",
-    "[f70446c] Add full .zip database backup (SQL + per-table CSVs + manifest.json) and .zip restore support (2026-11-20)"
+    "[30b4081] Fix nil-pointer panic on auto-update relaunch with --show --updated --all-off (2026-11-20)"
   ]
 }

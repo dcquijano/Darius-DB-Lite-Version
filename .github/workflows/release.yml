@@ -2,6 +2,8 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -12,13 +14,18 @@ on:
         default: ""
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: release-windows-publish
+  cancel-in-progress: true
 
 env:
   RELEASES_REPO: ${{ vars.RELEASES_REPO || 'dcquijano/Darius-DB-Lite-Releases' }}
 
 jobs:
   build-windows:
+    if: "github.event_name != 'push' || startsWith(github.ref, 'refs/tags/') || (!contains(github.event.head_commit.message, '[skip ci]') && github.actor != 'github-actions[bot]')"
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,9 +36,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Resolve release tag
+      - name: Resolve release tag and publishing target
         id: meta
         shell: pwsh
+        env:
+          HAS_RELEASES_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN != '' }}
         run: |
           $tag = ""
           if ("${{ github.ref }}".StartsWith("refs/tags/v")) {
@@ -42,12 +51,47 @@ jobs:
             $wj = Get-Content "wails.json" -Raw -Encoding UTF8 | ConvertFrom-Json
             $tag = "v" + ([string]$wj.info.productVersion).Trim().TrimStart("v")
           }
+          $mode = if ($env:HAS_RELEASES_TOKEN -eq "true") { "external" } else { "self" }
+          $target = if ($mode -eq "external") { $env:RELEASES_REPO } else { "${{ github.repository }}" }
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Host "Resolved release tag: $tag (target repo: $env:RELEASES_REPO)"
+          "mode=$mode" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Resolved release tag: $tag (mode: $mode -> $target)"
 
       - name: Build Darius DB (GUI, Launcher, Uninstaller, Updater, CLI, Portable ZIP & Setup EXE)
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-all.ps1 -SkipVersionGen
+
+      - name: Generate release notes from version.json and git commits
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          powershell -NoProfile -ExecutionPolicy Bypass -File installer/generate-version.ps1 `
+            -KeepBuild `
+            -OutputPath "release-version.json"
+
+          $vj = Get-Content "release-version.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+          $bt = [char]96
+          $lines = New-Object System.Collections.Generic.List[string]
+          $lines.Add("## $($vj.name) (Build $($vj.build))")
+          $lines.Add("")
+          if ($vj.announcement) {
+            $lines.Add([string]$vj.announcement)
+            $lines.Add("")
+          }
+          $lines.Add("### What's New")
+          $items = @($vj.changelog | Select-Object -First 20)
+          foreach ($item in $items) {
+            $lines.Add("- $item")
+          }
+          $lines.Add("")
+          $lines.Add("### Included Downloads")
+          $lines.Add("- ${bt}DariusDB-Setup-$($vj.version).exe${bt} - All-in-one Windows Installer")
+          $lines.Add("- ${bt}DariusDB-$($vj.version)-portable-windows-amd64.zip${bt} - Portable ZIP (GUI, CLI & tools)")
+          $lines.Add("- ${bt}DariusDB-Launcher.exe${bt}, ${bt}DariusDB-Repair.exe${bt}, ${bt}DariusDB-Updater.exe${bt}, ${bt}DariusDB-Uninstall.exe${bt}")
+          $lines.Add("")
+          $sha = if ($env:GITHUB_SHA -and $env:GITHUB_SHA.Length -ge 7) { $env:GITHUB_SHA.Substring(0, 7) } else { [string]$vj.latestCommit }
+          $lines.Add("Released: $($vj.releasedAt) | Commit: ${bt}${sha}${bt}")
+          [System.IO.File]::WriteAllText((Join-Path $PWD "release-notes.md"), ($lines -join "`n") + "`n", (New-Object System.Text.UTF8Encoding($false)))
 
       - name: Upload workflow build artifacts
         uses: actions/upload-artifact@v4
@@ -61,24 +105,9 @@ jobs:
             installer/DariusDB-Uninstall.exe
             installer/DariusDB-Updater.exe
 
-      - name: Verify public releases repository secret
-        shell: pwsh
-        env:
-          HAS_RELEASES_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN != '' }}
-        run: |
-          if ($env:HAS_RELEASES_TOKEN -ne "true") {
-            Write-Error @"
-Missing repository secret RELEASES_REPO_TOKEN.
-To publish binary-only releases (zero source code) while keeping this source repo Private:
-  1. Create a Public GitHub repo '$env:RELEASES_REPO' (check 'Add a README file').
-  2. Create a Fine-Grained Personal Access Token with 'Contents: Read and write' scoped ONLY to '$env:RELEASES_REPO'.
-  3. Add it in this private repo under Settings -> Secrets and variables -> Actions -> New repository secret:
-     Name: RELEASES_REPO_TOKEN
-"@
-            exit 1
-          }
-
+      # Mode 1 (external): Binary-only public releases repo when RELEASES_REPO_TOKEN is configured
       - name: Checkout public binary-only releases repository
+        if: steps.meta.outputs.mode == 'external'
         uses: actions/checkout@v4
         with:
           repository: ${{ env.RELEASES_REPO }}
@@ -86,6 +115,7 @@ To publish binary-only releases (zero source code) while keeping this source rep
           path: _releases_repo
 
       - name: Sync public binaries and metadata (no source code) to releases repository
+        if: steps.meta.outputs.mode == 'external'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -123,11 +153,14 @@ To publish binary-only releases (zero source code) while keeping this source rep
             } else {
               Write-Host "No changes to push to $env:RELEASES_REPO."
             }
+            git tag -f "${{ steps.meta.outputs.tag }}" HEAD
+            git push -f origin "refs/tags/${{ steps.meta.outputs.tag }}"
           } finally {
             Pop-Location
           }
 
       - name: Publish binary-only GitHub Release to public releases repository
+        if: steps.meta.outputs.mode == 'external'
         uses: softprops/action-gh-release@v2
         with:
           repository: ${{ env.RELEASES_REPO }}
@@ -135,7 +168,32 @@ To publish binary-only releases (zero source code) while keeping this source rep
           tag_name: ${{ steps.meta.outputs.tag }}
           target_commitish: main
           name: Darius DB (Lite Version ${{ steps.meta.outputs.tag }})
-          generate_release_notes: true
+          body_path: release-notes.md
+          files: |
+            dist/DariusDB-Setup-*.exe
+            dist/DariusDB-*-portable-windows-amd64.zip
+            installer/DariusDB-Launcher.exe
+            installer/DariusDB-Repair.exe
+            installer/DariusDB-Uninstall.exe
+            installer/DariusDB-Updater.exe
+
+      # Mode 2 (self): Fallback to current repository when RELEASES_REPO_TOKEN is not configured yet
+      - name: Update release tag on current repository
+        if: steps.meta.outputs.mode == 'self' && !startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "${{ steps.meta.outputs.tag }}"
+          git tag -f "$tag" HEAD
+          git push -f origin "refs/tags/$tag"
+
+      - name: Publish GitHub Release to current repository
+        if: steps.meta.outputs.mode == 'self'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: Darius DB (Lite Version ${{ steps.meta.outputs.tag }})
+          body_path: release-notes.md
           files: |
             dist/DariusDB-Setup-*.exe
             dist/DariusDB-*-portable-windows-amd64.zip

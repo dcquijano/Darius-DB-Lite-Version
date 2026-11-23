@@ -1098,6 +1098,117 @@ func TestMergeUpdaterCommitChangelogDeduplicatesSHA(t *testing.T) {
 	}
 }
 
+func TestUpdaterRepoEndpointsAndFallbackOrder(t *testing.T) {
+	repos := updaterCandidateRepos()
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 candidate repos, got %d", len(repos))
+	}
+	if repos[0].repo != "Darius-DB-Lite-Releases" || repos[1].repo != "Darius-DB-Lite-Version" {
+		t.Fatalf("unexpected repo priority order: %+v", repos)
+	}
+	if !strings.Contains(repos[0].versionJSONURL, "/Darius-DB-Lite-Releases/main/version.json") ||
+		!strings.Contains(repos[0].releasesURL, "/Darius-DB-Lite-Releases/releases/latest") ||
+		!strings.Contains(repos[0].rawInstallerBase, "/Darius-DB-Lite-Releases/main/installer") {
+		t.Fatalf("unexpected primary releases repo endpoints: %+v", repos[0])
+	}
+}
+
+func TestManualRunDoesNotBlockScheduledSyncAndSyncLogsTrace(t *testing.T) {
+	root := t.TempDir()
+	p := NewPaths(root)
+	if err := p.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	st := LoadSettings(root)
+	day := time.Date(2026, 11, 23, 9, 0, 0, 0, time.Local)
+	_ = st.Update(func(s *Settings) {
+		s.Schedules = []BackupSyncSchedule{{
+			ID:          "sched-11am",
+			Name:        "Daily 11 AM Pull",
+			Enabled:     true,
+			AutoSync:    true,
+			SyncTime:    "11:00",
+			AutoBackup:  false,
+			LocalEngine: "mysql",
+			LocalDB:     "app_db",
+			CreatedAt:   day.Format("2006-01-02 15:04"),
+		}}
+	})
+	sc := NewScheduler(p, st, nil, nil, nil)
+
+	// Simulate manual Run Now at 10:10 AM (before 11:00 AM scheduled sync).
+	// Even on error or success, manual run must NOT set LastSyncDate=today.
+	run1010 := time.Date(2026, 11, 23, 10, 10, 0, 0, time.Local)
+	_, _ = sc.executeLocked("sched-11am", true, false, run1010, "manual")
+	cur := st.Get().Schedules[0]
+	if cur.LastSyncDate != "" {
+		t.Fatalf("manual Run Now must not set LastSyncDate, got %q", cur.LastSyncDate)
+	}
+	// At 11:00 AM, the scheduled sync must still be due!
+	at1100 := time.Date(2026, 11, 23, 11, 0, 5, 0, time.Local)
+	if !isScheduleDue(at1100, cur.SyncTime, cur.LastSyncDate, cur.CreatedAt) {
+		t.Fatal("expected 11:00 AM scheduled sync to remain due after 10:10 AM manual Run Now")
+	}
+
+	// ResetScheduleDateForEditedTime: changing time at 10:45 to upcoming 11:00 clears LastSyncDate;
+	// changing time at 11:05 to past 10:00 marks today so it does not fire retroactively.
+	at1045 := time.Date(2026, 11, 23, 10, 45, 0, 0, time.Local)
+	if got := ResetScheduleDateForEditedTime(at1045, "23:00", "11:00", "2026-11-23", true, true); got != "" {
+		t.Fatalf("expected cleared LastSyncDate for upcoming 11:00 edit at 10:45, got %q", got)
+	}
+	at1105 := time.Date(2026, 11, 23, 11, 5, 0, 0, time.Local)
+	if got := ResetScheduleDateForEditedTime(at1105, "23:00", "10:00", "", true, true); got != "2026-11-23" {
+		t.Fatalf("expected today marker for past 10:00 edit at 11:05, got %q", got)
+	}
+
+	// Structured sync trace logs must be persisted newest-first and filterable by scheduleID
+	AppendSyncLog(p, SyncLogEntry{
+		ScheduleID: "sched-11am",
+		Name:       "Daily 11 AM Pull",
+		Trigger:    "scheduled",
+		Action:     "sync",
+		Direction:  "pull",
+		Source:     "Cloud:prod/canyoneeringdb",
+		Target:     "Local:MYSQL/canyoneeringdb",
+		Status:     "ok",
+		DurationMs: 1420,
+		Detail:     "Synced 30 table(s)",
+	})
+	AppendSyncLog(p, SyncLogEntry{
+		ScheduleID: "other-sched",
+		Name:       "Other",
+		Trigger:    "manual",
+		Action:     "backup",
+		Status:     "ok",
+		Detail:     "backup.zip",
+	})
+
+	allLogs, err := ReadSyncLogs(p, "", 50)
+	if err != nil || len(allLogs) < 3 {
+		t.Fatalf("expected >= 3 persisted sync trace logs, got %d err=%v", len(allLogs), err)
+	}
+	if allLogs[0].ScheduleID != "other-sched" {
+		t.Fatalf("expected newest entry first, got %+v", allLogs[0])
+	}
+	filtered, err := ReadSyncLogs(p, "sched-11am", 50)
+	if err != nil || len(filtered) != 2 {
+		t.Fatalf("expected 2 filtered logs for sched-11am, got %d err=%v", len(filtered), err)
+	}
+	if filtered[0].Trigger != "scheduled" || filtered[0].Status != "ok" {
+		t.Fatalf("unexpected top filtered log: %+v", filtered[0])
+	}
+	if !fileExists(filepath.Join(p.Logs, "scheduler.log")) {
+		t.Fatal("expected human-readable logs/scheduler.log to be written")
+	}
+	if err := ClearSyncLogs(p); err != nil {
+		t.Fatalf("ClearSyncLogs: %v", err)
+	}
+	afterClear, _ := ReadSyncLogs(p, "", 50)
+	if len(afterClear) != 0 {
+		t.Fatalf("expected 0 logs after clear, got %d", len(afterClear))
+	}
+}
+
 
 
 

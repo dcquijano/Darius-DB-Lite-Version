@@ -65,20 +65,32 @@ if (-not $SetupFile) {
     if ($Token) { $headers["Authorization"] = "Bearer $Token" }
 
     Write-Host "Checking GitHub for latest Darius DB release..." -ForegroundColor Cyan
-    $verUrl = if ($Token) {
-        "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/contents/version.json"
+    $repoCandidates = @("dcquijano/Darius-DB-Lite-Releases", "dcquijano/Darius-DB-Lite-Version")
+    $verInfo = $null
+    $activeRepo = $repoCandidates[0]
+    $lastErrMsg = ""
+    foreach ($slug in $repoCandidates) {
+        $verUrl = if ($Token) {
+            "https://api.github.com/repos/$slug/contents/version.json"
+        }
+        else {
+            "https://raw.githubusercontent.com/$slug/main/version.json?t=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
+        }
+        if ($Token) { $headers["Accept"] = "application/vnd.github.raw+json" }
+        try {
+            $verInfo = Invoke-RestMethod -Uri $verUrl -Headers $headers -ErrorAction Stop
+            if ($verInfo -and $verInfo.version) {
+                $activeRepo = $slug
+                break
+            }
+        }
+        catch {
+            $lastErrMsg = $_.Exception.Message
+        }
     }
-    else {
-        "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/version.json?t=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
-    }
-    if ($Token) { $headers["Accept"] = "application/vnd.github.raw+json" }
-
-    try {
-        $verInfo = Invoke-RestMethod -Uri $verUrl -Headers $headers -ErrorAction Stop
-    }
-    catch {
-        Write-Host "ERROR: Could not fetch version.json from GitHub ($($_.Exception.Message))." -ForegroundColor Red
-        Write-Host "If dcquijano/Darius-DB-Lite-Version is Private, make it Public on GitHub or pass -Token <GITHUB_PAT>." -ForegroundColor Yellow
+    if (-not $verInfo) {
+        Write-Host "ERROR: Could not fetch version.json from GitHub ($lastErrMsg)." -ForegroundColor Red
+        Write-Host "Ensure public releases repo dcquijano/Darius-DB-Lite-Releases exists, or pass -Token <GITHUB_PAT>." -ForegroundColor Yellow
         exit 1
     }
 
@@ -86,8 +98,8 @@ if (-not $SetupFile) {
     if ($verInfo.directSetupUrl) { $dlUrls += $verInfo.directSetupUrl }
     if ($verInfo.fallbackSetupUrl) { $dlUrls += $verInfo.fallbackSetupUrl }
     if ($verInfo.version) {
-        $dlUrls += "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v$($verInfo.version)/DariusDB-Setup-$($verInfo.version).exe"
-        $dlUrls += "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-$($verInfo.version).exe"
+        $dlUrls += "https://github.com/$activeRepo/releases/download/v$($verInfo.version)/DariusDB-Setup-$($verInfo.version).exe"
+        $dlUrls += "https://raw.githubusercontent.com/$activeRepo/main/installer/DariusDB-Setup-$($verInfo.version).exe"
     }
 
     $stageDir = Join-Path $env:TEMP "DariusDB-Update"

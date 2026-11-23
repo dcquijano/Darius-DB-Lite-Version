@@ -101,6 +101,11 @@ func NewAppWithOptions(paths *core.Paths, st *core.SettingsStore, skipAdopt bool
 			runtime.EventsEmit(a.ctx, "schedule-run-progress", prog)
 		}
 	})
+	a.sched.SetSyncLogCallback(func(entry core.SyncLogEntry) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "sync-log-updated", entry)
+		}
+	})
 	return a
 }
 
@@ -1085,6 +1090,31 @@ func (a *App) CloudSyncDatabase(srcTarget, srcDB, dstTarget, dstDB string) (stri
 
 	srcEng, srcEs, _ := a.resolveTarget(srcTarget)
 	dstEng, dstEs, _ := a.resolveTarget(dstTarget)
+	startedAt := time.Now()
+	direction := "push"
+	if strings.HasPrefix(srcTarget, "cloud:") {
+		direction = "pull"
+	}
+	srcLabel := fmt.Sprintf("%s/%s", srcTarget, srcDB)
+	dstLabel := fmt.Sprintf("%s/%s", dstTarget, dstDB)
+	logSyncModal := func(status, detail string, durMs int64) {
+		entry := core.AppendSyncLog(a.paths, core.SyncLogEntry{
+			Name:       fmt.Sprintf("%s → %s", srcDB, dstDB),
+			Trigger:    "sync-modal",
+			Action:     "sync",
+			Direction:  direction,
+			Source:     srcLabel,
+			Target:     dstLabel,
+			Status:     status,
+			DurationMs: durMs,
+			Detail:     detail,
+		})
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "sync-log-updated", entry)
+		}
+	}
+	logSyncModal("started", fmt.Sprintf("Started manual %s sync via Local ↔ Cloud Sync dialog", direction), 0)
+
 	emit := func(prog core.CloudSyncProgress) {
 		if a.ctx != nil {
 			runtime.EventsEmit(a.ctx, "cloud-sync-progress", prog)
@@ -1096,9 +1126,11 @@ func (a *App) CloudSyncDatabase(srcTarget, srcDB, dstTarget, dstDB string) (stri
 		srcEng, srcEs, rErr = core.EnsureLocalEngineReady(a.paths, a.settings, a.mgr, srcEng, srcEs)
 		if syncCtx.Err() != nil {
 			emit(core.CloudSyncProgress{Percent: 3, State: "cancelled", Stage: "Sync Cancelled", Detail: "Database sync was cancelled by user."})
+			logSyncModal("cancelled", "Database sync was cancelled by user", time.Since(startedAt).Milliseconds())
 			return "", core.ErrSyncCancelled
 		}
 		if rErr != nil {
+			logSyncModal("error", rErr.Error(), time.Since(startedAt).Milliseconds())
 			return "", rErr
 		}
 	}
@@ -1108,13 +1140,26 @@ func (a *App) CloudSyncDatabase(srcTarget, srcDB, dstTarget, dstDB string) (stri
 		dstEng, dstEs, rErr = core.EnsureLocalEngineReady(a.paths, a.settings, a.mgr, dstEng, dstEs)
 		if syncCtx.Err() != nil {
 			emit(core.CloudSyncProgress{Percent: 4, State: "cancelled", Stage: "Sync Cancelled", Detail: "Database sync was cancelled by user."})
+			logSyncModal("cancelled", "Database sync was cancelled by user", time.Since(startedAt).Milliseconds())
 			return "", core.ErrSyncCancelled
 		}
 		if rErr != nil {
+			logSyncModal("error", rErr.Error(), time.Since(startedAt).Milliseconds())
 			return "", rErr
 		}
 	}
-	return core.CloudSyncDatabaseWithContext(syncCtx, a.paths, srcEng, srcEs, srcDB, dstEng, dstEs, dstDB, emit)
+	msg, err := core.CloudSyncDatabaseWithContext(syncCtx, a.paths, srcEng, srcEs, srcDB, dstEng, dstEs, dstDB, emit)
+	durMs := time.Since(startedAt).Milliseconds()
+	if err != nil {
+		if errors.Is(err, core.ErrSyncCancelled) {
+			logSyncModal("cancelled", "Database sync was cancelled by user", durMs)
+		} else {
+			logSyncModal("error", err.Error(), durMs)
+		}
+		return "", err
+	}
+	logSyncModal("ok", msg, durMs)
+	return msg, nil
 }
 
 // ---------------------------------------------------------------- Daily Auto-Sync & 2:00 AM Auto-Backup (1-Week Purge)
@@ -1139,6 +1184,7 @@ func (a *App) SaveSchedule(sched core.BackupSyncSchedule) ([]core.BackupSyncSche
 	if ns.AutoSync && ns.CloudID == "" {
 		return nil, errors.New("select a Cloud Profile for Daily Auto-Sync")
 	}
+	now := time.Now()
 	err := a.settings.Update(func(s *core.Settings) {
 		for i, cur := range s.Schedules {
 			if cur.ID == ns.ID {
@@ -1156,6 +1202,9 @@ func (a *App) SaveSchedule(sched core.BackupSyncSchedule) ([]core.BackupSyncSche
 					ns.LastBackupStatus = cur.LastBackupStatus
 					ns.LastPurgedCount = cur.LastPurgedCount
 				}
+				// Re-arm today's schedule slot if the user changed SyncTime/BackupTime to an upcoming time today
+				ns.LastSyncDate = core.ResetScheduleDateForEditedTime(now, cur.SyncTime, ns.SyncTime, ns.LastSyncDate, cur.AutoSync && cur.Enabled, ns.AutoSync && ns.Enabled)
+				ns.LastBackupDate = core.ResetScheduleDateForEditedTime(now, cur.BackupTime, ns.BackupTime, ns.LastBackupDate, cur.AutoBackup && cur.Enabled, ns.AutoBackup && ns.Enabled)
 				s.Schedules[i] = ns
 				return
 			}
@@ -1236,6 +1285,23 @@ func (a *App) WindowsTaskStatus() map[string]interface{} {
 
 func (a *App) SetWindowsTask(timeHHMM string, enable bool) error {
 	return core.RegisterWindowsScheduleTask(a.paths, timeHHMM, enable)
+}
+
+func (a *App) SyncLogs(scheduleID string, limit int) ([]core.SyncLogEntry, error) {
+	return core.ReadSyncLogs(a.paths, scheduleID, limit)
+}
+
+func (a *App) ClearSyncLogs() error {
+	return core.ClearSyncLogs(a.paths)
+}
+
+func (a *App) OpenSyncLogFile() error {
+	_ = os.MkdirAll(a.paths.Logs, 0o755)
+	logPath := filepath.Join(a.paths.Logs, "scheduler.log")
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		_ = os.WriteFile(logPath, []byte("# Darius DB Sync & Scheduler Trace Log\r\n"), 0o644)
+	}
+	return core.OpenInNotepad(logPath)
 }
 
 func (a *App) CloudRedisDatabases(target string) ([]core.RedisDB, error) {

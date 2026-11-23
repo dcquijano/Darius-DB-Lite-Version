@@ -473,6 +473,7 @@
                 <span class="muted">Automatically pulls <strong>Cloud → Local</strong> every day and saves <strong>.zip</strong> snapshots at 2:00 AM, purging backups older than 7 days (1 week).</span>
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                <button type="button" class="btn xs accent" id="btnOpenSyncLogs" title="View full Sync &amp; Auto-Schedule trace log (every scheduled &amp; manual sync)">📋 Sync Logs</button>
                 <button type="button" class="btn xs" id="btnToggleWinTask" title="Register or remove daily Windows Task Scheduler wake-up at 02:00 AM">🪟 Win 2 AM Task: OFF</button>
                 <button type="button" class="btn xs" id="btnPurgeAllSnapshots" title="Delete backup snapshots older than retention days (default 7 days)">🗑 Purge &gt;7d Now</button>
                 <button type="button" class="btn xs accent" id="btnOpenBackupsFolder" title="Open backups/ snapshot folder">📁 backups/</button>
@@ -1612,6 +1613,42 @@
         </div>
         <div class="modal-actions">
           <button type="button" class="btn" id="btnDoneSchedRun">Hide (Runs in Background)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sync & Auto-Schedule Trace Log Modal -->
+  <div class="modal-backdrop" id="modalSyncLogs" role="dialog" aria-modal="true" aria-labelledby="syncLogModalTitle" hidden>
+    <div class="modal modal-sync-logs">
+      <div class="modal-head">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <h3 id="syncLogModalTitle">📋 Sync &amp; Auto-Schedule Trace Logs</h3>
+          <span class="pill accent" id="syncLogCountPill">0 entries</span>
+        </div>
+        <button class="icon-btn" id="btnCloseSyncLogs" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="sync-log-toolbar">
+          <select id="syncLogSchedFilter" class="select sm" aria-label="Filter by schedule">
+            <option value="">All Schedules &amp; Syncs</option>
+          </select>
+          <select id="syncLogStatusFilter" class="select sm" aria-label="Filter by status">
+            <option value="">All Statuses</option>
+            <option value="ok">OK Only</option>
+            <option value="error">Errors Only</option>
+            <option value="started">Started / Running</option>
+          </select>
+          <input type="search" id="syncLogSearch" class="input sm" placeholder="Search DB, error, or detail..." autocomplete="off" />
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" class="btn xs accent" id="btnRefreshSyncLogs">↻ Refresh</button>
+            <button type="button" class="btn xs" id="btnOpenSyncLogFile" title="Open logs/scheduler.log in Notepad">📄 scheduler.log</button>
+            <button type="button" class="btn xs danger-ghost" id="btnClearSyncLogs">🗑 Clear</button>
+          </div>
+        </div>
+        <div id="syncLogList" class="sync-log-list" role="log" aria-live="polite"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnDoneSyncLogs">Close</button>
         </div>
       </div>
     </div>

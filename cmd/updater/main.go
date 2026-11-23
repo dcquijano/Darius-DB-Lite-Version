@@ -795,7 +795,7 @@ func startUpdateCheck() {
 			postProgress(35, "", fmt.Sprintf("Found local package: %s (v%s)", filepath.Base(localPath), localVer))
 		}
 
-		postProgress(55, "Querying GitHub (version.json, commits, releases)...", "Connecting to https://github.com/dcquijano/Darius-DB-Lite-Version ...")
+		postProgress(55, "Querying GitHub (version.json, commits, releases)...", "Connecting to GitHub Releases (dcquijano/Darius-DB-Lite-Releases)...")
 		info, _ := core.CheckSystemUpdate(up.installedVer, tok)
 
 		up.mu.Lock()

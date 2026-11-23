@@ -5,6 +5,7 @@ package core
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -67,11 +68,182 @@ type BackupSnapshotInfo struct {
 type ScheduleRunProgress struct {
 	ScheduleID string `json:"scheduleId"`
 	Name       string `json:"name"`
+	Trigger    string `json:"trigger"` // scheduled | manual
 	Mode       string `json:"mode"`    // sync | backup | both
 	Percent    int    `json:"percent"` // 0..100 monotonic
 	State      string `json:"state"`   // running | done | error
 	Stage      string `json:"stage"`
 	Detail     string `json:"detail"`
+}
+
+// SyncLogEntry records a persistent traceable audit entry for every scheduled,
+// manual, or modal database sync, backup, and retention purge.
+type SyncLogEntry struct {
+	ID         string `json:"id"`
+	Timestamp  string `json:"timestamp"`
+	ScheduleID string `json:"scheduleId,omitempty"`
+	Name       string `json:"name"`
+	Trigger    string `json:"trigger"`             // scheduled | manual | sync-modal
+	Action     string `json:"action"`              // sync | backup | purge
+	Direction  string `json:"direction,omitempty"` // pull | push
+	Source     string `json:"source,omitempty"`
+	Target     string `json:"target,omitempty"`
+	Status     string `json:"status"` // started | ok | error | cancelled
+	DurationMs int64  `json:"durationMs,omitempty"`
+	Detail     string `json:"detail"`
+}
+
+var syncLogMu sync.Mutex
+
+const maxSyncLogEntries = 500
+
+func syncLogJSONLPath(p *Paths) string {
+	if p == nil || p.Logs == "" {
+		return ""
+	}
+	return filepath.Join(p.Logs, "sync-history.jsonl")
+}
+
+func syncLogTextPath(p *Paths) string {
+	if p == nil || p.Logs == "" {
+		return ""
+	}
+	return filepath.Join(p.Logs, "scheduler.log")
+}
+
+// AppendSyncLog persists a structured trace entry to logs/sync-history.jsonl and a
+// human-readable line to logs/scheduler.log (bounded to maxSyncLogEntries).
+func AppendSyncLog(p *Paths, entry SyncLogEntry) SyncLogEntry {
+	if entry.ID == "" {
+		b := make([]byte, 4)
+		_, _ = rand.Read(b)
+		entry.ID = "log-" + hex.EncodeToString(b)
+	}
+	if entry.Timestamp == "" {
+		entry.Timestamp = time.Now().Format("2006-01-02 15:04:05")
+	}
+	if p == nil || p.Logs == "" {
+		return entry
+	}
+	syncLogMu.Lock()
+	defer syncLogMu.Unlock()
+
+	_ = os.MkdirAll(p.Logs, 0o755)
+
+	// 1. Append human-readable trace line to logs/scheduler.log
+	if f, err := os.OpenFile(syncLogTextPath(p), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		route := ""
+		if entry.Source != "" || entry.Target != "" {
+			route = fmt.Sprintf(" | %s -> %s", entry.Source, entry.Target)
+		}
+		dur := ""
+		if entry.DurationMs > 0 {
+			dur = fmt.Sprintf(" | %.1fs", float64(entry.DurationMs)/1000.0)
+		}
+		_, _ = fmt.Fprintf(f, "[%s] [%s] [%s] [%s] %s%s%s | %s\n",
+			entry.Timestamp,
+			strings.ToUpper(fallbackStr(entry.Trigger, "manual")),
+			strings.ToUpper(fallbackStr(entry.Action, "sync")),
+			strings.ToUpper(fallbackStr(entry.Status, "ok")),
+			fallbackStr(entry.Name, "Sync"),
+			route,
+			dur,
+			entry.Detail,
+		)
+		f.Close()
+	}
+
+	// 2. Append structured JSONL entry to logs/sync-history.jsonl
+	jlPath := syncLogJSONLPath(p)
+	if b, err := json.Marshal(entry); err == nil {
+		if f, err := os.OpenFile(jlPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			_, _ = f.Write(b)
+			_, _ = f.WriteString("\n")
+			f.Close()
+		}
+	}
+	// Bound JSONL file size so history never grows unbounded
+	if raw, err := os.ReadFile(jlPath); err == nil {
+		lines := strings.Split(strings.TrimRight(string(raw), "\r\n"), "\n")
+		if len(lines) > maxSyncLogEntries+100 {
+			kept := lines[len(lines)-maxSyncLogEntries:]
+			_ = os.WriteFile(jlPath, []byte(strings.Join(kept, "\n")+"\n"), 0o644)
+		}
+	}
+	return entry
+}
+
+// ReadSyncLogs returns recent sync/backup trace entries newest-first, optionally
+// filtered by scheduleID.
+func ReadSyncLogs(p *Paths, scheduleID string, limit int) ([]SyncLogEntry, error) {
+	if limit <= 0 || limit > maxSyncLogEntries {
+		limit = 200
+	}
+	if p == nil || p.Logs == "" {
+		return []SyncLogEntry{}, nil
+	}
+	syncLogMu.Lock()
+	raw, err := os.ReadFile(syncLogJSONLPath(p))
+	syncLogMu.Unlock()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []SyncLogEntry{}, nil
+		}
+		return nil, err
+	}
+	lines := strings.Split(string(raw), "\n")
+	out := make([]SyncLogEntry, 0, min(len(lines), limit))
+	filterID := strings.TrimSpace(scheduleID)
+	for i := len(lines) - 1; i >= 0 && len(out) < limit; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		var e SyncLogEntry
+		if json.Unmarshal([]byte(line), &e) != nil {
+			continue
+		}
+		if filterID != "" && e.ScheduleID != filterID {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, nil
+}
+
+// ClearSyncLogs clears both logs/sync-history.jsonl and logs/scheduler.log.
+func ClearSyncLogs(p *Paths) error {
+	if p == nil || p.Logs == "" {
+		return nil
+	}
+	syncLogMu.Lock()
+	defer syncLogMu.Unlock()
+	_ = os.Remove(syncLogJSONLPath(p))
+	_ = os.WriteFile(syncLogTextPath(p), []byte{}, 0o644)
+	return nil
+}
+
+// ResetScheduleDateForEditedTime computes the updated LastSyncDate / LastBackupDate
+// when a schedule's target HH:MM time or enabled flag is changed:
+//   - If the new time is still ahead of `now` today, returns "" so it runs today on schedule.
+//   - If the new time has already passed today, returns today's date to prevent a retroactive run.
+//   - If the time and enabled state did not change, preserves curLastDate.
+func ResetScheduleDateForEditedTime(now time.Time, oldHHMM, newHHMM, curLastDate string, wasActive, nowActive bool) string {
+	if !nowActive {
+		return curLastDate
+	}
+	if normalizeHHMM(oldHHMM) == normalizeHHMM(newHHMM) && wasActive {
+		return curLastDate
+	}
+	norm := normalizeHHMM(newHHMM)
+	parts := strings.Split(norm, ":")
+	hh, _ := strconv.Atoi(parts[0])
+	mm, _ := strconv.Atoi(parts[1])
+	target := time.Date(now.Year(), now.Month(), now.Day(), hh, mm, 0, 0, now.Location())
+	if now.Before(target) {
+		return ""
+	}
+	return now.Format("2006-01-02")
 }
 
 func mapProgressRange(innerPct, startPct, endPct int) int {
@@ -434,6 +606,7 @@ type Scheduler struct {
 	onChange           func()
 	onProgress         func(CloudSyncProgress)
 	onScheduleProgress func(ScheduleRunProgress)
+	onSyncLog          func(SyncLogEntry)
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -456,6 +629,18 @@ func (sc *Scheduler) SetScheduleProgressCallback(fn func(ScheduleRunProgress)) {
 	sc.onScheduleProgress = fn
 }
 
+// SetSyncLogCallback registers a listener invoked whenever a new trace log entry is recorded.
+func (sc *Scheduler) SetSyncLogCallback(fn func(SyncLogEntry)) {
+	sc.onSyncLog = fn
+}
+
+func (sc *Scheduler) recordLog(entry SyncLogEntry) {
+	saved := AppendSyncLog(sc.p, entry)
+	if sc.onSyncLog != nil {
+		sc.onSyncLog(saved)
+	}
+}
+
 func (sc *Scheduler) Start() {
 	go func() {
 		// Brief startup grace so local engines finish adopting/starting first
@@ -464,8 +649,9 @@ func (sc *Scheduler) Start() {
 			return
 		case <-time.After(8 * time.Second):
 		}
+		sc.appendLog("Scheduler started (checking due daily sync/backup schedules every 15s)")
 		sc.RunDueSchedules(time.Now())
-		tick := time.NewTicker(30 * time.Second)
+		tick := time.NewTicker(15 * time.Second)
 		defer tick.Stop()
 		for {
 			select {
@@ -532,8 +718,16 @@ func (sc *Scheduler) RunDueSchedules(now time.Time) {
 		// Always enforce 1-week snapshot retention even if today's backup hasn't triggered yet
 		if sched.AutoBackup {
 			dir := ScheduleBackupDir(sc.p, sched)
-			if purgedN, _, _ := PurgeOldSnapshots(dir, sched.RetentionDays, now); purgedN > 0 {
-				sc.appendLog(fmt.Sprintf("%s: purged %d expired snapshot(s) (>= %d days old) from %s", sched.Name, purgedN, sched.RetentionDays, dir))
+			if purgedN, purgedNames, _ := PurgeOldSnapshots(dir, sched.RetentionDays, now); purgedN > 0 {
+				sc.recordLog(SyncLogEntry{
+					ScheduleID: sched.ID,
+					Name:       sched.Name,
+					Trigger:    "scheduled",
+					Action:     "purge",
+					Target:     dir,
+					Status:     "ok",
+					Detail:     fmt.Sprintf("Purged %d expired snapshot(s) (>= %d days old): %s", purgedN, sched.RetentionDays, strings.Join(purgedNames, ", ")),
+				})
 				_ = sc.updateScheduleStatus(sched.ID, func(cur *BackupSyncSchedule) {
 					cur.LastPurgedCount = purgedN
 				})
@@ -544,17 +738,19 @@ func (sc *Scheduler) RunDueSchedules(now time.Time) {
 		if !doBackup && !doSync {
 			continue
 		}
-		_, _ = sc.executeLocked(sched.ID, doSync, doBackup, now)
+		_, _ = sc.executeLocked(sched.ID, doSync, doBackup, now, "scheduled")
 	}
 }
 
 // RunScheduleNow executes a schedule immediately by ID ("both", "sync", or "backup").
+// Manual runs are logged and update LastSyncAt/LastBackupAt without consuming today's
+// upcoming scheduled time slot (LastSyncDate/LastBackupDate).
 func (sc *Scheduler) RunScheduleNow(id, mode string) (string, error) {
 	sc.runMu.Lock()
 	defer sc.runMu.Unlock()
 	doSync := mode == "both" || mode == "sync" || mode == ""
 	doBackup := mode == "both" || mode == "backup" || mode == ""
-	return sc.executeLocked(id, doSync, doBackup, time.Now())
+	return sc.executeLocked(id, doSync, doBackup, time.Now(), "manual")
 }
 
 func (sc *Scheduler) updateScheduleStatus(id string, fn func(*BackupSyncSchedule)) error {
@@ -572,7 +768,14 @@ func (sc *Scheduler) updateScheduleStatus(id string, fn func(*BackupSyncSchedule
 	return err
 }
 
-func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Time) (string, error) {
+func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Time, trigger string) (string, error) {
+	if trigger != "scheduled" {
+		trigger = "manual"
+	}
+	trigTag := "Manual"
+	if trigger == "scheduled" {
+		trigTag = "Auto"
+	}
 	var sched BackupSyncSchedule
 	found := false
 	for _, s := range sc.st.Get().Schedules {
@@ -628,6 +831,7 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 			sc.onScheduleProgress(ScheduleRunProgress{
 				ScheduleID: sched.ID,
 				Name:       sched.Name,
+				Trigger:    trigger,
 				Mode:       runMode,
 				Percent:    pct,
 				State:      state,
@@ -637,10 +841,11 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 		}
 	}
 
-	emitProg(2, "running", "Starting schedule...", fmt.Sprintf("Preparing %s...", sched.Name))
+	emitProg(2, "running", "Starting schedule...", fmt.Sprintf("Preparing %s (%s)...", sched.Name, trigTag))
 
 	// 1) Auto-Sync (default Pull Cloud -> Local)
 	if runSync {
+		syncStartedAt := time.Now()
 		syncStart, syncEnd := 4, 96
 		syncPrefix := ""
 		if runBackup {
@@ -651,9 +856,18 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 			err := errors.New("cloud profile not found for auto-sync")
 			firstErr = err
 			_ = sc.updateScheduleStatus(id, func(cur *BackupSyncSchedule) {
-				cur.LastSyncAt, cur.LastSyncStatus = humanNow, "err: "+err.Error()
+				cur.LastSyncAt, cur.LastSyncStatus = humanNow, fmt.Sprintf("err [%s]: %s", trigTag, err.Error())
 			})
-			sc.appendLog(fmt.Sprintf("%s SYNC FAILED: %v", sched.Name, err))
+			sc.recordLog(SyncLogEntry{
+				ScheduleID: sched.ID,
+				Name:       sched.Name,
+				Trigger:    trigger,
+				Action:     "sync",
+				Direction:  sched.SyncDirection,
+				Status:     "error",
+				DurationMs: time.Since(syncStartedAt).Milliseconds(),
+				Detail:     err.Error(),
+			})
 			emitProg(syncEnd, "running", syncPrefix+"Sync failed", err.Error())
 		} else {
 			cloudDB := fallbackStr(sched.CloudDB, cloudConn.Database)
@@ -662,6 +876,22 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 				localDB = FormatAutoPullLocalDBName(localDB, sched.AutoNameFormat, now)
 				effectiveLocalDB = localDB
 			}
+			srcDesc := fmt.Sprintf("Cloud:%s/%s", cloudConn.Name, cloudDB)
+			dstDesc := fmt.Sprintf("Local:%s/%s", strings.ToUpper(localEng), localDB)
+			if sched.SyncDirection == "push" {
+				srcDesc, dstDesc = dstDesc, srcDesc
+			}
+			sc.recordLog(SyncLogEntry{
+				ScheduleID: sched.ID,
+				Name:       sched.Name,
+				Trigger:    trigger,
+				Action:     "sync",
+				Direction:  sched.SyncDirection,
+				Source:     srcDesc,
+				Target:     dstDesc,
+				Status:     "started",
+				Detail:     fmt.Sprintf("Started %s %s sync (scheduled @ %s)", strings.ToLower(trigTag), sched.SyncDirection, sched.SyncTime),
+			})
 			emitProg(syncStart, "running", syncPrefix+"Checking local service...", fmt.Sprintf("Ensuring local %s is ready for %s...", strings.ToUpper(localEng), localDB))
 			syncProgressCB := func(p CloudSyncProgress) {
 				if sc.onProgress != nil {
@@ -681,17 +911,45 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 			} else {
 				msg, syncErr = CloudSyncDatabaseWithProgress(sc.p, cloudEng, cloudEs, cloudDB, effEng, effEs, localDB, syncProgressCB)
 			}
+			durMs := time.Since(syncStartedAt).Milliseconds()
 			if syncErr != nil {
 				firstErr = syncErr
 				_ = sc.updateScheduleStatus(id, func(cur *BackupSyncSchedule) {
-					cur.LastSyncAt, cur.LastSyncStatus = humanNow, "err: "+syncErr.Error()
+					cur.LastSyncAt, cur.LastSyncStatus = humanNow, fmt.Sprintf("err [%s]: %s", trigTag, syncErr.Error())
 				})
-				sc.appendLog(fmt.Sprintf("%s SYNC FAILED (%s): %v", sched.Name, sched.SyncDirection, syncErr))
+				sc.recordLog(SyncLogEntry{
+					ScheduleID: sched.ID,
+					Name:       sched.Name,
+					Trigger:    trigger,
+					Action:     "sync",
+					Direction:  sched.SyncDirection,
+					Source:     srcDesc,
+					Target:     dstDesc,
+					Status:     "error",
+					DurationMs: durMs,
+					Detail:     syncErr.Error(),
+				})
 			} else {
 				_ = sc.updateScheduleStatus(id, func(cur *BackupSyncSchedule) {
-					cur.LastSyncAt, cur.LastSyncDate, cur.LastSyncStatus = humanNow, today, "ok · "+msg
+					cur.LastSyncAt = humanNow
+					cur.LastSyncStatus = fmt.Sprintf("ok [%s] · %s", trigTag, msg)
+					// Only automatic scheduled runs consume today's scheduled SyncTime slot
+					if trigger == "scheduled" {
+						cur.LastSyncDate = today
+					}
 				})
-				sc.appendLog(fmt.Sprintf("%s SYNC OK (%s): %s", sched.Name, sched.SyncDirection, msg))
+				sc.recordLog(SyncLogEntry{
+					ScheduleID: sched.ID,
+					Name:       sched.Name,
+					Trigger:    trigger,
+					Action:     "sync",
+					Direction:  sched.SyncDirection,
+					Source:     srcDesc,
+					Target:     dstDesc,
+					Status:     "ok",
+					DurationMs: durMs,
+					Detail:     msg,
+				})
 				parts = append(parts, msg)
 				emitProg(syncEnd, "running", syncPrefix+"Sync complete", msg)
 			}
@@ -700,6 +958,7 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 
 	// 2) Auto-Backup (.zip snapshot) + 1-week retention purge
 	if runBackup {
+		bkpStartedAt := time.Now()
 		bkpStart, bkpEnd := 4, 95
 		bkpPrefix := ""
 		if runSync {
@@ -708,14 +967,34 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 		}
 		emitProg(bkpStart, "running", bkpPrefix+"Preparing .zip snapshot...", fmt.Sprintf("Creating backup archive for %s...", sched.Name))
 		dir := ScheduleBackupDir(sc.p, sched)
+		sc.recordLog(SyncLogEntry{
+			ScheduleID: sched.ID,
+			Name:       sched.Name,
+			Trigger:    trigger,
+			Action:     "backup",
+			Source:     sched.BackupSource,
+			Target:     dir,
+			Status:     "started",
+			Detail:     fmt.Sprintf("Started %s .zip snapshot backup (scheduled @ %s)", strings.ToLower(trigTag), sched.BackupTime),
+		})
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
 			_ = sc.updateScheduleStatus(id, func(cur *BackupSyncSchedule) {
-				cur.LastBackupAt, cur.LastBackupStatus = humanNow, "err: "+err.Error()
+				cur.LastBackupAt, cur.LastBackupStatus = humanNow, fmt.Sprintf("err [%s]: %s", trigTag, err.Error())
 			})
-			sc.appendLog(fmt.Sprintf("%s BACKUP FAILED: %v", sched.Name, err))
+			sc.recordLog(SyncLogEntry{
+				ScheduleID: sched.ID,
+				Name:       sched.Name,
+				Trigger:    trigger,
+				Action:     "backup",
+				Source:     sched.BackupSource,
+				Target:     dir,
+				Status:     "error",
+				DurationMs: time.Since(bkpStartedAt).Milliseconds(),
+				Detail:     err.Error(),
+			})
 		} else {
 			var snapFiles []string
 			var bErr error
@@ -788,23 +1067,50 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 
 			emitProg(97, "running", bkpPrefix+"Checking snapshot retention...", fmt.Sprintf("Purging snapshots older than %d day(s)...", sched.RetentionDays))
 			purgedN, _, _ := PurgeOldSnapshots(dir, sched.RetentionDays, now)
+			durMs := time.Since(bkpStartedAt).Milliseconds()
 			if bErr != nil {
 				if firstErr == nil {
 					firstErr = bErr
 				}
 				_ = sc.updateScheduleStatus(id, func(cur *BackupSyncSchedule) {
-					cur.LastBackupAt, cur.LastBackupStatus, cur.LastPurgedCount = humanNow, "err: "+bErr.Error(), purgedN
+					cur.LastBackupAt, cur.LastBackupStatus, cur.LastPurgedCount = humanNow, fmt.Sprintf("err [%s]: %s", trigTag, bErr.Error()), purgedN
 				})
-				sc.appendLog(fmt.Sprintf("%s BACKUP FAILED: %v", sched.Name, bErr))
+				sc.recordLog(SyncLogEntry{
+					ScheduleID: sched.ID,
+					Name:       sched.Name,
+					Trigger:    trigger,
+					Action:     "backup",
+					Source:     sched.BackupSource,
+					Target:     dir,
+					Status:     "error",
+					DurationMs: durMs,
+					Detail:     bErr.Error(),
+				})
 			} else {
-				statusMsg := fmt.Sprintf("ok · %s", strings.Join(snapFiles, ", "))
+				statusMsg := fmt.Sprintf("ok [%s] · %s", trigTag, strings.Join(snapFiles, ", "))
 				if purgedN > 0 {
 					statusMsg += fmt.Sprintf(" (purged %d >%dd)", purgedN, sched.RetentionDays)
 				}
 				_ = sc.updateScheduleStatus(id, func(cur *BackupSyncSchedule) {
-					cur.LastBackupAt, cur.LastBackupDate, cur.LastBackupStatus, cur.LastPurgedCount = humanNow, today, statusMsg, purgedN
+					cur.LastBackupAt = humanNow
+					cur.LastBackupStatus = statusMsg
+					cur.LastPurgedCount = purgedN
+					// Only automatic scheduled runs consume today's scheduled BackupTime slot
+					if trigger == "scheduled" {
+						cur.LastBackupDate = today
+					}
 				})
-				sc.appendLog(fmt.Sprintf("%s BACKUP OK: %s", sched.Name, statusMsg))
+				sc.recordLog(SyncLogEntry{
+					ScheduleID: sched.ID,
+					Name:       sched.Name,
+					Trigger:    trigger,
+					Action:     "backup",
+					Source:     sched.BackupSource,
+					Target:     dir,
+					Status:     "ok",
+					DurationMs: durMs,
+					Detail:     statusMsg,
+				})
 				parts = append(parts, "Backup saved: "+strings.Join(snapFiles, ", "))
 				if purgedN > 0 {
 					parts = append(parts, fmt.Sprintf("Purged %d expired snapshot(s) (>= %d days)", purgedN, sched.RetentionDays))

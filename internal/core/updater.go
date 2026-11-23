@@ -19,14 +19,41 @@ import (
 
 const (
 	defaultRepoOwner        = "dcquijano"
-	defaultRepoName         = "Darius-DB-Lite-Version"
-	defaultVersionJSONURL   = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/version.json"
-	defaultVersionAPIURL    = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/contents/version.json"
-	defaultGitHubRelURL     = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/releases/latest"
-	defaultGitHubCommitsURL = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/commits?per_page=10"
+	defaultReleasesRepoName = "Darius-DB-Lite-Releases"
+	defaultLegacyRepoName   = "Darius-DB-Lite-Version"
 	defaultDriveFolderURL   = "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing"
-	defaultRawInstallerBase = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer"
 )
+
+type repoEndpoints struct {
+	owner            string
+	repo             string
+	repoURL          string
+	versionJSONURL   string
+	versionAPIURL    string
+	releasesURL      string
+	commitsURL       string
+	rawInstallerBase string
+}
+
+func updaterRepoEndpoints(owner, repo string) repoEndpoints {
+	return repoEndpoints{
+		owner:            owner,
+		repo:             repo,
+		repoURL:          fmt.Sprintf("https://github.com/%s/%s", owner, repo),
+		versionJSONURL:   fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/version.json", owner, repo),
+		versionAPIURL:    fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/version.json", owner, repo),
+		releasesURL:      fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo),
+		commitsURL:       fmt.Sprintf("https://api.github.com/repos/%s/%s/commits?per_page=10", owner, repo),
+		rawInstallerBase: fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/installer", owner, repo),
+	}
+}
+
+func updaterCandidateRepos() []repoEndpoints {
+	return []repoEndpoints{
+		updaterRepoEndpoints(defaultRepoOwner, defaultReleasesRepoName),
+		updaterRepoEndpoints(defaultRepoOwner, defaultLegacyRepoName),
+	}
+}
 
 type GitHubCommitInfo struct {
 	SHA     string `json:"sha"`
@@ -195,21 +222,23 @@ func CheckSystemUpdate(currentVersion string, tokens ...string) (*SystemUpdateIn
 	}
 
 	var bestInfo *SystemUpdateInfo
-	for i, tok := range tokenAttempts {
-		info := checkSystemUpdateWithToken(currentVersion, tok)
-		if info.FetchOK {
-			return info, nil
-		}
-		bestInfo = info
-		// Only try next candidate token on auth/visibility errors (401/403/404)
-		if !info.RepoPrivateHint || i == len(tokenAttempts)-1 {
-			break
+	for _, repo := range updaterCandidateRepos() {
+		for i, tok := range tokenAttempts {
+			info := checkSystemUpdateForRepo(currentVersion, tok, repo)
+			if info.FetchOK {
+				return info, nil
+			}
+			bestInfo = info
+			// Only try next candidate token on auth/visibility errors (401/403/404)
+			if !info.RepoPrivateHint || i == len(tokenAttempts)-1 {
+				break
+			}
 		}
 	}
 	return bestInfo, nil
 }
 
-func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
+func checkSystemUpdateForRepo(currentVersion, tok string, repo repoEndpoints) *SystemUpdateInfo {
 
 	info := &SystemUpdateInfo{
 		Name:           "Darius DB (Lite Version " + currentVersion + ")",
@@ -273,13 +302,13 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 		accept string
 	}
 	verEndpoints := []verEndpoint{
-		{defaultVersionJSONURL, ""},
-		{defaultVersionAPIURL, "application/vnd.github.raw+json"},
+		{repo.versionJSONURL, ""},
+		{repo.versionAPIURL, "application/vnd.github.raw+json"},
 	}
 	if tok != "" {
 		verEndpoints = []verEndpoint{
-			{defaultVersionAPIURL, "application/vnd.github.raw+json"},
-			{defaultVersionJSONURL, ""},
+			{repo.versionAPIURL, "application/vnd.github.raw+json"},
+			{repo.versionJSONURL, ""},
 		}
 	}
 	for _, ep := range verEndpoints {
@@ -337,7 +366,7 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 			} `json:"author"`
 		} `json:"commit"`
 	}
-	if code, err := getJSONNoCache(client, defaultGitHubCommitsURL, tok, "application/vnd.github+json", &ghCommits); err == nil && len(ghCommits) > 0 {
+	if code, err := getJSONNoCache(client, repo.commitsURL, tok, "application/vnd.github+json", &ghCommits); err == nil && len(ghCommits) > 0 {
 		gotCommits = true
 		sources = append(sources, "commits")
 		for i, c := range ghCommits {
@@ -380,7 +409,7 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 			BrowserDownloadURL string `json:"browser_download_url"`
 		} `json:"assets"`
 	}
-	if code, err := getJSONNoCache(client, defaultGitHubRelURL, tok, "application/vnd.github+json", &ghRel); err == nil && ghRel.TagName != "" {
+	if code, err := getJSONNoCache(client, repo.releasesURL, tok, "application/vnd.github+json", &ghRel); err == nil && ghRel.TagName != "" {
 		gotRelease = true
 		sources = append(sources, "releases")
 		relVer = parseVersion(ghRel.TagName)
@@ -420,10 +449,10 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 		if tok != "" {
 			mainSetupURL = fmt.Sprintf(
 				"https://api.github.com/repos/%s/%s/contents/installer/DariusDB-Setup-%s.exe",
-				defaultRepoOwner, defaultRepoName, info.LatestVersion,
+				repo.owner, repo.repo, info.LatestVersion,
 			)
 		} else {
-			mainSetupURL = fmt.Sprintf("%s/DariusDB-Setup-%s.exe", defaultRawInstallerBase, info.LatestVersion)
+			mainSetupURL = fmt.Sprintf("%s/DariusDB-Setup-%s.exe", repo.rawInstallerBase, info.LatestVersion)
 		}
 		if compareVersions(relVer, info.LatestVersion) > 0 && relSetupURL != "" {
 			info.DirectSetupURL = relSetupURL
@@ -443,7 +472,7 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 
 	info.FetchOK = gotVersion || gotCommits || gotRelease
 	if len(sources) > 0 {
-		info.FetchSource = "GitHub (" + strings.Join(sources, " + ") + ")"
+		info.FetchSource = fmt.Sprintf("GitHub %s/%s (%s)", repo.owner, repo.repo, strings.Join(sources, " + "))
 	}
 	if !info.FetchOK {
 		switch lastStatus {
@@ -452,12 +481,12 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 			if tok != "" {
 				info.FetchError = fmt.Sprintf(
 					"GitHub returned HTTP 404 for %s/%s even with your token. Ensure the token has 'Contents: Read-only' (or 'repo') permission and the repository exists.",
-					defaultRepoOwner, defaultRepoName,
+					repo.owner, repo.repo,
 				)
 			} else {
 				info.FetchError = fmt.Sprintf(
-					"GitHub returned HTTP 404 for %s/%s. This happens when the GitHub repository is set to Private. Fix: Make the repo Public in GitHub Settings → Danger Zone, OR save a GitHub Personal Access Token below.",
-					defaultRepoOwner, defaultRepoName,
+					"GitHub returned HTTP 404 for %s/%s. This happens when the GitHub repository is set to Private or not yet created. Fix: Create/publish Public releases repo %s/%s, OR save a GitHub Personal Access Token below.",
+					repo.owner, repo.repo, defaultRepoOwner, defaultReleasesRepoName,
 				)
 			}
 		case 401, 403:

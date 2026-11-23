@@ -18,8 +18,10 @@ import (
 )
 
 const (
-	defaultRemoteCatalogURL    = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/internal/core/catalog.json"
-	defaultRemoteCatalogAPIURL = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/contents/internal/core/catalog.json"
+	defaultReleasesCatalogURL    = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Releases/main/catalog.json"
+	defaultReleasesCatalogAPIURL = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Releases/contents/catalog.json"
+	defaultRemoteCatalogURL      = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/internal/core/catalog.json"
+	defaultRemoteCatalogAPIURL   = "https://api.github.com/repos/dcquijano/Darius-DB-Lite-Version/contents/internal/core/catalog.json"
 )
 
 //go:embed catalog.json
@@ -92,9 +94,19 @@ func RefreshCatalogWithToken(p *Paths, customURL, githubToken string) (Catalog, 
 		url    string
 		accept string
 	}
-	sources := []catSource{{defaultRemoteCatalogURL, ""}, {defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json"}}
+	sources := []catSource{
+		{defaultReleasesCatalogURL, ""},
+		{defaultReleasesCatalogAPIURL, "application/vnd.github.raw+json"},
+		{defaultRemoteCatalogURL, ""},
+		{defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json"},
+	}
 	if tokens[0] != "" {
-		sources = []catSource{{defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json"}, {defaultRemoteCatalogURL, ""}}
+		sources = []catSource{
+			{defaultReleasesCatalogAPIURL, "application/vnd.github.raw+json"},
+			{defaultReleasesCatalogURL, ""},
+			{defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json"},
+			{defaultRemoteCatalogURL, ""},
+		}
 	}
 	if strings.TrimSpace(customURL) != "" {
 		sources = append([]catSource{{strings.TrimSpace(customURL), ""}}, sources...)

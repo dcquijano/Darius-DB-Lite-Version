@@ -4216,6 +4216,7 @@ try {
 
     const closeTopModal = () => {
       if ($("modalConfirm") && !$("modalConfirm").hidden) { closeConfirm(false); return true; }
+      if ($("modalSyncLogs") && !$("modalSyncLogs").hidden) { $("modalSyncLogs").hidden = true; return true; }
       if ($("modalScheduleRun") && !$("modalScheduleRun").hidden) { $("modalScheduleRun").hidden = true; return true; }
       if ($("modalScheduleSnapshots") && !$("modalScheduleSnapshots").hidden) { $("modalScheduleSnapshots").hidden = true; return true; }
       if ($("modalScheduleForm") && !$("modalScheduleForm").hidden) { $("modalScheduleForm").hidden = true; return true; }
@@ -4589,6 +4590,34 @@ try {
       .join("");
   }
 
+  const liveScheduledRuns = {};
+
+  function computeNextScheduleText(hhmm, lastDate, createdAt) {
+    const raw = String(hhmm || "02:00").trim();
+    const m = /^(\d{1,2}):(\d{2})$/.exec(raw);
+    if (!m) return raw;
+    const hh = Number(m[1]);
+    const mm = Number(m[2]);
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
+    const label12 = `${hh % 12 || 12}:${pad(mm)} ${hh >= 12 ? "PM" : "AM"}`;
+    if (lastDate === today) {
+      return `Tomorrow ${label12} (today's scheduled run done)`;
+    }
+    if (now < target) {
+      return `Today ${label12}`;
+    }
+    if (!lastDate && createdAt && String(createdAt).startsWith(today)) {
+      const ct = new Date(String(createdAt).replace(" ", "T"));
+      if (!isNaN(ct.getTime()) && ct > target) {
+        return `Tomorrow ${label12}`;
+      }
+    }
+    return `Due now (${label12})`;
+  }
+
   function renderSchedules() {
     const winBtn = $("btnToggleWinTask");
     if (winBtn) {
@@ -4621,11 +4650,34 @@ try {
         const backupBadge = s.autoBackup
           ? `<span class="pill">📦 .zip @ ${esc(s.backupTime || "02:00")} · Purge ≥ ${s.retentionDays || 7}d</span>`
           : "";
-        const statusPill = s.enabled
-          ? `<span class="pill running">Active</span>`
-          : `<span class="pill">Paused</span>`;
+        const live = liveScheduledRuns[s.id];
+        const isLiveRunning = !!(live && live.state === "running");
+        const statusPill = isLiveRunning
+          ? `<span class="pill accent">⏳ Running ${Math.round(live.percent || 0)}%</span>`
+          : s.enabled
+            ? `<span class="pill running">Active</span>`
+            : `<span class="pill">Paused</span>`;
+        const nextLines = [];
+        if (s.enabled && s.autoSync) {
+          nextLines.push(`Next auto-sync: ${computeNextScheduleText(s.syncTime, s.lastSyncDate, s.createdAt)}`);
+        }
+        if (s.enabled && s.autoBackup) {
+          nextLines.push(`Next auto-backup: ${computeNextScheduleText(s.backupTime, s.lastBackupDate, s.createdAt)}`);
+        }
         const syncStat = s.lastSyncAt ? `Last sync (${s.lastSyncAt}): ${s.lastSyncStatus || "ok"}` : "Sync: pending next scheduled time";
-        const bkpStat = s.lastBackupAt ? `Last backup (${s.lastBackupAt}): ${s.lastBackupStatus || "ok"}` : "Backup: pending next 2:00 AM run";
+        const bkpStat = s.lastBackupAt ? `Last backup (${s.lastBackupAt}): ${s.lastBackupStatus || "ok"}` : "Backup: pending next scheduled run";
+        const liveHtml = isLiveRunning
+          ? `<div class="sched-live-box">
+              <div class="sched-live-top">
+                <span>⏰ ${esc(live.stage || "Auto-Sync running...")}</span>
+                <span style="font-family:var(--font-mono)">${Math.round(live.percent || 0)}%</span>
+              </div>
+              <div class="progress-bar" style="height:5px;margin:5px 0 3px">
+                <div class="progress-fill" style="width:${Math.max(2, Math.min(100, Math.round(live.percent || 0)))}%"></div>
+              </div>
+              <div class="muted" style="font-size:11px;word-break:break-word">${esc(live.detail || "")}</div>
+            </div>`
+          : "";
         return `<div class="cloud-card" data-sid="${esc(s.id)}">
           <div class="cloud-card-head">
             <div>
@@ -4641,12 +4693,15 @@ try {
           <div class="cloud-card-meta">
             ${cloud ? esc(cloud.name) + " (" + esc(s.cloudDb || cloud.database || "") + ")" : esc(s.cloudDb || "Local only")} ↔ ${esc((s.localEngine || "mssql").toUpperCase())}/${esc(s.localDb || (s.autoNameLocalDb ? (s.cloudDb || "auto") : "-"))}${s.autoNameLocalDb && s.syncDirection !== "push" ? "_<date_time>" : ""}
           </div>
+          ${nextLines.length ? `<div class="sched-next-line">${esc(nextLines.join(" · "))}</div>` : ""}
+          ${liveHtml}
           <div class="muted" style="font-size:11.5px;line-height:1.45">
             <div>${esc(syncStat)}</div>
             <div>${esc(bkpStat)}</div>
           </div>
           <div class="cloud-card-actions">
             <button type="button" class="btn xs primary" data-sact="run">▶ Run Now</button>
+            <button type="button" class="btn xs accent" data-sact="logs" title="View Sync &amp; Backup trace log for this schedule">📋 Logs</button>
             <button type="button" class="btn xs accent" data-sact="snaps">📦 Snapshots</button>
             <button type="button" class="btn xs" data-sact="purge" title="Purge snapshots >= ${s.retentionDays || 7} days old">🗑 Purge</button>
             <button type="button" class="btn xs" data-sact="folder">📁 Folder</button>
@@ -5291,17 +5346,30 @@ try {
     });
     $("btnOpenCloudSync").onclick = () => openCloudSyncModal("");
     if ($("btnMinimizeCloudSync")) $("btnMinimizeCloudSync").onclick = minimizeCloudSync;
-    if ($("btnRestoreCloudSync")) $("btnRestoreCloudSync").onclick = restoreCloudSync;
+    const openFloatingTarget = () => {
+      if (syncJob.autoSchedId && !syncJob.running) {
+        openSyncLogsModal(syncJob.autoSchedId);
+        return;
+      }
+      restoreCloudSync();
+    };
+    if ($("btnRestoreCloudSync")) $("btnRestoreCloudSync").onclick = openFloatingTarget;
     if ($("btnFloatCancelSync")) {
       $("btnFloatCancelSync").onclick = (e) => {
         e.stopPropagation();
+        if (syncJob.autoSchedId && !syncJob.running) {
+          syncJob.minimized = false;
+          syncJob.autoSchedId = "";
+          updateFloatingSync();
+          return;
+        }
         cancelRunningSync();
       };
     }
     if ($("syncFloatingBar")) {
       $("syncFloatingBar").onclick = (e) => {
         if (e.target.closest("#btnFloatCancelSync")) return;
-        restoreCloudSync();
+        openFloatingTarget();
       };
     }
     $("btnCloseCloudSync").onclick = closeCloudSync;
@@ -5638,9 +5706,176 @@ try {
 
     rt()?.EventsOn?.("schedule-run-progress", (p) => {
       if (!p) return;
+      const isAuto = p.trigger === "scheduled";
+      if (isAuto && p.scheduleId) {
+        const prev = liveScheduledRuns[p.scheduleId];
+        const st = p.state || "running";
+        liveScheduledRuns[p.scheduleId] = p;
+        if (!prev && st === "running") {
+          toast(`⏰ Auto-Sync started: ${p.name || "Schedule"}`, "info");
+        } else if (st === "done") {
+          toast(`✅ Auto-Sync finished: ${p.name || "Schedule"} — ${p.detail || "OK"}`, "ok");
+          invalidateSqlCache();
+          if (state.tab === "database") loadSqlDatabases(true).catch(() => {});
+          setTimeout(() => {
+            if (liveScheduledRuns[p.scheduleId]?.state !== "running") {
+              delete liveScheduledRuns[p.scheduleId];
+              if (state.tab === "cloud") renderSchedules();
+            }
+          }, 2500);
+        } else if (st === "error") {
+          toast(`⚠️ Auto-Sync failed (${p.name || "Schedule"}): ${p.detail || "See Sync Logs"}`, "err");
+          setTimeout(() => {
+            if (liveScheduledRuns[p.scheduleId]?.state !== "running") {
+              delete liveScheduledRuns[p.scheduleId];
+              if (state.tab === "cloud") renderSchedules();
+            }
+          }, 4000);
+        }
+        // Mirror automatic scheduled run onto the floating progress bar when no manual sync owns it
+        if (!syncJob.running) {
+          syncJob.autoSchedId = p.scheduleId;
+          syncJob.percent = Math.max(0, Math.min(100, Math.round(Number(p.percent) || 0)));
+          syncJob.state = st === "error" ? "error" : st === "done" ? "done" : "running";
+          syncJob.stage = `⏰ ${p.name || "Auto-Sync"}: ${p.stage || "Running..."}`;
+          syncJob.detail = p.detail || "";
+          syncJob.minimized = true;
+          updateFloatingSync();
+          if ($("btnFloatCancelSync")) $("btnFloatCancelSync").hidden = true;
+          if ($("btnRestoreCloudSync")) $("btnRestoreCloudSync").textContent = "📋 Logs";
+          if (st === "done" || st === "error") {
+            clearTimeout(syncHideTimer);
+            syncHideTimer = setTimeout(() => {
+              if (!syncJob.running) {
+                syncJob.minimized = false;
+                syncJob.autoSchedId = "";
+                if ($("btnRestoreCloudSync")) $("btnRestoreCloudSync").textContent = "↗ Open";
+                updateFloatingSync();
+              }
+            }, 6000);
+          }
+        }
+        if (state.tab === "cloud") renderSchedules();
+      }
       if (!schedRunState.running && (!schedRunState.schedId || p.scheduleId !== schedRunState.schedId)) return;
       if (schedRunState.schedId && p.scheduleId && p.scheduleId !== schedRunState.schedId) return;
       updateSchedRunProgressUI(p.percent, p.state || "running", p.stage || "Running...", p.detail || "");
+    });
+
+    // ---- Sync & Auto-Schedule Trace Logs Modal ----
+    let syncLogEntries = [];
+    const closeSyncLogsModal = () => {
+      if ($("modalSyncLogs")) $("modalSyncLogs").hidden = true;
+    };
+    const renderSyncLogsList = () => {
+      const box = $("syncLogList");
+      if (!box) return;
+      const schedF = ($("syncLogSchedFilter")?.value || "").trim();
+      const statF = ($("syncLogStatusFilter")?.value || "").trim().toLowerCase();
+      const q = ($("syncLogSearch")?.value || "").trim().toLowerCase();
+
+      const filtered = (syncLogEntries || []).filter((e) => {
+        if (schedF && e.scheduleId !== schedF) return false;
+        if (statF && String(e.status || "").toLowerCase() !== statF) return false;
+        if (q) {
+          const hay = `${e.timestamp} ${e.name} ${e.trigger} ${e.action} ${e.source} ${e.target} ${e.status} ${e.detail}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+      if ($("syncLogCountPill")) {
+        $("syncLogCountPill").textContent = `${filtered.length} ${filtered.length === 1 ? "entry" : "entries"}`;
+      }
+      if (!filtered.length) {
+        box.innerHTML = `<div class="empty-note" style="padding:20px">No sync or schedule trace logs yet. Every automatic scheduled sync (e.g. 11:00 AM), <strong>▶ Run Now</strong>, <strong>▶ Backup Now</strong>, and <strong>🔄 Sync</strong> run will be logged here with timestamp, duration, and result.</div>`;
+        return;
+      }
+      box.innerHTML = filtered
+        .map((e) => {
+          const st = String(e.status || "ok").toLowerCase();
+          const stPillCls = st === "ok" ? "running" : st === "error" ? "stopped" : "accent";
+          const stLabel = st === "ok" ? "✓ OK" : st === "error" ? "✕ ERROR" : st === "cancelled" ? "🛑 CANCELLED" : "⏳ STARTED";
+          const trigLabel = e.trigger === "scheduled" ? "⏰ Scheduled" : e.trigger === "sync-modal" ? "🔄 Sync Modal" : "▶ Manual";
+          const actLabel = e.action === "backup" ? "📦 Backup" : e.action === "purge" ? "🗑 Purge" : `🔄 Sync${e.direction ? " (" + e.direction + ")" : ""}`;
+          const durText = e.durationMs > 0 ? `${(e.durationMs / 1000).toFixed(1)}s` : "";
+          const route = e.source || e.target ? `${e.source || ""} → ${e.target || ""}` : "";
+          return `<div class="sync-log-row status-${esc(st)}">
+            <div class="sync-log-head">
+              <div class="sync-log-meta">
+                <strong style="font-size:12.5px">${esc(e.name || "Sync")}</strong>
+                <span class="pill accent">${esc(trigLabel)}</span>
+                <span class="pill">${esc(actLabel)}</span>
+                <span class="pill ${stPillCls}">${esc(stLabel)}</span>
+                ${durText ? `<span class="muted" style="font-family:var(--font-mono);font-size:11px">${esc(durText)}</span>` : ""}
+              </div>
+              <span class="sync-log-ts">${esc(e.timestamp || "")}</span>
+            </div>
+            ${route ? `<div class="sync-log-route">${esc(route)}</div>` : ""}
+            <div class="sync-log-detail">${esc(e.detail || "")}</div>
+          </div>`;
+        })
+        .join("");
+    };
+    const openSyncLogsModal = async (scheduleId = "") => {
+      const sel = $("syncLogSchedFilter");
+      if (sel) {
+        const opts = [`<option value="">All Schedules &amp; Syncs</option>`];
+        for (const sc of state.schedules || []) {
+          opts.push(`<option value="${esc(sc.id)}">${esc(sc.name)}</option>`);
+        }
+        sel.innerHTML = opts.join("");
+        sel.value = scheduleId || "";
+      }
+      if ($("syncLogStatusFilter")) $("syncLogStatusFilter").value = "";
+      if ($("syncLogSearch")) $("syncLogSearch").value = "";
+      try {
+        syncLogEntries = (await api().SyncLogs("", 300)) || [];
+      } catch (err) {
+        syncLogEntries = [];
+        toast(errMsg(err), "err");
+      }
+      renderSyncLogsList();
+      if ($("modalSyncLogs")) $("modalSyncLogs").hidden = false;
+    };
+    if ($("btnOpenSyncLogs")) $("btnOpenSyncLogs").onclick = () => openSyncLogsModal("");
+    if ($("btnCloseSyncLogs")) $("btnCloseSyncLogs").onclick = closeSyncLogsModal;
+    if ($("btnDoneSyncLogs")) $("btnDoneSyncLogs").onclick = closeSyncLogsModal;
+    if ($("syncLogSchedFilter")) $("syncLogSchedFilter").onchange = renderSyncLogsList;
+    if ($("syncLogStatusFilter")) $("syncLogStatusFilter").onchange = renderSyncLogsList;
+    if ($("syncLogSearch")) $("syncLogSearch").oninput = renderSyncLogsList;
+    if ($("btnRefreshSyncLogs")) {
+      $("btnRefreshSyncLogs").onclick = async () => {
+        try {
+          syncLogEntries = (await api().SyncLogs("", 300)) || [];
+          renderSyncLogsList();
+          toast("Sync trace logs refreshed", "info");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      };
+    }
+    if ($("btnOpenSyncLogFile")) {
+      $("btnOpenSyncLogFile").onclick = () => api().OpenSyncLogFile().catch((err) => toast(errMsg(err), "err"));
+    }
+    if ($("btnClearSyncLogs")) {
+      $("btnClearSyncLogs").onclick = async () => {
+        if (!(await askConfirm("Clear Sync Trace Logs?", "Clear all saved sync and schedule history entries from logs/sync-history.jsonl and logs/scheduler.log?", "Clear Logs"))) return;
+        try {
+          await api().ClearSyncLogs();
+          syncLogEntries = [];
+          renderSyncLogsList();
+          toast("Sync trace logs cleared", "ok");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      };
+    }
+    rt()?.EventsOn?.("sync-log-updated", (entry) => {
+      if (!entry) return;
+      syncLogEntries = [entry, ...(syncLogEntries || []).filter((x) => x.id !== entry.id)].slice(0, 300);
+      if ($("modalSyncLogs") && !$("modalSyncLogs").hidden) {
+        renderSyncLogsList();
+      }
     });
 
     const closeSnapModal = () => ($("modalScheduleSnapshots").hidden = true);
@@ -5777,6 +6012,8 @@ try {
             btn.disabled = false;
             btn.textContent = prev;
           }
+        } else if (act === "logs") {
+          await openSyncLogsModal(s.id);
         } else if (act === "snaps") {
           await loadSnapshotsModal(s.id);
         } else if (act === "purge") {

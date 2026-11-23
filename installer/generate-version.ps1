@@ -7,6 +7,8 @@
 param(
     [string]$Version = "",
     [string]$BuildId = "",
+    [string]$RepoSlug = "",
+    [string]$OutputPath = "",
     [switch]$KeepBuild,
     [switch]$SyncCliGo,
     [int]$MaxCommits = 45
@@ -137,7 +139,19 @@ try {
     $channel      = if ($existing -and $existing.channel) { [string]$existing.channel } else { "Lite Version" }
     $author       = if ($existing -and $existing.author) { [string]$existing.author } else { "Darius Cumpio" }
     $installerUrl = if ($existing -and $existing.installerUrl) { [string]$existing.installerUrl } else { "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing" }
-    $repoUrl      = if ($existing -and $existing.repoUrl) { [string]$existing.repoUrl } else { "https://github.com/dcquijano/Darius-DB-Lite-Version" }
+    if (-not $RepoSlug -and $env:DARIUSDB_RELEASES_REPO) {
+        $RepoSlug = $env:DARIUSDB_RELEASES_REPO.Trim()
+    }
+    if ($RepoSlug) {
+        $slugClean = $RepoSlug.Trim().Trim('/')
+        $repoUrl = "https://github.com/$slugClean"
+    } elseif ($existing -and $existing.repoUrl) {
+        $repoUrl = ([string]$existing.repoUrl).Trim().TrimEnd('/')
+        $slugClean = ($repoUrl -replace '^https?://github\.com/', '').Trim('/')
+    } else {
+        $slugClean = "dcquijano/Darius-DB-Lite-Releases"
+        $repoUrl = "https://github.com/$slugClean"
+    }
 
     $payload = [ordered]@{
         name             = "Darius DB ($channel $Version)"
@@ -151,7 +165,7 @@ try {
         installerUrl     = $installerUrl
         directSetupUrl   = "$repoUrl/releases/download/v$Version/DariusDB-Setup-$Version.exe"
         directZipUrl     = "$repoUrl/releases/download/v$Version/DariusDB-$Version-portable-windows-amd64.zip"
-        fallbackSetupUrl = "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-$Version.exe"
+        fallbackSetupUrl = "https://raw.githubusercontent.com/$slugClean/main/installer/DariusDB-Setup-$Version.exe"
         repoUrl          = $repoUrl
         announcement     = $announcement
         changelog        = @($changelog)
@@ -186,7 +200,8 @@ try {
     $lines.Add('}')
     $json = ($lines -join "`r`n") + "`r`n"
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText((Join-Path $RepoRoot "version.json"), $json, $utf8NoBom)
+    $targetPath = if ($OutputPath) { $OutputPath } else { Join-Path $RepoRoot "version.json" }
+    [System.IO.File]::WriteAllText($targetPath, $json, $utf8NoBom)
 
     if ($SyncCliGo -and (Test-Path "internal\core\cli.go")) {
         $cliPath = Join-Path $RepoRoot "internal\core\cli.go"

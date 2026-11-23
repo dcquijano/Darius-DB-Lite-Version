@@ -4210,6 +4210,7 @@ try {
 
     const closeTopModal = () => {
       if ($("modalConfirm") && !$("modalConfirm").hidden) { closeConfirm(false); return true; }
+      if ($("modalScheduleRun") && !$("modalScheduleRun").hidden) { $("modalScheduleRun").hidden = true; return true; }
       if ($("modalScheduleSnapshots") && !$("modalScheduleSnapshots").hidden) { $("modalScheduleSnapshots").hidden = true; return true; }
       if ($("modalScheduleForm") && !$("modalScheduleForm").hidden) { $("modalScheduleForm").hidden = true; return true; }
       if ($("modalBackupProgress") && !$("modalBackupProgress").hidden) { $("modalBackupProgress").hidden = true; return true; }
@@ -5514,12 +5515,137 @@ try {
     }
 
     let activeSnapSchedId = "";
+    let schedRunState = {
+      running: false,
+      schedId: "",
+      mode: "both", // "both" | "backup"
+      startedAt: 0,
+      pct: 0,
+      timer: null,
+      btn: null,
+    };
+
+    const stopSchedRunTimer = () => {
+      if (schedRunState.timer) {
+        clearInterval(schedRunState.timer);
+        schedRunState.timer = null;
+      }
+    };
+
+    const closeSchedRunModal = () => {
+      if ($("modalScheduleRun")) $("modalScheduleRun").hidden = true;
+    };
+    if ($("btnCloseSchedRun")) $("btnCloseSchedRun").onclick = closeSchedRunModal;
+    if ($("btnDoneSchedRun")) $("btnDoneSchedRun").onclick = closeSchedRunModal;
+
+    const updateSchedRunProgressUI = (pct, modeState, stage, detail) => {
+      const clamped = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+      schedRunState.pct = clamped;
+      const elapsedSec = schedRunState.startedAt ? ((Date.now() - schedRunState.startedAt) / 1000).toFixed(1) + "s" : "0.0s";
+
+      if (schedRunState.mode === "backup") {
+        const box = $("snapBackupProgBox");
+        if (box) {
+          box.hidden = false;
+          box.className = "sysup-fetch-box" + (modeState === "done" ? " success" : modeState === "error" ? " error" : "");
+          if ($("snapBackupSpinner")) $("snapBackupSpinner").hidden = modeState !== "running";
+          if ($("snapBackupStage")) $("snapBackupStage").textContent = stage || "Backing up...";
+          if ($("snapBackupPct")) $("snapBackupPct").textContent = `${clamped}%`;
+          if ($("snapBackupElapsed")) $("snapBackupElapsed").textContent = elapsedSec;
+          if ($("snapBackupBar")) $("snapBackupBar").style.width = `${clamped}%`;
+          if ($("snapBackupDetail")) $("snapBackupDetail").textContent = detail || "";
+        }
+        if ($("btnSnapRunBackupNow") && modeState === "running") {
+          $("btnSnapRunBackupNow").textContent = `⏳ ${clamped}%`;
+        }
+        return;
+      }
+
+      const box = $("schedRunProgBox");
+      if (box) {
+        box.className = "sysup-fetch-box" + (modeState === "done" ? " success" : modeState === "error" ? " error" : "");
+        if ($("schedRunSpinner")) $("schedRunSpinner").hidden = modeState !== "running";
+        if ($("schedRunStage")) $("schedRunStage").textContent = stage || "Running schedule...";
+        if ($("schedRunPct")) $("schedRunPct").textContent = `${clamped}%`;
+        if ($("schedRunElapsed")) $("schedRunElapsed").textContent = elapsedSec;
+        if ($("schedRunBar")) $("schedRunBar").style.width = `${clamped}%`;
+        if ($("schedRunDetail")) $("schedRunDetail").textContent = detail || "";
+      }
+      const pSync = $("schedRunPhaseSync");
+      const pBkp = $("schedRunPhaseBackup");
+      if (pSync && pBkp) {
+        const isBackupPhase = /\[2\/2|backup|snapshot|retention|purg/i.test(stage || "") || clamped >= 54;
+        if (modeState === "done") {
+          pSync.className = "pill running";
+          pBkp.className = "pill running";
+        } else if (modeState === "error") {
+          if (isBackupPhase) { pSync.className = "pill running"; pBkp.className = "pill stopped"; }
+          else { pSync.className = "pill stopped"; pBkp.className = "pill"; }
+        } else if (isBackupPhase) {
+          pSync.className = "pill running";
+          pBkp.className = "pill accent";
+        } else {
+          pSync.className = "pill accent";
+          pBkp.className = "pill";
+        }
+      }
+      if ($("btnDoneSchedRun")) {
+        $("btnDoneSchedRun").textContent = modeState === "running" ? "Hide (Runs in Background)" : "Close";
+      }
+      if (schedRunState.btn && schedRunState.btn.isConnected && modeState === "running") {
+        schedRunState.btn.textContent = `⏳ ${clamped}%`;
+      }
+    };
+
+    const startSchedRunTracking = (sched, mode, btn) => {
+      stopSchedRunTimer();
+      schedRunState = {
+        running: true,
+        schedId: sched?.id || activeSnapSchedId,
+        mode,
+        startedAt: Date.now(),
+        pct: 2,
+        timer: null,
+        btn: btn || null,
+      };
+      if (mode === "backup") {
+        updateSchedRunProgressUI(2, "running", "⏳ Starting snapshot backup...", `Preparing .zip backup for ${sched?.name || "schedule"}...`);
+      } else {
+        if ($("schedRunModalTitle")) {
+          $("schedRunModalTitle").textContent = `⏳ Running — ${sched?.name || "Schedule"}`;
+        }
+        if ($("schedRunPhaseSync")) $("schedRunPhaseSync").hidden = !sched?.autoSync;
+        if ($("schedRunPhaseBackup")) $("schedRunPhaseBackup").hidden = !sched?.autoBackup;
+        if ($("modalScheduleRun")) $("modalScheduleRun").hidden = false;
+        updateSchedRunProgressUI(2, "running", "⏳ Starting schedule...", `Preparing ${sched?.name || "schedule"}...`);
+      }
+      schedRunState.timer = setInterval(() => {
+        if (!schedRunState.running) return;
+        const elapsedSec = ((Date.now() - schedRunState.startedAt) / 1000).toFixed(1) + "s";
+        if (schedRunState.mode === "backup") {
+          if ($("snapBackupElapsed")) $("snapBackupElapsed").textContent = elapsedSec;
+        } else {
+          if ($("schedRunElapsed")) $("schedRunElapsed").textContent = elapsedSec;
+        }
+      }, 350);
+    };
+
+    rt()?.EventsOn?.("schedule-run-progress", (p) => {
+      if (!p) return;
+      if (!schedRunState.running && (!schedRunState.schedId || p.scheduleId !== schedRunState.schedId)) return;
+      if (schedRunState.schedId && p.scheduleId && p.scheduleId !== schedRunState.schedId) return;
+      updateSchedRunProgressUI(p.percent, p.state || "running", p.stage || "Running...", p.detail || "");
+    });
+
     const closeSnapModal = () => ($("modalScheduleSnapshots").hidden = true);
-    const loadSnapshotsModal = async (schedId) => {
+    const loadSnapshotsModal = async (schedId, keepProg = false) => {
       activeSnapSchedId = schedId;
       const sched = (state.schedules || []).find((s) => s.id === schedId);
       $("modalSnapTitle").textContent = `📦 Snapshots — ${sched ? sched.name : ""}`;
       $("modalSnapMeta").textContent = `Retention policy: Purge snapshots ≥ ${sched?.retentionDays || 7} day(s) (1 week)`;
+      if (!keepProg && $("snapBackupProgBox") && !(schedRunState.running && schedRunState.mode === "backup" && schedRunState.schedId === schedId)) {
+        $("snapBackupProgBox").hidden = true;
+      }
       const list = (await api().ScheduleSnapshots(schedId).catch(() => [])) || [];
       const box = $("snapListContainer");
       if (!list.length) {
@@ -5556,17 +5682,27 @@ try {
     if ($("btnSnapRunBackupNow")) {
       $("btnSnapRunBackupNow").onclick = async () => {
         const btn = $("btnSnapRunBackupNow");
+        const sched = (state.schedules || []).find((s) => s.id === activeSnapSchedId);
         btn.disabled = true;
-        btn.textContent = "⏳ Backing up...";
+        btn.textContent = "⏳ 2%";
+        startSchedRunTracking(sched, "backup", btn);
         try {
           const msg = await api().RunScheduleNow(activeSnapSchedId, "backup");
+          schedRunState.running = false;
+          stopSchedRunTimer();
+          updateSchedRunProgressUI(100, "done", "✅ Snapshot backup complete!", msg || "Snapshot created!");
           toast(msg || "Snapshot created!", "ok");
           state.schedules = (await api().Schedules()) || state.schedules;
           renderSchedules();
-          await loadSnapshotsModal(activeSnapSchedId);
+          await loadSnapshotsModal(activeSnapSchedId, true);
         } catch (err) {
+          schedRunState.running = false;
+          stopSchedRunTimer();
+          updateSchedRunProgressUI(100, "error", "⚠️ Snapshot backup failed", errMsg(err));
           toast(errMsg(err), "err");
         } finally {
+          schedRunState.running = false;
+          stopSchedRunTimer();
           btn.disabled = false;
           btn.textContent = "▶ Backup Now";
         }
@@ -5610,15 +5746,28 @@ try {
         if (act === "run") {
           const prev = btn.textContent;
           btn.disabled = true;
-          btn.textContent = "⏳ Running...";
+          btn.textContent = "⏳ 2%";
+          startSchedRunTracking(s, "both", btn);
           try {
             const msg = await api().RunScheduleNow(s.id, "both");
+            schedRunState.running = false;
+            stopSchedRunTimer();
+            if ($("schedRunModalTitle")) $("schedRunModalTitle").textContent = `✅ Completed — ${s.name}`;
+            updateSchedRunProgressUI(100, "done", "✅ Schedule run complete!", msg || "Schedule run complete!");
             toast(msg || "Schedule run complete!", "ok");
             state.schedules = (await api().Schedules()) || state.schedules;
             renderCloudView();
+            invalidateSqlCache();
+            if (state.tab === "database") await loadSqlDatabases(true);
           } catch (err) {
+            schedRunState.running = false;
+            stopSchedRunTimer();
+            if ($("schedRunModalTitle")) $("schedRunModalTitle").textContent = `⚠️ Failed — ${s.name}`;
+            updateSchedRunProgressUI(100, "error", "⚠️ Schedule run failed", errMsg(err));
             toast(errMsg(err), "err");
           } finally {
+            schedRunState.running = false;
+            stopSchedRunTimer();
             btn.disabled = false;
             btn.textContent = prev;
           }

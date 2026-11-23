@@ -2500,3 +2500,83 @@ body.has-sync-floating .toasts { bottom: 110px; }
     transform: none !important;
   }
 }
+
+.sched-run-phases {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Large Add / Edit Cloud Database Modal & Full-Width URI Input Row */
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.input-row > .input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+.input-row > .btn {
+  flex-shrink: 0;
+}
+.modal.modal-cloud-large {
+  width: 820px;
+  max-width: 95vw;
+  max-height: 92vh;
+}
+.modal.modal-cloud-large .modal-head {
+  padding: 15px 22px;
+}
+.modal.modal-cloud-large .modal-head h3 {
+  font-size: 16.5px;
+}
+.modal.modal-cloud-large .modal-body {
+  padding: 18px 22px 20px;
+  gap: 15px;
+}
+.modal.modal-cloud-large .cloud-uri-box {
+  padding: 12px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.modal.modal-cloud-large .modal-grid-2 {
+  gap: 16px;
+  align-items: end;
+}
+.modal.modal-cloud-large .modal-grid-3 {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr) 115px;
+  gap: 14px;
+  align-items: end;
+}
+.modal.modal-cloud-large .field > span {
+  font-size: 12.5px;
+}
+.modal.modal-cloud-large .input,
+.modal.modal-cloud-large .select {
+  padding: 9px 12px;
+  font-size: 13.5px;
+  min-height: 38px;
+}
+.modal.modal-cloud-large .pass-wrap .input {
+  padding-right: 40px;
+}
+.modal.modal-cloud-large .modal-actions {
+  margin-top: 8px;
+  gap: 10px;
+}
+.modal.modal-cloud-large .modal-actions .btn {
+  padding: 9px 16px;
+  font-size: 13.5px;
+}
+@media (max-width: 640px) {
+  .modal.modal-cloud-large .modal-grid-2,
+  .modal.modal-cloud-large .modal-grid-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

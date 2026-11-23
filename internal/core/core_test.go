@@ -992,6 +992,49 @@ func TestFormatAutoPullLocalDBName(t *testing.T) {
 	}
 }
 
+func TestMapProgressRangeAndScheduleRunProgress(t *testing.T) {
+	if got := mapProgressRange(0, 54, 95); got != 54 {
+		t.Fatalf("expected 54, got %d", got)
+	}
+	if got := mapProgressRange(50, 54, 95); got != 74 {
+		t.Fatalf("expected 74, got %d", got)
+	}
+	if got := mapProgressRange(100, 54, 95); got != 95 {
+		t.Fatalf("expected 95, got %d", got)
+	}
+	if got := mapProgressRange(-10, 4, 52); got != 4 {
+		t.Fatalf("expected clamp low 4, got %d", got)
+	}
+	if got := mapProgressRange(150, 4, 52); got != 52 {
+		t.Fatalf("expected clamp high 52, got %d", got)
+	}
+
+	root := t.TempDir()
+	p := NewPaths(root)
+	_ = p.Ensure()
+	st := LoadSettings(root)
+	_ = st.Update(func(s *Settings) {
+		s.Schedules = []BackupSyncSchedule{{
+			ID:         "sched-prog",
+			Name:       "NoOp Schedule",
+			Enabled:    true,
+			AutoSync:   false,
+			AutoBackup: false,
+		}}
+	})
+	sc := NewScheduler(p, st, nil, nil, nil)
+	var events []ScheduleRunProgress
+	sc.SetScheduleProgressCallback(func(ev ScheduleRunProgress) {
+		events = append(events, ev)
+	})
+	if _, err := sc.RunScheduleNow("sched-prog", "both"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) < 2 || events[0].Percent != 2 || events[len(events)-1].Percent != 100 || events[len(events)-1].State != "done" {
+		t.Fatalf("unexpected progress events: %+v", events)
+	}
+}
+
 
 
 

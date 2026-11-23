@@ -96,6 +96,11 @@ func NewAppWithOptions(paths *core.Paths, st *core.SettingsStore, skipAdopt bool
 			runtime.EventsEmit(a.ctx, "cloud-sync-progress", prog)
 		}
 	})
+	a.sched.SetScheduleProgressCallback(func(prog core.ScheduleRunProgress) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "schedule-run-progress", prog)
+		}
+	})
 	return a
 }
 

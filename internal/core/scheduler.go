@@ -62,6 +62,31 @@ type BackupSnapshotInfo struct {
 	Expired   bool    `json:"expired"`
 }
 
+// ScheduleRunProgress describes live 0-100% progress during a manual or scheduled
+// Auto-Sync / Auto-Backup execution.
+type ScheduleRunProgress struct {
+	ScheduleID string `json:"scheduleId"`
+	Name       string `json:"name"`
+	Mode       string `json:"mode"`    // sync | backup | both
+	Percent    int    `json:"percent"` // 0..100 monotonic
+	State      string `json:"state"`   // running | done | error
+	Stage      string `json:"stage"`
+	Detail     string `json:"detail"`
+}
+
+func mapProgressRange(innerPct, startPct, endPct int) int {
+	if innerPct < 0 {
+		innerPct = 0
+	}
+	if innerPct > 100 {
+		innerPct = 100
+	}
+	if endPct <= startPct {
+		return startPct
+	}
+	return startPct + (innerPct*(endPct-startPct))/100
+}
+
 func newScheduleID() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
@@ -403,11 +428,12 @@ func EnsureLocalEngineReady(p *Paths, st *SettingsStore, mgr *Manager, engine st
 // Scheduler runs enabled daily Auto-Sync (Pull Cloud -> Local / Push) and daily Auto-Backup
 // + 1-week snapshot purge tasks in the background.
 type Scheduler struct {
-	p          *Paths
-	st         *SettingsStore
-	mgr        *Manager
-	onChange   func()
-	onProgress func(CloudSyncProgress)
+	p                  *Paths
+	st                 *SettingsStore
+	mgr                *Manager
+	onChange           func()
+	onProgress         func(CloudSyncProgress)
+	onScheduleProgress func(ScheduleRunProgress)
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -423,6 +449,11 @@ func NewScheduler(p *Paths, st *SettingsStore, mgr *Manager, onChange func(), on
 		onProgress: onProgress,
 		stopCh:     make(chan struct{}),
 	}
+}
+
+// SetScheduleProgressCallback registers a listener for unified 0-100% schedule run progress.
+func (sc *Scheduler) SetScheduleProgressCallback(fn func(ScheduleRunProgress)) {
+	sc.onScheduleProgress = fn
 }
 
 func (sc *Scheduler) Start() {
@@ -567,8 +598,55 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 	var firstErr error
 	effectiveLocalDB := sched.LocalDB
 
+	runSync := doSync && sched.AutoSync
+	runBackup := doBackup && sched.AutoBackup
+	runMode := "both"
+	if runSync && !runBackup {
+		runMode = "sync"
+	} else if !runSync && runBackup {
+		runMode = "backup"
+	}
+
+	lastPct := 0
+	emitProg := func(pct int, state, stage, detail string) {
+		if pct < 0 {
+			pct = 0
+		}
+		if pct > 100 {
+			pct = 100
+		}
+		if state == "running" {
+			if pct > lastPct {
+				lastPct = pct
+			} else {
+				pct = lastPct
+			}
+		} else if pct > lastPct {
+			lastPct = pct
+		}
+		if sc.onScheduleProgress != nil {
+			sc.onScheduleProgress(ScheduleRunProgress{
+				ScheduleID: sched.ID,
+				Name:       sched.Name,
+				Mode:       runMode,
+				Percent:    pct,
+				State:      state,
+				Stage:      stage,
+				Detail:     detail,
+			})
+		}
+	}
+
+	emitProg(2, "running", "Starting schedule...", fmt.Sprintf("Preparing %s...", sched.Name))
+
 	// 1) Auto-Sync (default Pull Cloud -> Local)
-	if doSync && sched.AutoSync {
+	if runSync {
+		syncStart, syncEnd := 4, 96
+		syncPrefix := ""
+		if runBackup {
+			syncStart, syncEnd = 4, 52
+			syncPrefix = "[1/2 Sync] "
+		}
 		if cloudConn == nil {
 			err := errors.New("cloud profile not found for auto-sync")
 			firstErr = err
@@ -576,6 +654,7 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 				cur.LastSyncAt, cur.LastSyncStatus = humanNow, "err: "+err.Error()
 			})
 			sc.appendLog(fmt.Sprintf("%s SYNC FAILED: %v", sched.Name, err))
+			emitProg(syncEnd, "running", syncPrefix+"Sync failed", err.Error())
 		} else {
 			cloudDB := fallbackStr(sched.CloudDB, cloudConn.Database)
 			localDB := fallbackStr(sched.LocalDB, cloudDB)
@@ -583,14 +662,24 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 				localDB = FormatAutoPullLocalDBName(localDB, sched.AutoNameFormat, now)
 				effectiveLocalDB = localDB
 			}
+			emitProg(syncStart, "running", syncPrefix+"Checking local service...", fmt.Sprintf("Ensuring local %s is ready for %s...", strings.ToUpper(localEng), localDB))
+			syncProgressCB := func(p CloudSyncProgress) {
+				if sc.onProgress != nil {
+					sc.onProgress(p)
+				}
+				if p.State == "running" {
+					mapped := mapProgressRange(p.Percent, syncStart+2, syncEnd)
+					emitProg(mapped, "running", syncPrefix+fallbackStr(p.Stage, "Syncing database..."), p.Detail)
+				}
+			}
 			var msg string
 			var syncErr error
 			if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
 				syncErr = rErr
 			} else if sched.SyncDirection == "push" {
-				msg, syncErr = CloudSyncDatabaseWithProgress(sc.p, effEng, effEs, localDB, cloudEng, cloudEs, cloudDB, sc.onProgress)
+				msg, syncErr = CloudSyncDatabaseWithProgress(sc.p, effEng, effEs, localDB, cloudEng, cloudEs, cloudDB, syncProgressCB)
 			} else {
-				msg, syncErr = CloudSyncDatabaseWithProgress(sc.p, cloudEng, cloudEs, cloudDB, effEng, effEs, localDB, sc.onProgress)
+				msg, syncErr = CloudSyncDatabaseWithProgress(sc.p, cloudEng, cloudEs, cloudDB, effEng, effEs, localDB, syncProgressCB)
 			}
 			if syncErr != nil {
 				firstErr = syncErr
@@ -604,12 +693,20 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 				})
 				sc.appendLog(fmt.Sprintf("%s SYNC OK (%s): %s", sched.Name, sched.SyncDirection, msg))
 				parts = append(parts, msg)
+				emitProg(syncEnd, "running", syncPrefix+"Sync complete", msg)
 			}
 		}
 	}
 
 	// 2) Auto-Backup (.zip snapshot) + 1-week retention purge
-	if doBackup && sched.AutoBackup {
+	if runBackup {
+		bkpStart, bkpEnd := 4, 95
+		bkpPrefix := ""
+		if runSync {
+			bkpStart, bkpEnd = 54, 95
+			bkpPrefix = "[2/2 Backup] "
+		}
+		emitProg(bkpStart, "running", bkpPrefix+"Preparing .zip snapshot...", fmt.Sprintf("Creating backup archive for %s...", sched.Name))
 		dir := ScheduleBackupDir(sc.p, sched)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			if firstErr == nil {
@@ -622,7 +719,7 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 		} else {
 			var snapFiles []string
 			var bErr error
-			runZip := func(eng string, es EngineSettings, db string, suffix string) {
+			runZip := func(eng string, es EngineSettings, db string, suffix string, rangeStart, rangeEnd int) {
 				if bErr != nil || db == "" {
 					return
 				}
@@ -631,7 +728,12 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 					safe = "database"
 				}
 				outZip := filepath.Join(dir, fmt.Sprintf("%s%s_%s.zip", safe, suffix, stamp))
-				bErr = ExportDatabaseFullZipWithProgress(sc.p, eng, es, db, nil, true, true, outZip, nil)
+				bErr = ExportDatabaseFullZipWithProgress(sc.p, eng, es, db, nil, true, true, outZip, func(bp BackupProgress) {
+					if bp.State == "running" {
+						mapped := mapProgressRange(bp.Percent, rangeStart, rangeEnd)
+						emitProg(mapped, "running", bkpPrefix+fallbackStr(bp.Stage, "Exporting .zip snapshot..."), bp.Detail)
+					}
+				})
 				if bErr == nil {
 					snapFiles = append(snapFiles, filepath.Base(outZip))
 				}
@@ -639,26 +741,35 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 
 			switch sched.BackupSource {
 			case "both":
-				if cloudConn != nil {
-					runZip(cloudEng, cloudEs, fallbackStr(sched.CloudDB, cloudConn.Database), "_cloud")
+				mid := bkpStart + (bkpEnd-bkpStart)/2
+				hasCloud := cloudConn != nil
+				hasLocal := effectiveLocalDB != ""
+				cloudEnd := bkpEnd
+				localStart := bkpStart
+				if hasCloud && hasLocal {
+					cloudEnd = mid
+					localStart = mid
 				}
-				if effectiveLocalDB != "" {
+				if hasCloud {
+					runZip(cloudEng, cloudEs, fallbackStr(sched.CloudDB, cloudConn.Database), "_cloud", bkpStart, cloudEnd)
+				}
+				if hasLocal {
 					if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
 						if bErr == nil {
 							bErr = rErr
 						}
 					} else {
-						runZip(effEng, effEs, effectiveLocalDB, "_local")
+						runZip(effEng, effEs, effectiveLocalDB, "_local", localStart, bkpEnd)
 					}
 				}
 			case "cloud":
 				if cloudConn != nil {
-					runZip(cloudEng, cloudEs, fallbackStr(sched.CloudDB, cloudConn.Database), "")
+					runZip(cloudEng, cloudEs, fallbackStr(sched.CloudDB, cloudConn.Database), "", bkpStart, bkpEnd)
 				} else if effectiveLocalDB != "" {
 					if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
 						bErr = rErr
 					} else {
-						runZip(effEng, effEs, effectiveLocalDB, "")
+						runZip(effEng, effEs, effectiveLocalDB, "", bkpStart, bkpEnd)
 					}
 				} else {
 					bErr = errors.New("cloud profile not found for scheduled backup")
@@ -668,13 +779,14 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 					if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
 						bErr = rErr
 					} else {
-						runZip(effEng, effEs, effectiveLocalDB, "")
+						runZip(effEng, effEs, effectiveLocalDB, "", bkpStart, bkpEnd)
 					}
 				} else {
 					bErr = errors.New("local database name is required for backup")
 				}
 			}
 
+			emitProg(97, "running", bkpPrefix+"Checking snapshot retention...", fmt.Sprintf("Purging snapshots older than %d day(s)...", sched.RetentionDays))
 			purgedN, _, _ := PurgeOldSnapshots(dir, sched.RetentionDays, now)
 			if bErr != nil {
 				if firstErr == nil {
@@ -701,13 +813,21 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 		}
 	}
 
+	summary := strings.Join(parts, " · ")
 	if firstErr != nil {
-		return strings.Join(parts, " · "), firstErr
+		detail := firstErr.Error()
+		if summary != "" {
+			detail = summary + " · Error: " + detail
+		}
+		emitProg(100, "error", "Schedule finished with error", detail)
+		return summary, firstErr
 	}
 	if len(parts) == 0 {
+		emitProg(100, "done", "No enabled action ran", "Enable Auto-Sync or Auto-Backup in this schedule.")
 		return "No enabled action ran", nil
 	}
-	return strings.Join(parts, " · "), nil
+	emitProg(100, "done", "Schedule complete!", summary)
+	return summary, nil
 }
 
 // IsWindowsScheduleTaskRegistered checks if DariusDB-AutoSchedule is registered in Windows Task Scheduler.

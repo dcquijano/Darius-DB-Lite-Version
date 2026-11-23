@@ -5,7 +5,7 @@
   "channel": "Lite Version",
   "releasedAt": "2026-11-23",
   "author": "Darius Cumpio",
-  "latestCommit": "4cb17ce",
+  "latestCommit": "171aebf",
   "generatedFromGit": true,
   "installerUrl": "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing",
   "directSetupUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-Setup-0.1.5.exe",
@@ -14,6 +14,7 @@
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
   "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Release Lite Version 0.1.5 with auto-generated version.json, Darius DB logo/favicon, reliable Stop/Start All shortcuts, and export-ignore archives; Add 0-100% progress loading modals for Schedule Run/Backup Now and enlarge Add Cloud DB modal; Add Dashboard Guides/Shortcuts header buttons and visual step-by-step screenshots with lightbox.",
   "changelog": [
+    "[171aebf] Preserve committed version.json BuildID during tagged Release builds (2026-11-23)",
     "[4cb17ce] Release Lite Version 0.1.5 with auto-generated version.json, Darius DB logo/favicon, reliable Stop/Start All shortcuts, and export-ignore archives (2026-11-23)",
     "[2d1b762] Add 0-100% progress loading modals for Schedule Run/Backup Now and enlarge Add Cloud DB modal (build 202611230952) (2026-11-23)",
     "[311a836] Rebuild installers with visual guides, shortcuts, and Pull auto-naming (build 202611230933) (2026-11-23)",
@@ -57,7 +58,6 @@
     "[244c33d] Fix Cloud and Sync modal widths, select ellipsis, and grid overflow (2026-11-20)",
     "[4462a51] Add SQL result pagination (50, 100 up to Max/All) and navigation controls (2026-11-20)",
     "[30b4081] Fix nil-pointer panic on auto-update relaunch with --show --updated --all-off (2026-11-20)",
-    "[f70446c] Add full .zip database backup (SQL + per-table CSVs + manifest.json) and .zip restore support (2026-11-20)",
-    "[8c15bb8] Fix PostgreSQL child process-tree Stop, Apache/Mailpit autoStartServices=false on update, and clean MSSQL monitor state (2026-11-20)"
+    "[f70446c] Add full .zip database backup (SQL + per-table CSVs + manifest.json) and .zip restore support (2026-11-20)"
   ]
 }

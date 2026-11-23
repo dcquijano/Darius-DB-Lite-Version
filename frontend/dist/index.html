@@ -150,6 +150,14 @@
               title="Show System Announcement &amp; New Version Installer">
               📢 What's New
             </button>
+            <button class="btn accent" id="btnDashGuides"
+              title="Open Step-by-Step Visual Guide with Screenshots (Alt+8)">
+              📖 Guides
+            </button>
+            <button class="btn accent" id="btnDashShortcuts"
+              title="Open Keyboard Shortcuts Reference (F1 or Ctrl+/)">
+              ⌨️ Shortcuts
+            </button>
             <button class="btn accent" id="btnOpenSysUpdater"
               title="Check for Darius DB System Updates or install a new Setup .exe / .zip version">
               ⬆️ System Updater
@@ -715,6 +723,8 @@
             <p class="subtitle">Step-by-step instructions, interactive quick-start checklist, keyboard shortcuts, and CLI quick reference.</p>
           </div>
           <div class="head-actions">
+            <button type="button" class="btn sm ghost" id="btnGuideBackDash"
+              title="Return to Dashboard (Alt+1)">← Dashboard</button>
             <label class="sr-only" for="guideSearch">Filter guide topics and shortcuts</label>
             <input type="search" id="guideSearch" class="input sm guide-search-input"
               placeholder="Search guide or shortcuts (Ctrl+F)..." autocomplete="off" />
@@ -1590,6 +1600,32 @@
         <div class="modal-actions" style="justify-content:space-between;align-items:center;flex-wrap:wrap">
           <button type="button" class="btn sm accent" id="btnShortcutsOpenGuide">📖 Open Full Step-by-Step Guide (Alt+8)</button>
           <button type="button" class="btn sm" id="btnDoneShortcuts">Close (Esc)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Guide Screenshot Lightbox Modal -->
+  <div class="modal-backdrop" id="modalGuideLightbox" role="dialog" aria-modal="true" aria-labelledby="lightboxTitle" hidden>
+    <div class="modal modal-lightbox">
+      <div class="modal-head">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap">
+          <h3 id="lightboxTitle" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Screenshot Preview</h3>
+          <span class="pill accent" id="lightboxCounter">1 / 1</span>
+        </div>
+        <button type="button" class="icon-btn" id="btnCloseLightbox" aria-label="Close screenshot preview">✕</button>
+      </div>
+      <div class="modal-body lightbox-body">
+        <div class="lightbox-stage">
+          <img id="lightboxImg" src="" alt="" />
+        </div>
+        <p class="lightbox-caption" id="lightboxCaption"></p>
+        <div class="modal-actions" style="justify-content:space-between;align-items:center;flex-wrap:wrap">
+          <div style="display:flex;gap:6px">
+            <button type="button" class="btn sm" id="btnLightboxPrev" title="Previous screenshot (Left Arrow)">‹ Prev</button>
+            <button type="button" class="btn sm" id="btnLightboxNext" title="Next screenshot (Right Arrow)">Next ›</button>
+          </div>
+          <button type="button" class="btn sm primary" id="btnDoneLightbox">Close (Esc)</button>
         </div>
       </div>
     </div>

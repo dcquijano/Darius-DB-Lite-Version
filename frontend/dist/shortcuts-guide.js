@@ -165,6 +165,8 @@
   const BUTTON_SHORTCUT_HINTS = {
     btnStartAll: "Start all enabled services (Ctrl+Shift+S)",
     btnStopAll: "Stop all running services (Ctrl+Shift+X)",
+    btnDashGuides: "Open Step-by-Step Visual Guide with Screenshots (Alt+8)",
+    btnDashShortcuts: "Open Keyboard Shortcuts quick reference (F1 or Ctrl+/)",
     btnOpenRepair: "Repair a single selected service/engine only (Ctrl+Shift+R)",
     btnRepairAllSystem: "Repair All system components, blocked ports, caches, locks & PATH (Ctrl+Shift+A)",
     btnOpenSysUpdater: "Check for Darius DB System Updates from GitHub (Ctrl+Shift+U)",
@@ -216,6 +218,9 @@
       title: "Install Portable Database & Web Engines",
       summary: "Download official portable builds into bin/ with zero installer or registry bloat.",
       shortcut: "Alt+4",
+      images: [
+        { src: "guide-images/versions-manager.jpg", caption: "Versions Manager — check newest builds, download portable engines, or import .zip" },
+      ],
       steps: [
         "Open the <strong>Versions</strong> tab in the left sidebar (or press <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">4</kbd>).",
         "Pick the engine you want from the top tabs: <strong>Apache</strong>, <strong>PHP</strong>, <strong>MariaDB</strong>, <strong>MySQL</strong>, <strong>PostgreSQL</strong>, <strong>MS SQL Server</strong>, <strong>Redis</strong>, or <strong>Mailpit</strong>.",
@@ -236,6 +241,10 @@
       title: "Start, Stop & Configure Auto-Run on Dashboard",
       summary: "Control all engines with one click, live ports/PIDs, and Auto-Run presets.",
       shortcut: "Alt+1",
+      images: [
+        { src: "guide-images/dashboard-overview.jpg", caption: "Services Dashboard — Start/Stop engines, switch versions, and monitor ports & PIDs" },
+        { src: "guide-images/dashboard-auto-run.jpg", caption: "Auto-Run Bar — toggle auto-start on launch and pick per-service pills or presets" },
+      ],
       steps: [
         "Go to <strong>Dashboard</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">1</kbd>) to see every engine's status dot, active version dropdown, port, and PID.",
         "Click <strong>Start All</strong> (<kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">S</kbd>) to launch all enabled engines, or click <strong>Start</strong> / <strong>Stop</strong> / <strong>Restart</strong> on any individual row.",
@@ -255,6 +264,9 @@
       title: "Host Local Websites, PHP Apps & Mailpit Email Testing",
       summary: "Serve projects from www/ on localhost:8080 and catch local emails in Mailpit (:8025).",
       shortcut: "Alt+1",
+      images: [
+        { src: "guide-images/dashboard-services-stack.jpg", caption: "Unified Apache 2.4 + PHP 8.x + MariaDB/MySQL (:3306) Full-Stack Architecture" },
+      ],
       steps: [
         "Start <strong>Apache Web Server</strong> (port <code>8080</code>) on the Dashboard — PHP 8.x runs integrated inside Apache 2.4.",
         "Place HTML or PHP project folders inside <code>www/</code>, or click <strong>Deploy .zip</strong> on the Apache row to deploy a zipped site directly into <code>www/</code>.",
@@ -275,6 +287,12 @@
       title: "Browse Databases, Multi-Tab SQL, Row CRUD & Redis",
       summary: "Inspect tables, edit rows visually, run multi-tab SQL queries, and manage Redis keys.",
       shortcut: "Alt+2",
+      images: [
+        { src: "guide-images/database-manager.jpg", caption: "Database Browser — databases, tables, multi-tab SQL editor (Ctrl+Enter) & results" },
+        { src: "guide-images/database-show-row.jpg", caption: "Show Row Details — inspect all columns and copy JSON in one click" },
+        { src: "guide-images/database-edit-row.jpg", caption: "Edit Row — update table records visually with NULL toggles" },
+        { src: "guide-images/database-create-row.jpg", caption: "Create Row — insert new rows directly into any selected table (Alt+=)" },
+      ],
       steps: [
         "Open <strong>Database</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">2</kbd>) or click <strong>Browse</strong> on any running engine card.",
         "<strong>Create DB &amp; User:</strong> Click <strong>+ New</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">D</kbd>) in the Databases pane to create a database and optionally create a dedicated user with full privileges in one step.",
@@ -295,6 +313,12 @@
       title: "Import, Export, Full .zip Backup & .bak Restore",
       summary: "Move data cleanly using .sql, .csv, full .zip archives, and MS SQL .bak files.",
       shortcut: "Alt+I / Alt+E",
+      images: [
+        { src: "guide-images/database-import.jpg", caption: "Import .sql, .csv, or .bak directly into an existing or auto-created DB (Alt+I)" },
+        { src: "guide-images/database-export.jpg", caption: "Export Entire DB, Current Table, or Selected Tables as .sql, .zip, or .csv (Alt+E)" },
+        { src: "guide-images/database-backup-zip.jpg", caption: "Full .zip Backup — complete SQL dump + per-table CSVs + manifest.json (Alt+B)" },
+        { src: "guide-images/database-restore-bak.jpg", caption: "Restore MS SQL .bak Backup with automatic logical file relocation into data/mssql/" },
+      ],
       steps: [
         "<strong>Import (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">I</kbd>):</strong> In the Database tab, click <strong>📥 Import</strong>, browse for a <code>.sql</code> dump, <code>.csv</code> spreadsheet (auto-creates columns from CSV headers), MS SQL <code>.bak</code>, or PostgreSQL <code>.backup</code> file, verify the target database name, and click <strong>Import Now</strong>.",
         "<strong>MS SQL .bak Restore:</strong> On MS SQL Server, click <strong>Restore .bak</strong> — Darius DB automatically runs <code>RESTORE FILELISTONLY</code> and relocates logical data/log files cleanly into <code>data/mssql/</code>.",
@@ -314,6 +338,13 @@
       title: "Cloud Databases & Daily 2:00 AM Auto-Sync / Backup",
       summary: "Connect remote hosts, sync Local ↔ Cloud, and automate daily 2:00 AM .zip backups with 7-day purge.",
       shortcut: "Alt+3",
+      images: [
+        { src: "guide-images/cloud-databases.jpg", caption: "Cloud Databases — provider presets, saved connections & daily 2:00 AM schedules" },
+        { src: "guide-images/cloud-add-database.jpg", caption: "Add Cloud DB — paste URI or ADO.NET string to auto-fill & Test Connection (Alt+N)" },
+        { src: "guide-images/cloud-auto-sync-schedule.jpg", caption: "Daily 2:00 AM Auto-Sync & Auto-Backup schedule configuration (Alt+B)" },
+        { src: "guide-images/cloud-win-2am-task.jpg", caption: "Windows 2:00 AM Scheduled Task integration & 7-day automatic snapshot purge" },
+        { src: "guide-images/cloud-backups-folder.jpg", caption: "backups/ Snapshot Folder — dated .zip archives organized per schedule" },
+      ],
       steps: [
         "Open <strong>Cloud</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">3</kbd>) and click a <strong>Quick Provider Preset</strong> (cPanel/Plesk/Hostinger, MonsterASP.NET/SmarterASP, Supabase/Neon, Aiven/TiDB/PlanetScale, AWS RDS/Azure, or Redis Cloud) or click <strong>+ Add Cloud DB</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">N</kbd>).",
         "Paste a full connection URI (<code>mysql://...</code>, <code>postgresql://...</code>) or ADO.NET string (<code>Server=...;Database=...;</code>) into the Quick Auto-Fill box and click <strong>Parse</strong>.",
@@ -335,6 +366,10 @@
       title: "Edit Config Files, View Live Logs & Use Built-in Terminal",
       summary: "Tune engine settings safely and run SQL / Shell / Redis commands without leaving the app.",
       shortcut: "Alt+5 / Alt+6",
+      images: [
+        { src: "guide-images/config-logs.jpg", caption: "Config & Logs — edit engine configs with Ctrl+S / Save & Restart and monitor logs (Alt+L)" },
+        { src: "guide-images/terminal.jpg", caption: "Built-in Multi-Mode Terminal — switch between Shell, MariaDB, MySQL, psql, sqlcmd & Redis CLI" },
+      ],
       steps: [
         "<strong>Config &amp; Logs (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">5</kbd>):</strong> Pick an engine tab to edit <code>httpd.conf</code>, <code>my.ini</code>, <code>postgresql.conf</code>, <code>mssql.conf</code>, or <code>redis.conf</code>.",
         "Press <kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">S</kbd> to save changes, or <kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">Enter</kbd> to <strong>Save &amp; Restart</strong> immediately. Click <strong>Notepad</strong> if you prefer an external editor.",
@@ -355,6 +390,11 @@
       title: "Self-Healing Repair, System Updater & Settings",
       summary: "Recover stuck ports/locks safely, update Darius DB in 1 click, and customize ports & themes.",
       shortcut: "Ctrl+Shift+R / U",
+      images: [
+        { src: "guide-images/repair-diagnostics.jpg", caption: "Self-Healing Repair & Diagnostics — fix configs, stale locks & ports safely (Ctrl+Shift+R / A)" },
+        { src: "guide-images/system-version-updater.jpg", caption: "GitHub System Version Updater — check releases, view commits & update in-place (Ctrl+Shift+U)" },
+        { src: "guide-images/settings.jpg", caption: "Settings — configure engine ports, credentials, theme, Windows boot & PATH (Alt+7)" },
+      ],
       steps: [
         "<strong>🔧 Repair Single Service (<kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">R</kbd>):</strong> Checks and fixes only the chosen service's binaries, configs, data directory, and stale PID locks without touching other engines.",
         "<strong>🛠️ Repair All (<kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">A</kbd>):</strong> Full-system diagnostics across all portable directories, <code>settings.json</code>, stale PIDs/orphaned processes, blocked ports (optional auto-reassign), SQL/UI caches, MS SQL LocalDB, and Windows <code>PATH</code> — keeping <code>data/</code> and <code>www/</code> safe.",
@@ -375,6 +415,9 @@
       title: "Connect Visual Studio, VS Code & Developer CLI (darius)",
       summary: "Copy ready-made connection snippets and control Darius DB from any IDE terminal.",
       shortcut: "Alt+7 / Alt+C",
+      images: [
+        { src: "guide-images/terminal.jpg", caption: "Use darius CLI & DB tools in Built-in Terminal, Visual Studio, VS Code, or PowerShell" },
+      ],
       steps: [
         "In <strong>Database</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">2</kbd>), click <strong>VS / .env</strong> to copy both Visual Studio (<code>appsettings.json</code>) and VS Code (<code>.env</code>) connection blocks, or press <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">C</kbd> to copy the raw Connection URI.",
         "Open <strong>Settings</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">7</kbd>) and click <strong>Add CLI &amp; DB Tools to Windows PATH</strong> (one-time step, then restart your IDE terminal).",
@@ -615,7 +658,97 @@
     }
   }
 
+  // ---- Screenshot Lightbox Modal ----
+  let lightboxState = { title: "", images: [], idx: 0, lastFocus: null };
+
+  function renderLightbox() {
+    const imgs = lightboxState.images || [];
+    if (!imgs.length) return;
+    const i = Math.max(0, Math.min(imgs.length - 1, lightboxState.idx));
+    lightboxState.idx = i;
+    const cur = imgs[i];
+    if ($("lightboxTitle")) $("lightboxTitle").textContent = lightboxState.title || "Screenshot Preview";
+    if ($("lightboxCounter")) $("lightboxCounter").textContent = `${i + 1} / ${imgs.length}`;
+    if ($("lightboxImg")) {
+      $("lightboxImg").src = cur.src;
+      $("lightboxImg").alt = cur.caption || lightboxState.title || "Guide screenshot";
+    }
+    if ($("lightboxCaption")) $("lightboxCaption").textContent = cur.caption || "";
+    const single = imgs.length <= 1;
+    if ($("btnLightboxPrev")) $("btnLightboxPrev").disabled = single;
+    if ($("btnLightboxNext")) $("btnLightboxNext").disabled = single;
+  }
+
+  function openLightbox(stepId, imgIdx = 0) {
+    const step = GUIDE_STEPS.find((s) => s.id === stepId);
+    const modal = $("modalGuideLightbox");
+    if (!step || !step.images?.length || !modal) return;
+    lightboxState = {
+      title: `Step ${step.num}: ${step.title}`,
+      images: step.images,
+      idx: Number(imgIdx) || 0,
+      lastFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+    };
+    renderLightbox();
+    modal.hidden = false;
+    $("btnCloseLightbox")?.focus();
+  }
+
+  function closeLightbox() {
+    const modal = $("modalGuideLightbox");
+    if (!modal || modal.hidden) return;
+    modal.hidden = true;
+    const prev = lightboxState.lastFocus;
+    lightboxState.lastFocus = null;
+    if (prev && typeof prev.focus === "function") {
+      try {
+        prev.focus();
+      } catch {
+        // Element may no longer be focusable
+      }
+    }
+  }
+
+  function stepLightbox(delta) {
+    const n = (lightboxState.images || []).length;
+    if (n < 2) return;
+    lightboxState.idx = (lightboxState.idx + delta + n) % n;
+    renderLightbox();
+  }
+
   // ---- In-App Guide & Shortcuts View ----
+  function renderQuickShortcutsStrip() {
+    const chips = [
+      { keys: [["F1"]], label: "Shortcuts Popup" },
+      { keys: [["Alt", "1–8"]], label: "Switch Tabs" },
+      { keys: [["Ctrl", "Shift", "S"]], label: "Start All" },
+      { keys: [["Ctrl", "Shift", "X"]], label: "Stop All" },
+      { keys: [["Ctrl", "Enter"]], label: "Run SQL" },
+      { keys: [["Ctrl", "S"]], label: "Save Config/Settings" },
+    ];
+    return `
+      <div class="card guide-shortcuts-strip">
+        <div class="guide-strip-head">
+          <div>
+            <strong>⌨️ Essential Shortcut Keys</strong>
+            <span class="muted"> · Works anywhere inside Darius DB</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" class="btn xs accent" data-guide-act="gmode" data-guide-target="shortcuts">View All Shortcuts →</button>
+            <button type="button" class="btn xs" data-guide-act="shortcuts-modal">Popup (F1)</button>
+          </div>
+        </div>
+        <div class="guide-strip-chips">
+          ${chips
+            .map(
+              (c) => `<div class="guide-key-chip">${renderKeys(c.keys)}<span>${esc(c.label)}</span></div>`
+            )
+            .join("")}
+        </div>
+      </div>
+    `;
+  }
+
   function renderChecklistCard() {
     const total = QUICKSTART_CHECKLIST.length;
     const doneCount = QUICKSTART_CHECKLIST.filter((c) => !!checklistState[c.id]).length;
@@ -651,14 +784,35 @@
     `;
   }
 
+  function renderStepImages(step) {
+    const imgs = step.images || [];
+    if (!imgs.length) return "";
+    return `
+      <div class="guide-media-grid ${imgs.length === 1 ? "single" : ""}">
+        ${imgs
+          .map(
+            (img, idx) => `<figure class="guide-figure">
+              <button type="button" class="guide-img-btn" data-guide-lb-step="${esc(step.id)}" data-guide-lb-idx="${idx}" title="Click to zoom screenshot">
+                <img src="${esc(img.src)}" alt="${esc(img.caption)}" loading="lazy" decoding="async" />
+                <span class="guide-zoom-pill" aria-hidden="true">🔍 Zoom</span>
+              </button>
+              <figcaption class="guide-figcaption">${esc(img.caption)}</figcaption>
+            </figure>`
+          )
+          .join("")}
+      </div>
+    `;
+  }
+
   function renderStepsTab(q) {
     const filtered = GUIDE_STEPS.filter((s) => {
       if (!q) return true;
-      const hay = `${s.title} ${s.summary} ${s.badge} ${s.steps.join(" ")} ${s.tip}`.toLowerCase();
+      const imgCaps = (s.images || []).map((i) => i.caption).join(" ");
+      const hay = `${s.title} ${s.summary} ${s.badge} ${s.steps.join(" ")} ${s.tip} ${imgCaps}`.toLowerCase();
       return hay.includes(q);
     });
 
-    const checklistHtml = q ? "" : renderChecklistCard();
+    const topCards = q ? "" : `${renderQuickShortcutsStrip()}${renderChecklistCard()}`;
     const stepsHtml = filtered.length
       ? filtered
           .map(
@@ -670,6 +824,7 @@
                 <div class="guide-step-title-row">
                   <h3>${esc(s.title)}</h3>
                   <span class="pill accent">${esc(s.badge)}</span>
+                  ${s.images?.length ? `<span class="pill">🖼️ ${s.images.length} ${s.images.length === 1 ? "pic" : "pics"}</span>` : ""}
                 </div>
                 <p class="muted">${esc(s.summary)}</p>
               </div>
@@ -677,6 +832,7 @@
               <span class="guide-chevron" aria-hidden="true">▾</span>
             </summary>
             <div class="guide-step-body">
+              ${renderStepImages(s)}
               <ol class="guide-ol">
                 ${s.steps.map((line) => `<li>${line}</li>`).join("")}
               </ol>
@@ -699,8 +855,8 @@
     const controlsBar = filtered.length
       ? `<div class="guide-section-bar">
           <div>
-            <strong>Step-by-Step User Manual (Darius DB Lite Version)</strong>
-            <span class="muted"> · ${filtered.length} topic${filtered.length === 1 ? "" : "s"}</span>
+            <strong>Visual Step-by-Step Guide (Darius DB Lite Version)</strong>
+            <span class="muted"> · ${filtered.length} topic${filtered.length === 1 ? "" : "s"} · Click any picture to zoom</span>
           </div>
           <div style="display:flex;gap:6px">
             <button type="button" class="btn xs" data-guide-expand="all">Expand All</button>
@@ -709,7 +865,7 @@
         </div>`
       : "";
 
-    return `${checklistHtml}${controlsBar}<div class="guide-steps-list">${stepsHtml}</div>`;
+    return `${topCards}${controlsBar}<div class="guide-steps-list">${stepsHtml}</div>`;
   }
 
   function renderShortcutsTab(q) {
@@ -908,6 +1064,8 @@
 
     const modalShortcuts = $("modalShortcuts");
     const shortcutsOpen = !!(modalShortcuts && !modalShortcuts.hidden);
+    const modalLightbox = $("modalGuideLightbox");
+    const lightboxOpen = !!(modalLightbox && !modalLightbox.hidden);
     const key = e.key || "";
     const lower = key.toLowerCase();
     const ctrlOrMeta = (e.ctrlKey || e.metaKey) && !e.altKey;
@@ -915,6 +1073,31 @@
     const isAltGr = e.ctrlKey && e.altKey; // Windows European keyboards use Ctrl+Alt for AltGr
 
     if (isAltGr) return;
+
+    // 0. Screenshot Lightbox modal takes priority when open
+    if (lightboxOpen) {
+      if (key === "Tab") {
+        trapModalFocus(modalLightbox, e);
+        return;
+      }
+      if (key === "Escape") {
+        e.preventDefault();
+        closeLightbox();
+        return;
+      }
+      if (key === "ArrowLeft") {
+        e.preventDefault();
+        stepLightbox(-1);
+        return;
+      }
+      if (key === "ArrowRight") {
+        e.preventDefault();
+        stepLightbox(1);
+        return;
+      }
+      if (key === "F5") e.preventDefault();
+      return;
+    }
 
     // 1. Focus trap when Shortcuts modal is open
     if (shortcutsOpen && key === "Tab") {
@@ -1229,9 +1412,32 @@
   }
 
   function wireUI() {
-    // Sidebar footer Shortcuts popup button
+    // Dashboard top header Guides & Shortcuts buttons + Sidebar footer Shortcuts button
+    if ($("btnDashGuides")) {
+      $("btnDashGuides").onclick = () => {
+        guideMode = "steps";
+        host.switchTab("guide");
+      };
+    }
+    if ($("btnDashShortcuts")) {
+      $("btnDashShortcuts").onclick = openShortcutsModal;
+    }
+    if ($("btnGuideBackDash")) {
+      $("btnGuideBackDash").onclick = () => host.switchTab("dashboard");
+    }
     if ($("btnSideShortcuts")) {
       $("btnSideShortcuts").onclick = openShortcutsModal;
+    }
+
+    // Screenshot Lightbox controls
+    if ($("btnCloseLightbox")) $("btnCloseLightbox").onclick = closeLightbox;
+    if ($("btnDoneLightbox")) $("btnDoneLightbox").onclick = closeLightbox;
+    if ($("btnLightboxPrev")) $("btnLightboxPrev").onclick = () => stepLightbox(-1);
+    if ($("btnLightboxNext")) $("btnLightboxNext").onclick = () => stepLightbox(1);
+    if ($("modalGuideLightbox")) {
+      $("modalGuideLightbox").addEventListener("click", (e) => {
+        if (e.target === $("modalGuideLightbox")) closeLightbox();
+      });
     }
 
     // Shortcuts modal controls
@@ -1309,6 +1515,11 @@
           } catch (err) {
             host.toast(String(err), "err");
           }
+          return;
+        }
+        const lbBtn = e.target.closest("[data-guide-lb-step]");
+        if (lbBtn) {
+          openLightbox(lbBtn.dataset.guideLbStep, Number(lbBtn.dataset.guideLbIdx) || 0);
           return;
         }
         const actBtn = e.target.closest("[data-guide-act]");

@@ -36,8 +36,10 @@ type BackupSyncSchedule struct {
 	AutoSync         bool   `json:"autoSync"`
 	SyncDirection    string `json:"syncDirection"`    // pull | push (default pull: Cloud -> Local)
 	SyncTime         string `json:"syncTime"`         // HH:MM 24h local time (default 02:00)
-	AutoBackup       bool   `json:"autoBackup"`
-	BackupTime       string `json:"backupTime"`       // HH:MM 24h local time (default 02:00)
+	AutoBackup           bool   `json:"autoBackup"`
+	AutoNameBackup       bool   `json:"autoNameBackup,omitempty"`
+	AutoNameBackupFormat string `json:"autoNameBackupFormat,omitempty"` // date_day_year_ts | month_day_year_ts | date_year_ts | date_day_year
+	BackupTime           string `json:"backupTime"`                     // HH:MM 24h local time (default 02:00)
 	BackupSource     string `json:"backupSource"`     // cloud | local | both (default cloud if CloudID set else local)
 	RetentionDays    int    `json:"retentionDays"`    // days before snapshot purge (default 7 = 1 week)
 	BackupDir        string `json:"backupDir,omitempty"`
@@ -331,6 +333,29 @@ func FormatAutoPullLocalDBName(base, format string, now time.Time) string {
 	return clean + suffix
 }
 
+// FormatAutoBackupZipName builds a dated .zip snapshot filename using the same
+// Date/Day/Year/Timestamp formats as Auto-Sync pull naming, e.g.
+// "alegria_2026_11_23_Mon_020000.zip" (with optional "_cloud"/"_local" suffix).
+func FormatAutoBackupZipName(base, suffix, format string, now time.Time) string {
+	clean := autoPullDBCleanRe.ReplaceAllString(strings.TrimSpace(base), "_")
+	clean = strings.Trim(clean, "_-")
+	if clean == "" {
+		clean = "database"
+	}
+	var stamp string
+	switch NormalizeAutoNameFormat(format) {
+	case "month_day_year_ts":
+		stamp = now.Format("_Jan_02_2006_Mon_150405")
+	case "date_year_ts":
+		stamp = now.Format("_2006_01_02_150405")
+	case "date_day_year":
+		stamp = now.Format("_2006_01_02_Mon")
+	default:
+		stamp = now.Format("_2006_01_02_Mon_150405")
+	}
+	return clean + suffix + stamp + ".zip"
+}
+
 func (s BackupSyncSchedule) Normalized() BackupSyncSchedule {
 	out := s
 	if strings.TrimSpace(out.ID) == "" {
@@ -346,6 +371,9 @@ func (s BackupSyncSchedule) Normalized() BackupSyncSchedule {
 	out.LocalDB = strings.TrimSpace(out.LocalDB)
 	if out.AutoNameLocalDB || strings.TrimSpace(out.AutoNameFormat) != "" {
 		out.AutoNameFormat = NormalizeAutoNameFormat(out.AutoNameFormat)
+	}
+	if out.AutoNameBackup || strings.TrimSpace(out.AutoNameBackupFormat) != "" {
+		out.AutoNameBackupFormat = NormalizeAutoNameFormat(out.AutoNameBackupFormat)
 	}
 	out.SyncDirection = strings.ToLower(strings.TrimSpace(out.SyncDirection))
 	if out.SyncDirection != "push" {
@@ -397,11 +425,39 @@ func ScheduleBackupDir(p *Paths, sched BackupSyncSchedule) string {
 	return filepath.Join(base, slug)
 }
 
-var snapshotTimestampRe = regexp.MustCompile(`_(\d{8})_(\d{6})\.(zip|sql|bak)$`)
+var (
+	snapshotTimestampRe        = regexp.MustCompile(`_(\d{8})_(\d{6})\.(zip|sql|bak)$`)
+	snapshotDateDayYearTsRe    = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_[a-z]{3}_(\d{6})\.(zip|sql|bak)$`)
+	snapshotMonthDayYearTsRe   = regexp.MustCompile(`_([a-z]{3}_\d{2}_\d{4})_[a-z]{3}_(\d{6})\.(zip|sql|bak)$`)
+	snapshotDateYearTsRe       = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_(\d{6})\.(zip|sql|bak)$`)
+	snapshotDateDayYearOnlyRe  = regexp.MustCompile(`_(\d{4}_\d{2}_\d{2})_[a-z]{3}\.(zip|sql|bak)$`)
+)
 
 func parseSnapshotTime(name string, modTime time.Time) time.Time {
-	if m := snapshotTimestampRe.FindStringSubmatch(strings.ToLower(name)); m != nil {
+	low := strings.ToLower(name)
+	if m := snapshotTimestampRe.FindStringSubmatch(low); m != nil {
 		if t, err := time.ParseInLocation("20060102_150405", m[1]+"_"+m[2], time.Local); err == nil {
+			return t
+		}
+	}
+	if m := snapshotDateDayYearTsRe.FindStringSubmatch(low); m != nil {
+		if t, err := time.ParseInLocation("2006_01_02_150405", m[1]+"_"+m[2], time.Local); err == nil {
+			return t
+		}
+	}
+	if m := snapshotMonthDayYearTsRe.FindStringSubmatch(low); m != nil {
+		monCap := strings.ToUpper(m[1][:1]) + m[1][1:]
+		if t, err := time.ParseInLocation("Jan_02_2006_150405", monCap+"_"+m[2], time.Local); err == nil {
+			return t
+		}
+	}
+	if m := snapshotDateYearTsRe.FindStringSubmatch(low); m != nil {
+		if t, err := time.ParseInLocation("2006_01_02_150405", m[1]+"_"+m[2], time.Local); err == nil {
+			return t
+		}
+	}
+	if m := snapshotDateDayYearOnlyRe.FindStringSubmatch(low); m != nil {
+		if t, err := time.ParseInLocation("2006_01_02", m[1], time.Local); err == nil {
 			return t
 		}
 	}
@@ -1002,11 +1058,17 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 				if bErr != nil || db == "" {
 					return
 				}
-				safe := cleanDBNameRe.ReplaceAllString(db, "_")
-				if safe == "" {
-					safe = "database"
+				var zipName string
+				if sched.AutoNameBackup {
+					zipName = FormatAutoBackupZipName(db, suffix, sched.AutoNameBackupFormat, now)
+				} else {
+					safe := cleanDBNameRe.ReplaceAllString(db, "_")
+					if safe == "" {
+						safe = "database"
+					}
+					zipName = fmt.Sprintf("%s%s_%s.zip", safe, suffix, stamp)
 				}
-				outZip := filepath.Join(dir, fmt.Sprintf("%s%s_%s.zip", safe, suffix, stamp))
+				outZip := filepath.Join(dir, zipName)
 				bErr = ExportDatabaseFullZipWithProgress(sc.p, eng, es, db, nil, true, true, outZip, func(bp BackupProgress) {
 					if bp.State == "running" {
 						mapped := mapProgressRange(bp.Percent, rangeStart, rangeEnd)

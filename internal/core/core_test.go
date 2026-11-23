@@ -1209,6 +1209,52 @@ func TestManualRunDoesNotBlockScheduledSyncAndSyncLogsTrace(t *testing.T) {
 	}
 }
 
+func TestFormatAutoBackupZipNameAndParseSnapshotTime(t *testing.T) {
+	ts := time.Date(2026, 11, 23, 2, 0, 15, 0, time.Local)
+	cases := []struct {
+		base, suffix, fmt, want string
+		wantDayOnly             bool
+	}{
+		{"alegria", "", "date_day_year_ts", "alegria_2026_11_23_Mon_020015.zip", false},
+		{"alegria", "_cloud", "month_day_year_ts", "alegria_cloud_Nov_23_2026_Mon_020015.zip", false},
+		{"alegria", "", "date_year_ts", "alegria_2026_11_23_020015.zip", false},
+		{"alegria", "", "date_day_year", "alegria_2026_11_23_Mon.zip", true},
+	}
+	fallback := time.Date(2020, 1, 1, 0, 0, 0, 0, time.Local)
+	for _, tc := range cases {
+		got := FormatAutoBackupZipName(tc.base, tc.suffix, tc.fmt, ts)
+		if got != tc.want {
+			t.Errorf("FormatAutoBackupZipName(%q,%q,%q) = %q, want %q", tc.base, tc.suffix, tc.fmt, got, tc.want)
+		}
+		parsed := parseSnapshotTime(got, fallback)
+		if tc.wantDayOnly {
+			if parsed.Format("2006-01-02") != "2026-11-23" {
+				t.Errorf("parseSnapshotTime(%q) = %v, want 2026-11-23", got, parsed)
+			}
+		} else if !parsed.Equal(ts) {
+			t.Errorf("parseSnapshotTime(%q) = %v, want %v", got, parsed, ts)
+		}
+	}
+
+	// Ensure 7-day PurgeOldSnapshots purges aged auto-named .zip snapshots accurately
+	dir := t.TempDir()
+	oldAuto := filepath.Join(dir, FormatAutoBackupZipName("alegria", "", "date_day_year_ts", ts.AddDate(0, 0, -8)))
+	oldMon := filepath.Join(dir, FormatAutoBackupZipName("alegria", "", "month_day_year_ts", ts.AddDate(0, 0, -9)))
+	freshAuto := filepath.Join(dir, FormatAutoBackupZipName("alegria", "", "date_day_year_ts", ts.AddDate(0, 0, -2)))
+	for _, f := range []string{oldAuto, oldMon, freshAuto} {
+		if err := os.WriteFile(f, []byte("zip"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, _, err := PurgeOldSnapshots(dir, 7, ts)
+	if err != nil || n != 2 {
+		t.Fatalf("expected 2 old auto-named snapshots purged, got n=%d err=%v", n, err)
+	}
+	if !fileExists(freshAuto) || fileExists(oldAuto) || fileExists(oldMon) {
+		t.Fatal("unexpected snapshot files remaining after auto-named purge")
+	}
+}
+
 
 
 

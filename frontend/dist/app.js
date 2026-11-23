@@ -4648,7 +4648,7 @@ try {
           ? `<span class="pill">✨ Auto-named</span>`
           : "";
         const backupBadge = s.autoBackup
-          ? `<span class="pill">📦 .zip @ ${esc(s.backupTime || "02:00")} · Purge ≥ ${s.retentionDays || 7}d</span>`
+          ? `<span class="pill">📦 .zip @ ${esc(s.backupTime || "02:00")} · Purge ≥ ${s.retentionDays || 7}d${s.autoNameBackup ? " · ✨ Auto-named" : ""}</span>`
           : "";
         const live = liveScheduledRuns[s.id];
         const isLiveRunning = !!(live && live.state === "running");
@@ -5478,6 +5478,22 @@ try {
         if (Number.isFinite(hh) && Number.isFinite(mm)) previewDate.setHours(hh, mm, 0, 0);
         $("schedAutoNamePreview").textContent = buildAutoPullLocalDbName(base, fmt, previewDate);
       }
+
+      const bkpAutoOn = !!$("schedAutoNameBackup")?.checked;
+      if ($("schedAutoBackupNameOpts")) $("schedAutoBackupNameOpts").hidden = !bkpAutoOn;
+      if ($("schedAutoBackupNamePreview")) {
+        const bkpSrc = $("schedBackupSource")?.value || "cloud";
+        const base =
+          bkpSrc === "local"
+            ? ($("schedLocalDb")?.value || "").trim() || ($("schedCloudDb")?.value || "").trim() || "alegria"
+            : ($("schedCloudDb")?.value || "").trim() || ($("schedLocalDb")?.value || "").trim() || "alegria";
+        const fmt = $("schedAutoNameBackupFmt")?.value || "date_day_year_ts";
+        const previewDate = new Date();
+        const [bhh, bmm] = String($("schedBackupTime")?.value || "02:00").split(":").map(Number);
+        if (Number.isFinite(bhh) && Number.isFinite(bmm)) previewDate.setHours(bhh, bmm, 0, 0);
+        const suffix = bkpSrc === "both" ? "_cloud" : "";
+        $("schedAutoBackupNamePreview").textContent = buildAutoPullLocalDbName(base + suffix, fmt, previewDate) + ".zip";
+      }
     };
     const closeScheduleModal = () => ($("modalScheduleForm").hidden = true);
     const openScheduleModal = (existing = null) => {
@@ -5506,6 +5522,8 @@ try {
         $("schedBackupSource").value = existing.backupSource || "cloud";
         $("schedBackupTime").value = existing.backupTime || "02:00";
         $("schedRetentionDays").value = existing.retentionDays || 7;
+        if ($("schedAutoNameBackup")) $("schedAutoNameBackup").checked = !!existing.autoNameBackup;
+        if ($("schedAutoNameBackupFmt")) $("schedAutoNameBackupFmt").value = existing.autoNameBackupFormat || "date_day_year_ts";
       } else {
         $("modalScheduleTitle").textContent = "⏰ New Daily Auto-Sync & 2:00 AM Auto-Backup";
         const first = sqlProfiles[0];
@@ -5525,6 +5543,8 @@ try {
         $("schedBackupSource").value = first ? "cloud" : "local";
         $("schedBackupTime").value = "02:00";
         $("schedRetentionDays").value = 7;
+        if ($("schedAutoNameBackup")) $("schedAutoNameBackup").checked = false;
+        if ($("schedAutoNameBackupFmt")) $("schedAutoNameBackupFmt").value = "date_day_year_ts";
       }
       updateSchedAutoNameUI();
       $("modalScheduleForm").hidden = false;
@@ -5543,6 +5563,10 @@ try {
     $("schedSyncDir")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedAutoNameLocal")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedAutoNameFmt")?.addEventListener("change", updateSchedAutoNameUI);
+    $("schedAutoNameBackup")?.addEventListener("change", updateSchedAutoNameUI);
+    $("schedAutoNameBackupFmt")?.addEventListener("change", updateSchedAutoNameUI);
+    $("schedBackupSource")?.addEventListener("change", updateSchedAutoNameUI);
+    $("schedBackupTime")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedLocalDb")?.addEventListener("input", updateSchedAutoNameUI);
     $("schedCloudDb")?.addEventListener("input", updateSchedAutoNameUI);
     $("schedSyncTime")?.addEventListener("change", updateSchedAutoNameUI);
@@ -5558,6 +5582,8 @@ try {
         const dir = $("schedSyncDir").value || "pull";
         const autoName = dir === "pull" && !!$("schedAutoNameLocal")?.checked;
         const autoFmt = $("schedAutoNameFmt")?.value || "date_day_year_ts";
+        const autoBkpName = !!$("schedAutoNameBackup")?.checked;
+        const autoBkpFmt = $("schedAutoNameBackupFmt")?.value || "date_day_year_ts";
         const payload = {
           id: $("schedEditId").value.trim(),
           name: $("schedName").value.trim(),
@@ -5572,6 +5598,8 @@ try {
           syncDirection: dir,
           syncTime: $("schedSyncTime").value || "02:00",
           autoBackup: $("schedAutoBackup").checked,
+          autoNameBackup: autoBkpName,
+          autoNameBackupFormat: autoBkpName ? autoBkpFmt : "",
           backupSource: $("schedBackupSource").value || "cloud",
           backupTime: $("schedBackupTime").value || "02:00",
           retentionDays: Math.max(1, Number($("schedRetentionDays").value) || 7),

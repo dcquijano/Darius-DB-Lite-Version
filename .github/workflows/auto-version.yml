@@ -1,0 +1,43 @@
+name: Auto-Update version.json from Commits
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "version.json"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-version-json
+  cancel-in-progress: false
+
+jobs:
+  update-version-json:
+    if: "!contains(github.event.head_commit.message, '[skip ci]') && github.actor != 'github-actions[bot]'"
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 60
+
+      - name: Generate version.json from git commits
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer/generate-version.ps1 -KeepBuild
+
+      - name: Commit updated version.json if changed
+        shell: pwsh
+        run: |
+          git diff --quiet version.json
+          if ($LASTEXITCODE -ne 0) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add version.json
+            git commit -m "chore: auto-update version.json from commits [skip ci]"
+            git push
+          } else {
+            Write-Host "version.json is already up to date."
+          }

@@ -64,8 +64,8 @@
       scope: "global",
       scopeLabel: "Anywhere",
       items: [
-        { id: "start-all", keys: [["Ctrl", "Shift", "S"]], label: "Start All enabled services", action: (h) => h.clickBtn("btnStartAll") },
-        { id: "stop-all", keys: [["Ctrl", "Shift", "X"]], label: "Stop All running services", action: (h) => h.clickBtn("btnStopAll") },
+        { id: "start-all", keys: [["F8"], ["Ctrl", "Shift", "S"]], altHint: "or Alt+Shift+S", label: "Start All enabled services", action: (h) => h.clickBtn("btnStartAll") },
+        { id: "stop-all", keys: [["F9"], ["Ctrl", "Shift", "X"]], altHint: "or Alt+Shift+X", label: "Stop All running services", action: (h) => h.clickBtn("btnStopAll") },
         { id: "repair-one", keys: [["Ctrl", "Shift", "R"]], label: "Open Repair Service dialog", action: (h) => h.clickBtn("btnOpenRepair") },
         { id: "repair-all", keys: [["Ctrl", "Shift", "A"]], label: "Open Repair All (Full System) dialog", action: (h) => h.clickBtn("btnRepairAllSystem") },
         { id: "sys-updater", keys: [["Ctrl", "Shift", "U"]], label: "Open System Version Updater", action: (h) => h.clickBtn("btnOpenSysUpdater") },
@@ -163,8 +163,8 @@
 
   // Tooltips applied to existing buttons so shortcuts are discoverable inline
   const BUTTON_SHORTCUT_HINTS = {
-    btnStartAll: "Start all enabled services (Ctrl+Shift+S)",
-    btnStopAll: "Stop all running services (Ctrl+Shift+X)",
+    btnStartAll: "Start all enabled services (F8, Ctrl+Shift+S, or Alt+Shift+S)",
+    btnStopAll: "Stop all running services (F9, Ctrl+Shift+X, or Alt+Shift+X)",
     btnDashGuides: "Open Step-by-Step Visual Guide with Screenshots (Alt+8)",
     btnDashShortcuts: "Open Keyboard Shortcuts quick reference (F1 or Ctrl+/)",
     btnOpenRepair: "Repair a single selected service/engine only (Ctrl+Shift+R)",
@@ -203,7 +203,7 @@
 
   const QUICKSTART_CHECKLIST = [
     { id: "chk-install", label: "Install at least one engine in Versions (MariaDB, MySQL, PostgreSQL, Redis, PHP, or Mailpit)", goTab: "versions", goLabel: "Open Versions" },
-    { id: "chk-start", label: "Start your services on Dashboard (or press Ctrl+Shift+S for Start All)", goTab: "dashboard", goLabel: "Open Dashboard" },
+    { id: "chk-start", label: "Start your services on Dashboard (press F8 / Ctrl+Shift+S for Start All; F9 / Alt+Shift+X for Stop All)", goTab: "dashboard", goLabel: "Open Dashboard" },
     { id: "chk-db", label: "Open Database Browser, create a database (+ New), and run your first query with Ctrl+Enter", goTab: "database", goLabel: "Open Database" },
     { id: "chk-backup", label: "Test Import (.sql/.csv/.bak) or Full .zip Backup to keep snapshots safe", goTab: "database", goLabel: "Database Tools" },
     { id: "chk-cloud", label: "(Optional) Add a Cloud DB profile or schedule a Daily 2:00 AM Auto-Sync & Backup", goTab: "cloud", goLabel: "Open Cloud" },
@@ -247,7 +247,7 @@
       ],
       steps: [
         "Go to <strong>Dashboard</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">1</kbd>) to see every engine's status dot, active version dropdown, port, and PID.",
-        "Click <strong>Start All</strong> (<kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">S</kbd>) to launch all enabled engines, or click <strong>Start</strong> / <strong>Stop</strong> / <strong>Restart</strong> on any individual row.",
+        "Click <strong>Start All</strong> (<kbd class=\"kbd\">F8</kbd>, <kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">S</kbd>, or <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">S</kbd>) to launch all enabled engines, or <strong>Stop All</strong> (<kbd class=\"kbd\">F9</kbd>, <kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">X</kbd>, or <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">X</kbd>) to turn everything off — use <kbd class=\"kbd\">F8</kbd>/<kbd class=\"kbd\">F9</kbd> or <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">X</kbd> if Windows/Edge intercepts <kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">X</kbd>.",
         "For PHP/Laravel/WordPress apps, use the unified <strong>MySQL / MariaDB (Port 3306)</strong> selector — Darius DB automatically stops the conflicting engine before switching so port <code>3306</code> stays clean.",
         "Use the <strong>Auto-Run Bar</strong> at the top of Dashboard to toggle which services launch automatically whenever Darius DB opens (or pick quick presets like <em>MySQL + Apache</em> or <em>Match Running</em>).",
         "Click <strong>Hide</strong> (<kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">H</kbd>) to minimize Darius DB to the Windows System Tray while services keep running.",
@@ -721,8 +721,8 @@
     const chips = [
       { keys: [["F1"]], label: "Shortcuts Popup" },
       { keys: [["Alt", "1–8"]], label: "Switch Tabs" },
-      { keys: [["Ctrl", "Shift", "S"]], label: "Start All" },
-      { keys: [["Ctrl", "Shift", "X"]], label: "Stop All" },
+      { keys: [["F8"], ["Ctrl", "Shift", "S"]], label: "Start All" },
+      { keys: [["F9"], ["Alt", "Shift", "X"]], label: "Stop All" },
       { keys: [["Ctrl", "Enter"]], label: "Run SQL" },
       { keys: [["Ctrl", "S"]], label: "Save Config/Settings" },
     ];
@@ -1068,6 +1068,12 @@
     const lightboxOpen = !!(modalLightbox && !modalLightbox.hidden);
     const key = e.key || "";
     const lower = key.toLowerCase();
+    const code = e.code || "";
+    const isKey = (ch) => lower === ch || code === "Key" + ch.toUpperCase();
+    const consume = () => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
     const ctrlOrMeta = (e.ctrlKey || e.metaKey) && !e.altKey;
     const altOnly = e.altKey && !e.ctrlKey && !e.metaKey;
     const isAltGr = e.ctrlKey && e.altKey; // Windows European keyboards use Ctrl+Alt for AltGr
@@ -1081,21 +1087,21 @@
         return;
       }
       if (key === "Escape") {
-        e.preventDefault();
+        consume();
         closeLightbox();
         return;
       }
       if (key === "ArrowLeft") {
-        e.preventDefault();
+        consume();
         stepLightbox(-1);
         return;
       }
       if (key === "ArrowRight") {
-        e.preventDefault();
+        consume();
         stepLightbox(1);
         return;
       }
-      if (key === "F5") e.preventDefault();
+      if (key === "F5") consume();
       return;
     }
 
@@ -1108,27 +1114,27 @@
     // 2. Escape closes active topmost modal
     if (key === "Escape") {
       if (shortcutsOpen) {
-        e.preventDefault();
+        consume();
         closeShortcutsModal();
         return;
       }
       if (host.closeTopModal()) {
-        e.preventDefault();
+        consume();
       }
       return;
     }
 
     // 3. F1 or Ctrl+/ toggles Keyboard Shortcuts modal
-    if (key === "F1" || (ctrlOrMeta && !e.shiftKey && (key === "/" || e.code === "Slash"))) {
-      e.preventDefault();
+    if (key === "F1" || (ctrlOrMeta && !e.shiftKey && (key === "/" || code === "Slash"))) {
+      consume();
       toggleShortcutsModal();
       return;
     }
 
     // 4. Inside Shortcuts modal, allow Ctrl+F to focus its filter box; block all background shortcuts
     if (shortcutsOpen) {
-      if (ctrlOrMeta && !e.shiftKey && lower === "f") {
-        e.preventDefault();
+      if (ctrlOrMeta && !e.shiftKey && isKey("f")) {
+        consume();
         $("shortcutsModalSearch")?.focus();
       }
       return;
@@ -1136,7 +1142,7 @@
 
     // 5. If any other modal is open, prevent F5 reload and don't trigger background shortcuts
     if (host.isAnyOtherModalOpen("modalShortcuts")) {
-      if (key === "F5") e.preventDefault();
+      if (key === "F5") consume();
       return;
     }
 
@@ -1146,82 +1152,109 @@
 
     // 6. '?' outside text inputs opens Keyboard Shortcuts popup
     if (key === "?" && !e.ctrlKey && !e.metaKey && !e.altKey && !inEditable) {
-      e.preventDefault();
+      consume();
       openShortcutsModal();
       return;
     }
 
-    // 7. F5 smart view refresh (prevents accidental WebView2 full page reload)
-    if (key === "F5" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      host.refreshCurrentView();
-      return;
+    // 7. F5 smart view refresh; F8 Start All; F9 Stop All (zero Windows/Edge accelerator collisions)
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      if (key === "F5") {
+        consume();
+        host.refreshCurrentView();
+        return;
+      }
+      if (key === "F8") {
+        consume();
+        host.clickBtn("btnStartAll");
+        return;
+      }
+      if (key === "F9") {
+        consume();
+        host.clickBtn("btnStopAll");
+        return;
+      }
     }
 
     // 8. Tab navigation: Alt+1..8 or Ctrl+1..8
-    if ((altOnly || ctrlOrMeta) && !e.shiftKey && TAB_BY_DIGIT[key]) {
-      e.preventDefault();
-      host.switchTab(TAB_BY_DIGIT[key]);
+    const digitTab = TAB_BY_DIGIT[key] || (code.startsWith("Digit") ? TAB_BY_DIGIT[code.slice(5)] : null);
+    if ((altOnly || ctrlOrMeta) && !e.shiftKey && digitTab) {
+      consume();
+      host.switchTab(digitTab);
       return;
     }
 
     // 9. Ctrl+` (Backtick) jumps to Built-in Terminal
-    if (ctrlOrMeta && !e.shiftKey && (key === "`" || e.code === "Backquote")) {
-      e.preventDefault();
+    if (ctrlOrMeta && !e.shiftKey && (key === "`" || code === "Backquote")) {
+      consume();
       host.focusTerminal();
       return;
     }
 
-    // 10. Global Ctrl+Shift+<Key> system controls
-    if (ctrlOrMeta && e.shiftKey) {
-      if (lower === "s") {
-        e.preventDefault();
+    // 9b. Alt+Shift+S (Start All) & Alt+Shift+X (Stop All) — reliable fallback when Windows/Edge intercepts Ctrl+Shift+X
+    if (altOnly && e.shiftKey) {
+      if (isKey("s")) {
+        consume();
         host.clickBtn("btnStartAll");
         return;
       }
-      if (lower === "x") {
-        e.preventDefault();
+      if (isKey("x")) {
+        consume();
         host.clickBtn("btnStopAll");
         return;
       }
-      if (lower === "r") {
-        e.preventDefault();
+    }
+
+    // 10. Global Ctrl+Shift+<Key> system controls (match both e.key and physical e.code for IME/layout reliability)
+    if (ctrlOrMeta && e.shiftKey) {
+      if (isKey("s")) {
+        consume();
+        host.clickBtn("btnStartAll");
+        return;
+      }
+      if (isKey("x")) {
+        consume();
+        host.clickBtn("btnStopAll");
+        return;
+      }
+      if (isKey("r")) {
+        consume();
         host.clickBtn("btnOpenRepair");
         return;
       }
-      if (lower === "a") {
-        e.preventDefault();
+      if (isKey("a")) {
+        consume();
         host.clickBtn("btnRepairAllSystem");
         return;
       }
-      if (lower === "u") {
-        e.preventDefault();
+      if (isKey("u")) {
+        consume();
         host.clickBtn("btnOpenSysUpdater");
         return;
       }
-      if (lower === "o") {
-        e.preventDefault();
+      if (isKey("o")) {
+        consume();
         host.clickBtn("btnSideRoot");
         return;
       }
-      if (lower === "h") {
-        e.preventDefault();
+      if (isKey("h")) {
+        consume();
         host.clickBtn("btnSideTray");
         return;
       }
-      if (lower === "k" && activeTab === "database") {
-        e.preventDefault();
+      if (isKey("k") && activeTab === "database") {
+        consume();
         host.clickBtn("btnSqlClear");
         return;
       }
       if (key === "Enter") {
         if (activeTab === "database") {
-          e.preventDefault();
+          consume();
           host.clickBtn("btnSqlShowAll");
           return;
         }
         if (activeTab === "config") {
-          e.preventDefault();
+          consume();
           host.saveConfig(true);
           return;
         }
@@ -1232,42 +1265,42 @@
     if (ctrlOrMeta && !e.shiftKey && key === "Enter" && activeTab === "database") {
       const sqlVisible = $("sqlBrowser") && !$("sqlBrowser").hidden;
       if (sqlVisible) {
-        e.preventDefault();
+        consume();
         host.runSqlQuery();
         return;
       }
     }
 
     // 12. Ctrl+S (Config: Save file; Settings: Save settings)
-    if (ctrlOrMeta && !e.shiftKey && lower === "s") {
+    if (ctrlOrMeta && !e.shiftKey && isKey("s")) {
       if (activeTab === "config") {
-        e.preventDefault();
+        consume();
         host.saveConfig(false);
         return;
       }
       if (activeTab === "settings") {
-        e.preventDefault();
+        consume();
         host.saveSettings();
         return;
       }
     }
 
     // 13. Ctrl+L (Terminal: Clear output from anywhere on Terminal tab)
-    if (ctrlOrMeta && !e.shiftKey && lower === "l" && activeTab === "terminal") {
-      e.preventDefault();
+    if (ctrlOrMeta && !e.shiftKey && isKey("l") && activeTab === "terminal") {
+      consume();
       host.clearTerminal();
       return;
     }
 
     // 14. Ctrl+F (Database filter/pattern; Guide search)
-    if (ctrlOrMeta && !e.shiftKey && lower === "f") {
+    if (ctrlOrMeta && !e.shiftKey && isKey("f")) {
       if (activeTab === "guide") {
-        e.preventDefault();
+        consume();
         host.focusGuideSearch();
         return;
       }
       if (activeTab === "database" && host.focusDbSearch()) {
-        e.preventDefault();
+        consume();
         return;
       }
     }
@@ -1276,127 +1309,127 @@
     if (altOnly && !e.shiftKey) {
       if (activeTab === "database") {
         const sqlVisible = $("sqlBrowser") && !$("sqlBrowser").hidden;
-        if (lower === "n" && sqlVisible) {
-          e.preventDefault();
+        if (isKey("n") && sqlVisible) {
+          consume();
           host.openNewSqlTab();
           return;
         }
-        if (lower === "w" && sqlVisible) {
-          e.preventDefault();
+        if (isKey("w") && sqlVisible) {
+          consume();
           host.closeActiveSqlTab();
           return;
         }
-        if (key === "[" && sqlVisible) {
-          e.preventDefault();
+        if ((key === "[" || code === "BracketLeft") && sqlVisible) {
+          consume();
           host.cycleSqlTab(-1);
           return;
         }
-        if (key === "]" && sqlVisible) {
-          e.preventDefault();
+        if ((key === "]" || code === "BracketRight") && sqlVisible) {
+          consume();
           host.cycleSqlTab(1);
           return;
         }
-        if (lower === "d" && sqlVisible) {
-          e.preventDefault();
+        if (isKey("d") && sqlVisible) {
+          consume();
           host.clickBtn("btnNewDb");
           return;
         }
-        if (lower === "t" && sqlVisible) {
-          e.preventDefault();
+        if (isKey("t") && sqlVisible) {
+          consume();
           host.clickBtn("btnNewTable");
           return;
         }
-        if ((key === "=" || key === "+") && sqlVisible) {
-          e.preventDefault();
+        if ((key === "=" || key === "+" || code === "Equal") && sqlVisible) {
+          consume();
           host.clickBtn("btnRowCreate");
           return;
         }
-        if (lower === "i" && sqlVisible) {
-          e.preventDefault();
+        if (isKey("i") && sqlVisible) {
+          consume();
           host.clickBtn("btnOpenImport");
           return;
         }
-        if (lower === "e" && sqlVisible) {
-          e.preventDefault();
+        if (isKey("e") && sqlVisible) {
+          consume();
           host.clickBtn("btnBackupSql");
           return;
         }
-        if (lower === "b" && sqlVisible) {
-          e.preventDefault();
+        if (isKey("b") && sqlVisible) {
+          consume();
           host.clickBtn("btnBackupZip");
           return;
         }
-        if (lower === "c") {
-          e.preventDefault();
+        if (isKey("c")) {
+          consume();
           host.clickBtn("btnCopyConn");
           return;
         }
-        if (lower === "r") {
-          e.preventDefault();
+        if (isKey("r")) {
+          consume();
           host.clickBtn("btnDbRefresh");
           return;
         }
         if (key === "ArrowLeft" && !inText && sqlVisible) {
-          e.preventDefault();
+          consume();
           host.clickBtn("btnPagePrev");
           return;
         }
         if (key === "ArrowRight" && !inText && sqlVisible) {
-          e.preventDefault();
+          consume();
           host.clickBtn("btnPageNext");
           return;
         }
       } else if (activeTab === "cloud") {
-        if (lower === "n") {
-          e.preventDefault();
+        if (isKey("n")) {
+          consume();
           host.clickBtn("btnAddCloud");
           return;
         }
-        if (lower === "s") {
-          e.preventDefault();
+        if (isKey("s")) {
+          consume();
           host.clickBtn("btnOpenCloudSync");
           return;
         }
-        if (lower === "b") {
-          e.preventDefault();
+        if (isKey("b")) {
+          consume();
           host.clickBtn("btnNewSchedule");
           return;
         }
       } else if (activeTab === "versions") {
-        if (lower === "r") {
-          e.preventDefault();
+        if (isKey("r")) {
+          consume();
           host.clickBtn("btnRefreshCatalog");
           return;
         }
-        if (lower === "i") {
-          e.preventDefault();
+        if (isKey("i")) {
+          consume();
           host.clickBtn("btnInstallZip");
           return;
         }
-        if (lower === "m") {
-          e.preventDefault();
+        if (isKey("m")) {
+          consume();
           host.clickBtn("btnManualModal");
           return;
         }
       } else if (activeTab === "config") {
-        if (lower === "l") {
-          e.preventDefault();
+        if (isKey("l")) {
+          consume();
           host.toggleConfigLogMode();
           return;
         }
-        if (lower === "r") {
-          e.preventDefault();
+        if (isKey("r")) {
+          consume();
           host.refreshCurrentView();
           return;
         }
       } else if (activeTab === "terminal") {
-        if (key === "[") {
-          e.preventDefault();
+        if (key === "[" || code === "BracketLeft") {
+          consume();
           host.cycleTermMode(-1);
           return;
         }
-        if (key === "]") {
-          e.preventDefault();
+        if (key === "]" || code === "BracketRight") {
+          consume();
           host.cycleTermMode(1);
           return;
         }
@@ -1547,7 +1580,7 @@
     applyButtonHints();
     wireUI();
     renderGuideView();
-    window.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
   }
 
   window.DariusShortcutsGuide = {

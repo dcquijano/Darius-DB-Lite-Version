@@ -1,24 +1,37 @@
 <#
 .SYNOPSIS
-  Builds Darius DB (Lite Version 0.1.4) GUI, Launcher, Uninstaller, Updater, CLI, Portable ZIP, and Standalone Setup .exe.
-  Created by Darius Cumpio - November 19, 2026 - v0.1.4
+  Builds Darius DB (Lite Version 0.1.5) GUI, Launcher, Uninstaller, Updater, CLI, Portable ZIP, and Standalone Setup .exe.
+  Created by Darius Cumpio - November 19, 2026 - v0.1.5
 #>
 param(
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$SkipVersionGen
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$Version = "0.1.4"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$Version = "0.1.5"
+if (Test-Path (Join-Path $RepoRoot "wails.json")) {
+    try {
+        $wj = Get-Content (Join-Path $RepoRoot "wails.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($wj.info -and $wj.info.productVersion) { $Version = ([string]$wj.info.productVersion).Trim().TrimStart("v") }
+    } catch {}
+}
 Push-Location $RepoRoot
 
 try {
+    $genScript = Join-Path $RepoRoot "installer\generate-version.ps1"
+    if (-not $SkipVersionGen -and (Test-Path $genScript)) {
+        Write-Host "==> Auto-generating version.json from git commits..." -ForegroundColor Cyan
+        & $genScript -Version $Version -SyncCliGo
+    }
+
     $BuildID = ""
     if (Test-Path "version.json") {
         try {
-            $vj = Get-Content "version.json" -Raw | ConvertFrom-Json
+            $vj = Get-Content "version.json" -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($vj.build) { $BuildID = [string]$vj.build }
         } catch {}
     }

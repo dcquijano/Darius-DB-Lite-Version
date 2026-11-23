@@ -71,7 +71,7 @@ func main() {
 	app.justUpdated = justUpdated
 
 	err := wails.Run(&options.App{
-		Title:            "Darius DB (Lite Version 0.1.4)",
+		Title:            "Darius DB (Lite Version 0.1.5)",
 		Width:            960,
 		Height:           660,
 		MinWidth:         760,

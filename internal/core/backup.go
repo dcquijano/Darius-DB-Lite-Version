@@ -309,7 +309,7 @@ func mssqlExportSQL(s EngineSettings, dbName, outPath string) error {
 		return err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) MS SQL Server SQL Dump\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.5) MS SQL Server SQL Dump\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
 		dbName, time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(&b, "SET NOCOUNT ON;\r\nIF DB_ID(N'%s') IS NULL CREATE DATABASE %s;\r\nGO\r\nUSE %s;\r\nGO\r\n\r\n",
 		strings.ReplaceAll(dbName, "'", "''"), mssqlBracket(dbName), mssqlBracket(dbName))
@@ -793,7 +793,7 @@ func mysqlWriteGoDumpCtx(ctx context.Context, engine string, s EngineSettings, d
 	bw := bufio.NewWriterSize(f, 256*1024)
 	defer bw.Flush()
 
-	fmt.Fprintf(bw, "-- Darius DB (Lite Version 0.1.4) Binary-Safe SQL Export\n-- Engine: %s  Database: %s\n\nSET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\nSET UNIQUE_CHECKS=0;\nSET AUTOCOMMIT=0;\n\n", engine, dbName)
+	fmt.Fprintf(bw, "-- Darius DB (Lite Version 0.1.5) Binary-Safe SQL Export\n-- Engine: %s  Database: %s\n\nSET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\nSET UNIQUE_CHECKS=0;\nSET AUTOCOMMIT=0;\n\n", engine, dbName)
 
 	for i, t := range todo {
 		if err := ctx.Err(); err != nil {
@@ -1589,7 +1589,7 @@ func ExportDatabaseFullZipWithProgress(p *Paths, engine string, s EngineSettings
 		TableCount    int      `json:"tableCount"`
 		Tables        []string `json:"tables"`
 	}{
-		App:           "Darius DB (Lite Version 0.1.4)",
+		App:           "Darius DB (Lite Version 0.1.5)",
 		Engine:        engine,
 		Host:          fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1"),
 		Database:      dbName,
@@ -1844,7 +1844,7 @@ func postgresExportTablesPureGoCtx(ctx context.Context, s EngineSettings, dbName
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.4) PostgreSQL SQL Export\n-- Database: %s\n\n", dbName)
+	fmt.Fprintf(&b, "-- Darius DB (Lite Version 0.1.5) PostgreSQL SQL Export\n-- Database: %s\n\n", dbName)
 	for _, t := range allTables {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -1954,7 +1954,7 @@ func mssqlExportTablesSQLWithProgressCtx(ctx context.Context, s EngineSettings, 
 	defer f.Close()
 	bw := bufio.NewWriterSize(f, 128*1024)
 
-	fmt.Fprintf(bw, "-- Darius DB (Lite Version 0.1.4) MS SQL Server SQL Export\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
+	fmt.Fprintf(bw, "-- Darius DB (Lite Version 0.1.5) MS SQL Server SQL Export\r\n-- Database: %s\r\n-- Date: %s\r\n\r\n",
 		dbName, time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(bw, "SET NOCOUNT ON;\r\nUSE %s;\r\nGO\r\n\r\n", mssqlBracket(dbName))
 	_ = bw.Flush()

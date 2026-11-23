@@ -299,7 +299,7 @@ func getJSON(client *http.Client, url string, dest interface{}) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Lite/0.1.4")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Lite/0.1.5")
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -471,7 +471,7 @@ func (d *Downloader) download(ctx context.Context, engine, version, url, dest st
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Lite/0.1.4")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Lite/0.1.5")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err

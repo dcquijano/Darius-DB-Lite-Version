@@ -62,7 +62,7 @@ func (a *apacheEngine) ConfigFile(p *Paths, _ Installation) string {
 	return filepath.Join(p.EngineEtc("apache"), "httpd.conf")
 }
 
-const apacheHttpdConf = `# Darius DB (Lite Version 0.1.4) - Apache HTTP Server configuration
+const apacheHttpdConf = `# Darius DB (Lite Version 0.1.5) - Apache HTTP Server configuration
 # DocumentRoot (www/) and Listen port are passed automatically by Darius DB.
 ServerName localhost
 
@@ -135,13 +135,18 @@ LogLevel warn
 </IfModule>
 `
 
+const dariusBrandSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f2942"/><stop offset="1" stop-color="#0d9488"/></linearGradient></defs><rect width="32" height="32" rx="8" fill="url(#g)"/><ellipse cx="16" cy="10" rx="8" ry="3" fill="#ffffff"/><path d="M8 12v4.5c0 1.65 3.58 3 8 3s8-1.35 8-3V12c0 1.65-3.58 3-8 3s-8-1.35-8-3z" fill="#d7f6f2"/><path d="M8 18.2v4.3c0 1.65 3.58 3 8 3s8-1.35 8-3v-4.3c0 1.65-3.58 3-8 3s-8-1.35-8-3z" fill="#bcebe5"/><circle cx="24.8" cy="24.8" r="2.7" fill="#34d399" stroke="#0f172a" stroke-width="1.4"/></svg>`
+
+const dariusFaviconDataURI = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%230f2942'/%3E%3Cstop offset='1' stop-color='%230d9488'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cellipse cx='16' cy='10' rx='8' ry='3' fill='%23ffffff'/%3E%3Cpath d='M8 12v4.5c0 1.65 3.58 3 8 3s8-1.35 8-3V12c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23d7f6f2'/%3E%3Cpath d='M8 18.2v4.3c0 1.65 3.58 3 8 3s8-1.35 8-3v-4.3c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23bcebe5'/%3E%3Ccircle cx='24.8' cy='24.8' r='2.7' fill='%2334d399' stroke='%230f172a' stroke-width='1.4'/%3E%3C/svg%3E`
+
 const defaultWwwIndexHTML = `<!DOCTYPE html>
-<!-- darius-www-v3 -->
+<!-- darius-www-v5 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Darius DB (Lite Version 0.1.4) — Local Web Server & Drag-and-Drop Hosting</title>
+  <title>Darius DB (Lite Version 0.1.5) — Local Web Server & Drag-and-Drop Hosting</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%230f2942'/%3E%3Cstop offset='1' stop-color='%230d9488'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cellipse cx='16' cy='10' rx='8' ry='3' fill='%23ffffff'/%3E%3Cpath d='M8 12v4.5c0 1.65 3.58 3 8 3s8-1.35 8-3V12c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23d7f6f2'/%3E%3Cpath d='M8 18.2v4.3c0 1.65 3.58 3 8 3s8-1.35 8-3v-4.3c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23bcebe5'/%3E%3Ccircle cx='24.8' cy='24.8' r='2.7' fill='%2334d399' stroke='%230f172a' stroke-width='1.4'/%3E%3C/svg%3E" />
   <style>
     :root { --bg:#0c1220; --card:#162033; --subtle:#0e1626; --border:rgba(148,163,184,0.18); --text:#e6edf7; --muted:#8ea0ba; --accent:#14b8a6; --accent-hover:#0d9488; --green:#22c55e; --danger:#ef4444; }
     * { box-sizing:border-box; }
@@ -150,8 +155,11 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
     .top-bar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
     .badge { display:inline-flex; align-items:center; gap:8px; background:rgba(34,197,94,0.14); color:var(--green); padding:5px 12px; border-radius:99px; font-size:12.5px; font-weight:600; }
     .dot { width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green); }
-    h1 { margin:14px 0 6px; font-size:24px; }
+    .brand-head { display:flex; align-items:center; gap:14px; margin:16px 0 14px; }
+    .brand-logo { flex:0 0 auto; display:flex; align-items:center; justify-content:center; border-radius:11px; box-shadow:0 6px 18px rgba(13,148,136,0.28); }
+    h1 { margin:0 0 4px; font-size:24px; }
     p { margin:0 0 16px; color:var(--muted); line-height:1.55; font-size:14px; }
+    .brand-head p { margin:0; }
     code { background:var(--subtle); border:1px solid var(--border); padding:2px 7px; border-radius:6px; font-family:Consolas,monospace; color:#38bdf8; font-size:12.5px; }
     .drop-card { background:var(--subtle); border:2px dashed rgba(20,184,166,0.45); border-radius:12px; padding:22px 20px; text-align:center; transition:all 0.18s ease; margin-top:12px; position:relative; }
     .drop-card.dragover { border-color:var(--green); background:rgba(20,184,166,0.12); transform:scale(1.01); box-shadow:0 0 24px rgba(20,184,166,0.22); }
@@ -206,8 +214,27 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
       </div>
       <code id="wwwPathBadge">www/</code>
     </div>
-    <h1>Darius DB (Lite Version 0.1.4)</h1>
-    <p>Your local web server is active and serving websites directly from your portable <code>www/</code> directory.</p>
+    <div class="brand-head">
+      <div class="brand-logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="44" height="44">
+          <defs>
+            <linearGradient id="dariusLogoGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#0f2942" />
+              <stop offset="100%" stop-color="#0d9488" />
+            </linearGradient>
+          </defs>
+          <rect width="32" height="32" rx="8" fill="url(#dariusLogoGrad)" />
+          <ellipse cx="16" cy="10" rx="8" ry="3" fill="#fff" />
+          <path d="M8 12v4.5c0 1.65 3.58 3 8 3s8-1.35 8-3V12c0 1.65-3.58 3-8 3s-8-1.35-8-3z" fill="#d7f6f2" />
+          <path d="M8 18.2v4.3c0 1.65 3.58 3 8 3s8-1.35 8-3v-4.3c0 1.65-3.58 3-8 3s-8-1.35-8-3z" fill="#bcebe5" />
+          <circle cx="24.8" cy="24.8" r="2.7" fill="#34d399" stroke="#0f172a" stroke-width="1.4" />
+        </svg>
+      </div>
+      <div>
+        <h1>Darius DB (Lite Version 0.1.5)</h1>
+        <p>Your local web server is active and serving websites directly from your portable <code>www/</code> directory.</p>
+      </div>
+    </div>
 
     <!-- Trust Author & Folder Permissions Modal -->
     <div class="trust-modal-bg" id="trustModal">
@@ -273,7 +300,7 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
 
     <div class="foot">
       <span>Created by Darius Cumpio · MIT Open Source</span>
-      <span>Darius DB (Lite Version 0.1.4)</span>
+      <span>Darius DB (Lite Version 0.1.5)</span>
     </div>
   </div>
 
@@ -627,10 +654,10 @@ func ensureWwwIndex(wwwDir string) {
 		_ = writeIfMissing(indexPath, defaultWwwIndexHTML)
 		return
 	}
-	// Automatically upgrade older Darius DB welcome page to the v3 Apache + PHP Drag & Drop dashboard
+	// Automatically upgrade older Darius DB welcome page to the v4 Apache + PHP Drag & Drop dashboard with logo & favicon
 	if b, err := os.ReadFile(indexPath); err == nil {
 		s := string(b)
-		if strings.Contains(s, "Darius DB") && !strings.Contains(s, "darius-www-v3") {
+		if strings.Contains(s, "Darius DB") && !strings.Contains(s, "darius-www-v5") {
 			_ = os.WriteFile(indexPath, []byte(strings.ReplaceAll(defaultWwwIndexHTML, "\n", "\r\n")), 0o644)
 		}
 	}
@@ -721,7 +748,7 @@ func RunBuiltInHTTPD(args []string) int {
 	fs := http.FileServer(http.Dir(wwwDir))
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		w.Header().Set("Server", "Apache/2.4 (DariusDB-Lite/0.1.4)")
+		w.Header().Set("Server", "Apache/2.4 (DariusDB-Lite/0.1.5)")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -730,6 +757,15 @@ func RunBuiltInHTTPD(args []string) int {
 		// Built-in Drag & Drop Website Deployer API
 		if strings.HasPrefix(r.URL.Path, "/__darius_www__/") {
 			handleDariusWwwAPI(w, r, wwwDir, port)
+			return
+		}
+
+		// Default Darius DB favicon when www/ does not provide a custom favicon file
+		if (r.URL.Path == "/favicon.ico" || r.URL.Path == "/favicon.svg") &&
+			!fileExists(filepath.Join(wwwDir, strings.TrimPrefix(r.URL.Path, "/"))) {
+			w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			_, _ = w.Write([]byte(dariusBrandSVG))
 			return
 		}
 
@@ -1232,9 +1268,9 @@ func renderDirListing(w http.ResponseWriter, urlPath, dirPath string) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Index of %s</title>`, html.EscapeString(urlPath))
-	b.WriteString(`<style>body{font-family:"Segoe UI",system-ui,sans-serif;background:#0c1220;color:#e6edf7;padding:28px;max-width:760px;margin:0 auto}h2{margin:0 0 16px;color:#14b8a6}ul{list-style:none;padding:0;margin:0;background:#162033;border:1px solid rgba(148,163,184,0.18);border-radius:10px;overflow:hidden}li{border-bottom:1px solid rgba(148,163,184,0.12)}li:last-child{border-bottom:none}a{display:flex;justify-content:space-between;padding:10px 16px;color:#e6edf7;text-decoration:none}a:hover{background:rgba(20,184,166,0.12);color:#14b8a6}.tag{color:#8ea0ba;font-size:12px}</style></head><body>`)
-	fmt.Fprintf(&b, `<h2>Index of %s</h2><ul>`, html.EscapeString(urlPath))
+	fmt.Fprintf(&b, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Index of %s — Darius DB</title><link rel="icon" type="image/svg+xml" href="%s">`, html.EscapeString(urlPath), dariusFaviconDataURI)
+	b.WriteString(`<style>body{font-family:"Segoe UI",system-ui,sans-serif;background:#0c1220;color:#e6edf7;padding:28px;max-width:760px;margin:0 auto}h2{margin:0 0 16px;color:#14b8a6;display:flex;align-items:center;gap:10px}ul{list-style:none;padding:0;margin:0;background:#162033;border:1px solid rgba(148,163,184,0.18);border-radius:10px;overflow:hidden}li{border-bottom:1px solid rgba(148,163,184,0.12)}li:last-child{border-bottom:none}a{display:flex;justify-content:space-between;padding:10px 16px;color:#e6edf7;text-decoration:none}a:hover{background:rgba(20,184,166,0.12);color:#14b8a6}.tag{color:#8ea0ba;font-size:12px}</style></head><body>`)
+	fmt.Fprintf(&b, `<h2><img src="%s" width="26" height="26" alt="" style="border-radius:6px"><span>Index of %s</span></h2><ul>`, dariusFaviconDataURI, html.EscapeString(urlPath))
 	if urlPath != "/" {
 		b.WriteString(`<li><a href="../"><span>📁 .. (Parent Directory)</span><span class="tag">DIR</span></a></li>`)
 	}
@@ -1357,7 +1393,7 @@ func servePHPFile(w http.ResponseWriter, r *http.Request, wwwDir, scriptPath str
 			"REDIRECT_STATUS=200",
 			"GATEWAY_INTERFACE=CGI/1.1",
 			"SERVER_PROTOCOL=HTTP/1.1",
-			"SERVER_SOFTWARE=Apache/2.4 (DariusDB-Lite/0.1.4)",
+			"SERVER_SOFTWARE=Apache/2.4 (DariusDB-Lite/0.1.5)",
 			"SERVER_NAME=localhost",
 			"SERVER_ADDR=127.0.0.1",
 			"SERVER_PORT="+strconv.Itoa(port),

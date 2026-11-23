@@ -23,8 +23,8 @@ import (
 
 const (
 	appShortName = "Darius DB"
-	appFullTitle = "Darius DB (Lite Version 0.1.4)"
-	appVersion   = "0.1.4"
+	appFullTitle = "Darius DB (Lite Version 0.1.5)"
+	appVersion   = "0.1.5"
 	appAuthor    = "Darius Cumpio"
 	defaultDir   = `C:\DariusDB`
 	uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\DariusDB`
@@ -476,7 +476,7 @@ func buildUninstControls(hwnd syscall.Handle) {
 		wsBorder|esAutoHScroll|esReadOnly, 22, 102, 502, 24, hwnd, 0, uw.fontUI)
 
 	uw.p1LblAction = createCtrl(0, "STATIC", "Choose Maintenance Action:", 0, 22, 136, 480, 18, hwnd, 0, uw.fontBold)
-	uw.p1RadUninstall = createCtrl(0, "BUTTON", "Uninstall Darius DB (Lite Version 0.1.4) from this computer",
+	uw.p1RadUninstall = createCtrl(0, "BUTTON", "Uninstall Darius DB (Lite Version 0.1.5) from this computer",
 		wsTabStop|wsGroup|bsAutoRadioButton, 26, 158, 495, 22, hwnd, idRadUninstall, uw.fontUI)
 	uw.p1RadRepair = createCtrl(0, "BUTTON", "Repair All Darius DB (fix configs, ports, caches, locks, LocalDB, folders & shortcuts)",
 		wsTabStop|bsAutoRadioButton, 26, 183, 495, 22, hwnd, idRadRepair, uw.fontUI)
@@ -509,11 +509,11 @@ func buildUninstControls(hwnd syscall.Handle) {
 		22, 144, 502, 176, hwnd, 0, uw.fontMono)
 
 	// ---- Page 3: Finish ----
-	uw.p3DoneTitle = createCtrl(0, "STATIC", "Darius DB (Lite Version 0.1.4) has been uninstalled!",
+	uw.p3DoneTitle = createCtrl(0, "STATIC", "Darius DB (Lite Version 0.1.5) has been uninstalled!",
 		0, 22, 92, 500, 24, hwnd, 0, uw.fontTitle)
 	uw.p3Summary = createCtrl(0, "STATIC", "",
 		0, 22, 126, 500, 110, hwnd, 0, uw.fontUI)
-	uw.p3ChkLaunch = createCtrl(0, "BUTTON", "Launch Darius DB (Lite Version 0.1.4) now",
+	uw.p3ChkLaunch = createCtrl(0, "BUTTON", "Launch Darius DB (Lite Version 0.1.5) now",
 		wsTabStop|bsAutoCheckBox, 26, 246, 460, 24, hwnd, idChkLaunchApp, uw.fontBold)
 	setChecked(uw.p3ChkLaunch, true)
 
@@ -569,10 +569,10 @@ func showUninstPage(page int) {
 
 	case 2:
 		if uw.repairMode {
-			setText(uw.lblSubtitle, "Step 2 of 3 — Repairing Darius DB (Lite Version 0.1.4)...")
+			setText(uw.lblSubtitle, "Step 2 of 3 — Repairing Darius DB (Lite Version 0.1.5)...")
 			setText(uw.btnNext, "Repairing...")
 		} else {
-			setText(uw.lblSubtitle, "Step 2 of 3 — Uninstalling Darius DB (Lite Version 0.1.4)...")
+			setText(uw.lblSubtitle, "Step 2 of 3 — Uninstalling Darius DB (Lite Version 0.1.5)...")
 			setText(uw.btnNext, "Removing...")
 		}
 		procEnableWindow.Call(uintptr(uw.btnBack), 0)
@@ -582,7 +582,7 @@ func showUninstPage(page int) {
 	case 3:
 		if uw.repairMode {
 			setText(uw.lblSubtitle, "Step 3 of 3 — Repair Completed")
-			setText(uw.p3DoneTitle, "Darius DB (Lite Version 0.1.4) has been repaired!")
+			setText(uw.p3DoneTitle, "Darius DB (Lite Version 0.1.5) has been repaired!")
 			setText(uw.p3Summary, fmt.Sprintf(
 				"Repaired Folder:    %s\r\n"+
 					"Portable Folders:   Verified www/, bin/, data/, etc/, logs/, tmp/\r\n"+
@@ -593,7 +593,7 @@ func showUninstPage(page int) {
 			))
 		} else {
 			setText(uw.lblSubtitle, "Step 3 of 3 — Uninstall Completed")
-			setText(uw.p3DoneTitle, "Darius DB (Lite Version 0.1.4) has been uninstalled!")
+			setText(uw.p3DoneTitle, "Darius DB (Lite Version 0.1.5) has been uninstalled!")
 			dataNote := "Removed all program files and database folders."
 			if uw.keepData {
 				dataNote = fmt.Sprintf("Your databases & websites were kept safely in:\r\n                    %s\\data  and  %s\\www", uw.root, uw.root)
@@ -820,7 +820,7 @@ func performUninstall(opts uninstOptions, report func(pct int, msg string)) erro
 		_ = os.RemoveAll(filepath.Join(opts.root, name))
 	}
 
-	step(100, "Darius DB (Lite Version 0.1.4) uninstall complete!")
+	step(100, "Darius DB (Lite Version 0.1.5) uninstall complete!")
 	return nil
 }
 
@@ -866,7 +866,7 @@ func performRepair(opts uninstOptions, report func(pct int, msg string)) error {
 	step(92, "Repairing Start Menu and Desktop shortcuts")
 	winui.CreateStandardShortcuts(opts.root, appShortName, appFullTitle, true, true)
 
-	step(100, "Darius DB (Lite Version 0.1.4) Repair All complete!")
+	step(100, "Darius DB (Lite Version 0.1.5) Repair All complete!")
 	return nil
 }
 

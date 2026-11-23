@@ -154,7 +154,7 @@ func getJSONNoCache(client *http.Client, rawURL, token, accept string, dest inte
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.4")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.5")
 	req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	req.Header.Set("Pragma", "no-cache")
 	if accept != "" {
@@ -219,18 +219,13 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 		LatestBuild:    CLIAppBuild,
 		HasUpdate:      false,
 		Channel:        "Lite Version",
-		ReleasedAt:     "2026-11-20",
+		ReleasedAt:     "2026-11-23",
 		Author:         CLIAppAuthor,
 		InstallerURL:   defaultDriveFolderURL,
 		RepoURL:        CLIAppRepo,
-		Announcement:   "Darius DB (Lite Version 0.1.4) — Full-Stack Web & Database Manager! Now includes Database Import (.sql/.csv/.bak), Full Row/Table CRUD (Create, Show, Edit, Delete, Show All), Single & Selected-Table Export (.sql/.csv), 1-Click GitHub Auto-Updater & Restart, standalone DariusDB-Updater.exe, and Toggle-Switch Apache 2.4 + PHP 8.x + MySQL/MariaDB (:3306).",
+		Announcement:   "Darius DB (Lite Version 0.1.5) — Full-Stack Web & Database Manager with Visual Step-by-Step Guides, Keyboard Shortcuts (F1 / F8 / F9), Cloud Auto-Sync & 2:00 AM Auto-Backup with dated Pull DB auto-naming, Multi-Tab SQL Browser, 1-Click Repair All, and auto-generated commit updates.",
 		Changelog: []string{
-			"Added Database Import (.sql, .csv, .bak) and Full CRUD (Create Row, Create Table, Show Details, Edit Row, Delete, Show All)",
-			"Added Single-Table, Selected-Tables, and Full-Database Export (.sql with Structure/Data toggles & .csv)",
-			"Added 1-Click GitHub System Updater with BuildID tracking, automatic update download, and automatic app restart",
-			"Added standalone DariusDB-Updater.exe and bundled Installer, Launcher, Uninstaller & Updater executables on GitHub",
-			"Fixed MySQL Error 1130 on 127.0.0.1, removed username/password from mssql.conf, and auto-provisioned sqlcmd.exe",
-			"Separated MariaDB and MySQL rows/tabs and redesigned Dashboard with Toggle-Switch rows & Full-Stack guide",
+			"Released Lite Version 0.1.5 with automatic commit-generated version.json updates, Darius DB logo/favicon on www/index.html & Mailpit, reliable F8/F9 & Alt+Shift+S/X service shortcuts, Schedule Run/Backup 0%–100% progress modals, Visual Step-by-Step Guides with 22 screenshots, and optional dated Pull Cloud → Local DB auto-naming",
 		},
 		RecentCommits: []GitHubCommitInfo{},
 		CheckedAt:     time.Now().Format("2006-01-02 15:04:05"),
@@ -345,11 +340,6 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 	if code, err := getJSONNoCache(client, defaultGitHubCommitsURL, tok, "application/vnd.github+json", &ghCommits); err == nil && len(ghCommits) > 0 {
 		gotCommits = true
 		sources = append(sources, "commits")
-		seenMsg := map[string]bool{}
-		for _, c := range info.Changelog {
-			seenMsg[strings.ToLower(strings.TrimSpace(c))] = true
-		}
-		var newCommitItems []string
 		for i, c := range ghCommits {
 			shortSHA := c.SHA
 			if len(shortSHA) > 7 {
@@ -371,14 +361,8 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 				Author:  c.Commit.Author.Name,
 				Date:    dateStr,
 			})
-			if firstLine != "" && !seenMsg[strings.ToLower(firstLine)] {
-				newCommitItems = append(newCommitItems, fmt.Sprintf("[%s] %s (%s)", shortSHA, firstLine, dateStr))
-				seenMsg[strings.ToLower(firstLine)] = true
-			}
 		}
-		if len(newCommitItems) > 0 {
-			info.Changelog = append(newCommitItems, info.Changelog...)
-		}
+		info.Changelog = mergeUpdaterCommitChangelog(info.Changelog, info.RecentCommits)
 	} else {
 		recordErr(code, err)
 	}
@@ -494,6 +478,51 @@ func checkSystemUpdateWithToken(currentVersion, tok string) *SystemUpdateInfo {
 	verCmp := compareVersions(info.LatestVersion, info.CurrentVersion)
 	info.HasUpdate = verCmp > 0 || (verCmp == 0 && info.LatestBuild != "" && info.LatestBuild > info.CurrentBuild)
 	return info
+}
+
+// mergeUpdaterCommitChangelog prepends newly pushed GitHub commits that are not already
+// present in existing version.json changelog entries (deduplicating by leading [sha] or message).
+func mergeUpdaterCommitChangelog(existing []string, commits []GitHubCommitInfo) []string {
+	seenMsg := make(map[string]bool, len(existing))
+	seenSHA := make(map[string]bool, len(existing))
+	for _, entry := range existing {
+		t := strings.TrimSpace(entry)
+		if t == "" {
+			continue
+		}
+		seenMsg[strings.ToLower(t)] = true
+		if strings.HasPrefix(t, "[") {
+			if end := strings.Index(t, "]"); end > 1 && end <= 12 {
+				sha := strings.ToLower(strings.TrimSpace(t[1:end]))
+				if sha != "" {
+					seenSHA[sha] = true
+				}
+			}
+		}
+	}
+	var added []string
+	for _, c := range commits {
+		msg := strings.TrimSpace(c.Message)
+		sha := strings.ToLower(strings.TrimSpace(c.SHA))
+		if msg == "" || strings.Contains(strings.ToLower(msg), "[skip ci]") {
+			continue
+		}
+		if (sha != "" && seenSHA[sha]) || seenMsg[strings.ToLower(msg)] {
+			continue
+		}
+		if sha != "" {
+			seenSHA[sha] = true
+		}
+		seenMsg[strings.ToLower(msg)] = true
+		added = append(added, fmt.Sprintf("[%s] %s (%s)", c.SHA, msg, c.Date))
+	}
+	if len(added) == 0 {
+		return existing
+	}
+	out := make([]string, 0, len(added)+len(existing))
+	out = append(out, added...)
+	out = append(out, existing...)
+	return out
 }
 
 // SyncFromGitHub fetches the newest version.json, recent commits, and catalog.json
@@ -623,7 +652,7 @@ func ApplySystemUpdateFromURL(p *Paths, downloadURL string, tokens ...string) (s
 		if err != nil {
 			return "", err
 		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.4")
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.5")
 		if strings.Contains(strings.ToLower(targetURL), "api.github.com/repos/") {
 			if strings.Contains(strings.ToLower(targetURL), "/contents/") {
 				req.Header.Set("Accept", "application/vnd.github.raw+json")

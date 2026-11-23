@@ -2588,9 +2588,11 @@
     // Dashboard actions
     $("btnStartAll").onclick = async () => {
       const btn = $("btnStartAll");
-      const prev = btn.textContent;
+      if (btn.disabled) return;
+      const prevHtml = btn.innerHTML;
       btn.disabled = true;
       btn.textContent = "⏳ Starting...";
+      toast("Starting enabled services...", "info");
       try {
         await api().StartAll();
         state.statuses = (await api().Status()) || [];
@@ -2599,14 +2601,16 @@
         toast(errMsg(e), "err");
       } finally {
         btn.disabled = false;
-        btn.textContent = prev;
+        btn.innerHTML = prevHtml;
       }
     };
     $("btnStopAll").onclick = async () => {
       const btn = $("btnStopAll");
-      const prev = btn.textContent;
+      if (btn.disabled) return;
+      const prevHtml = btn.innerHTML;
       btn.disabled = true;
       btn.textContent = "⏳ Stopping All...";
+      toast("Stopping all running services...", "info");
       try {
         await api().StopAll();
         state.statuses = (await api().Status()) || [];
@@ -2616,7 +2620,7 @@
         toast(errMsg(e), "err");
       } finally {
         btn.disabled = false;
-        btn.textContent = prev;
+        btn.innerHTML = prevHtml;
       }
     };
     $("btnGoVersions").onclick = () => switchTab("versions");
@@ -3847,6 +3851,7 @@ try {
       $("sqlEditor").focus();
     };
     $("sqlEditor").addEventListener("keydown", (e) => {
+      if (e.defaultPrevented || e.shiftKey) return;
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
         runSqlQuery(false);
@@ -4110,6 +4115,7 @@ try {
     $("btnCfgNotepad").onclick = () =>
       api().OpenConfigExternal(state.cfgEngine).catch((e) => toast(errMsg(e), "err"));
     $("cfgText").addEventListener("keydown", (e) => {
+      if (e.defaultPrevented || e.shiftKey) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (!$("btnCfgSave").disabled) saveConfigFile(false);

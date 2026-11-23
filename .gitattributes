@@ -1,0 +1,7 @@
+# Exclude source code, build files, scripts, and internal assets from GitHub's
+# auto-generated "Source code (zip)" and "Source code (tar.gz)" release archives.
+# Keep only user-facing documentation and license so archives remain valid with zero source code.
+* export-ignore
+/README.md -export-ignore
+/GUIDE.md -export-ignore
+/LICENSE -export-ignore

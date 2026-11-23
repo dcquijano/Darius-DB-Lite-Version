@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Darius DB (Lite Version 0.1.4) Repair All wrapper script for Windows.
+  Darius DB (Lite Version 0.1.5) Repair All wrapper script for Windows.
   Launches DariusDB-Repair.exe or falls back to darius.exe repair all --fix-ports.
 #>
 param(

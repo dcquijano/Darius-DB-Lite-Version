@@ -203,7 +203,7 @@ func TestBuiltInTerminal(t *testing.T) {
 	mgr := NewManager(p, st, nil)
 	term := NewTerminal(p, st, mgr, nil)
 
-	if !strings.Contains(term.Banner(), "Darius DB (Lite Version 0.1.4) Built-in Terminal") {
+	if !strings.Contains(term.Banner(), "Darius DB (Lite Version 0.1.5) Built-in Terminal") {
 		t.Fatalf("unexpected banner: %s", term.Banner())
 	}
 
@@ -1032,6 +1032,69 @@ func TestMapProgressRangeAndScheduleRunProgress(t *testing.T) {
 	}
 	if len(events) < 2 || events[0].Percent != 2 || events[len(events)-1].Percent != 100 || events[len(events)-1].State != "done" {
 		t.Fatalf("unexpected progress events: %+v", events)
+	}
+}
+
+func TestEnsureWwwIndexUpgradesToV5WithLogoAndPreservesCustom(t *testing.T) {
+	wwwDir := t.TempDir()
+	indexPath := filepath.Join(wwwDir, "index.html")
+
+	// 1. Fresh www/ gets v5 landing page with inline SVG favicon, Darius DB logo, and v0.1.5 title
+	ensureWwwIndex(wwwDir)
+	b, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("read generated index.html: %v", err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "darius-www-v5") || !strings.Contains(s, "Lite Version 0.1.5") || !strings.Contains(s, `rel="icon"`) || !strings.Contains(s, "data:image/svg+xml") || !strings.Contains(s, "dariusLogoGrad") {
+		t.Fatalf("expected v5 index.html with 0.1.5 title, favicon, and brand SVG logo")
+	}
+
+	// 2. Older Darius DB v3/v4 page automatically upgrades to v5
+	v4Stub := "<!DOCTYPE html>\n<!-- darius-www-v4 -->\n<html><head><title>Darius DB (Lite Version 0.1.4)</title></head><body></body></html>"
+	if err := os.WriteFile(indexPath, []byte(v4Stub), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ensureWwwIndex(wwwDir)
+	b, err = os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "darius-www-v5") || !strings.Contains(string(b), "Lite Version 0.1.5") || !strings.Contains(string(b), `rel="icon"`) {
+		t.Fatalf("expected older Darius DB landing page to upgrade to v5 with favicon")
+	}
+
+	// 3. Custom user index.html must never be overwritten
+	custom := "<!DOCTYPE html><html><head><title>My Custom App</title></head><body><h1>Hello</h1></body></html>"
+	if err := os.WriteFile(indexPath, []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ensureWwwIndex(wwwDir)
+	b, err = os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != custom {
+		t.Fatalf("ensureWwwIndex overwrote user custom index.html")
+	}
+}
+
+func TestMergeUpdaterCommitChangelogDeduplicatesSHA(t *testing.T) {
+	existing := []string{
+		"[2d1b762] Add 0-100% progress loading modals (2026-11-23)",
+		"[311a836] Rebuild installers (2026-11-23)",
+	}
+	commits := []GitHubCommitInfo{
+		{SHA: "abc1234", Message: "feat: brand new feature", Date: "2026-11-23 10:30"},
+		{SHA: "def5678", Message: "chore: auto-update version.json from commits [skip ci]", Date: "2026-11-23 10:29"},
+		{SHA: "2d1b762", Message: "feat: add 0-100% progress loading modals", Date: "2026-11-23 09:52"},
+	}
+	got := mergeUpdaterCommitChangelog(existing, commits)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 merged changelog entries (1 new + 2 existing, skipping dup SHA and [skip ci]), got %d: %#v", len(got), got)
+	}
+	if !strings.HasPrefix(got[0], "[abc1234]") {
+		t.Fatalf("expected new commit prepended first, got %q", got[0])
 	}
 }
 

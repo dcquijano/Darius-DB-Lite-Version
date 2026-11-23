@@ -1405,21 +1405,21 @@
   </div>
 
   <!-- Daily Auto-Sync & 2 AM Auto-Backup Schedule Modal -->
-  <div class="modal-backdrop" id="modalScheduleForm" hidden>
-    <div class="modal" style="width:560px;max-width:94vw">
+  <div class="modal-backdrop" id="modalScheduleForm" role="dialog" aria-modal="true" aria-labelledby="modalScheduleTitle" hidden>
+    <div class="modal modal-schedule-large">
       <div class="modal-head">
         <h3 id="modalScheduleTitle">⏰ Daily Auto-Sync &amp; Auto-Backup Schedule</h3>
         <button class="icon-btn" id="btnCloseScheduleForm" aria-label="Close">✕</button>
       </div>
       <form id="formSchedule" class="modal-body">
         <input type="hidden" id="schedEditId" />
-        <div class="modal-grid-2">
+        <div class="modal-grid-2 sched-name-row">
           <label class="field">
             <span>Schedule Name *</span>
             <input type="text" id="schedName" class="input" required placeholder="e.g. HRIS Daily Pull &amp; 2AM Backup" />
           </label>
-          <label class="field" style="justify-content:flex-end">
-            <span class="check-row" style="font-size:12.5px;padding-bottom:6px">
+          <label class="field sched-enabled-field">
+            <span class="check-row sched-enabled-toggle">
               <input type="checkbox" id="schedEnabled" checked />
               <span>Schedule Enabled</span>
             </span>
@@ -1453,12 +1453,12 @@
           </label>
         </div>
 
-        <div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);display:flex;flex-direction:column;gap:8px">
-          <label class="check-row" style="font-size:12.5px;font-weight:600">
+        <div class="sched-section-card">
+          <label class="check-row sched-section-title">
             <input type="checkbox" id="schedAutoSync" checked />
             <span>🔄 Every Day Auto-Sync</span>
           </label>
-          <div class="modal-grid-2">
+          <div class="modal-grid-2 sched-sync-grid">
             <label class="field">
               <span>Direction</span>
               <select id="schedSyncDir" class="select">
@@ -1474,13 +1474,13 @@
           </div>
           <div id="schedSyncFolderRow" class="field" hidden>
             <span>Output Folder (blank = <code>backups/&lt;schedule&gt;/syncs/</code> · does not create a Local DB)</span>
-            <div class="input-row">
-              <input type="text" id="schedSyncFolder" class="input sm" placeholder="Default: backups/<schedule>/syncs/" />
-              <button type="button" class="btn xs accent" id="btnBrowseSyncFolder">📂 Browse</button>
+            <div class="sched-folder-picker-row">
+              <input type="text" id="schedSyncFolder" class="input" placeholder="Default: backups/<schedule>/syncs/" />
+              <button type="button" class="btn sm accent" id="btnBrowseSyncFolder">📂 Browse</button>
             </div>
           </div>
           <div id="schedAutoNameWrap" class="auto-name-sched-wrap">
-            <label class="check-row" style="font-size:11.5px">
+            <label class="check-row sched-autoname-check">
               <input type="checkbox" id="schedAutoNameLocal" />
               <span id="schedAutoNameLabel">✨ Auto-generate new Local DB name on each daily Pull (Date, Day, Year &amp; Timestamp)</span>
             </label>
@@ -1491,17 +1491,17 @@
                 <option value="date_year_ts">name_YYYY_MM_DD_HHMMSS</option>
                 <option value="date_day_year">name_YYYY_MM_DD_Day (Daily)</option>
               </select>
-              <span class="muted" style="font-size:11px">Example: <code id="schedAutoNamePreview">—</code></span>
+              <span class="muted" style="font-size:12px">Example: <code id="schedAutoNamePreview">—</code></span>
             </div>
           </div>
         </div>
 
-        <div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);display:flex;flex-direction:column;gap:8px">
-          <label class="check-row" style="font-size:12.5px;font-weight:600">
+        <div class="sched-section-card">
+          <label class="check-row sched-section-title">
             <input type="checkbox" id="schedAutoBackup" checked />
             <span>📦 Every Day Auto-Backup (.zip Snapshot)</span>
           </label>
-          <div class="modal-grid-3" style="grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr) minmax(0, 0.9fr)">
+          <div class="modal-grid-3 sched-backup-grid">
             <label class="field">
               <span>Backup Source</span>
               <select id="schedBackupSource" class="select">
@@ -1522,13 +1522,13 @@
           </div>
           <div id="schedBackupDirRow" class="field" hidden>
             <span>Output &amp; Purge Folder (blank = <code>backups/&lt;schedule&gt;/</code> · auto-purges dated folders after retention days)</span>
-            <div style="display:flex;gap:6px;align-items:center">
-              <input type="text" id="schedBackupDir" class="input" placeholder="e.g. C:\DariusDB\backups\my_db_daily (blank = default backups/)" style="flex:1" />
+            <div class="sched-folder-picker-row">
+              <input type="text" id="schedBackupDir" class="input" placeholder="e.g. C:\DariusDB\backups\my_db_daily (blank = default backups/)" />
               <button type="button" class="btn sm accent" id="btnBrowseBackupDir" title="Browse destination &amp; purge folder">📂 Browse</button>
             </div>
           </div>
           <div id="schedAutoBackupNameWrap" class="auto-name-sched-wrap">
-            <label class="check-row" style="font-size:11.5px">
+            <label class="check-row sched-autoname-check">
               <input type="checkbox" id="schedAutoNameBackup" />
               <span id="schedAutoBackupNameLabel">✨ Auto-generate new Backup .zip filename on each daily Backup (Date, Day, Year &amp; Timestamp)</span>
             </label>
@@ -1539,7 +1539,7 @@
                 <option value="date_year_ts">name_YYYY_MM_DD_HHMMSS.zip</option>
                 <option value="date_day_year">name_YYYY_MM_DD_Day.zip (Daily)</option>
               </select>
-              <span class="muted" style="font-size:11px">Example: <code id="schedAutoBackupNamePreview">—</code></span>
+              <span class="muted" style="font-size:12px">Example: <code id="schedAutoBackupNamePreview">—</code></span>
             </div>
           </div>
           <div id="schedPurgeGuide" class="purge-guide-box" role="status">

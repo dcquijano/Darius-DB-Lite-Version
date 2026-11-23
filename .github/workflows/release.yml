@@ -23,7 +23,7 @@ jobs:
 
       - name: Build Darius DB (GUI, Launcher, Uninstaller, Updater, CLI, Portable ZIP & Setup EXE)
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-all.ps1
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-all.ps1 -SkipVersionGen
 
       - name: Upload workflow build artifacts
         uses: actions/upload-artifact@v4

@@ -43,7 +43,7 @@ func updaterRepoEndpoints(owner, repo string) repoEndpoints {
 		versionJSONURL:   fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/version.json", owner, repo),
 		versionAPIURL:    fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/version.json", owner, repo),
 		releasesURL:      fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo),
-		commitsURL:       fmt.Sprintf("https://api.github.com/repos/%s/%s/commits?per_page=10", owner, repo),
+		commitsURL:       fmt.Sprintf("https://api.github.com/repos/%s/%s/commits?per_page=25", owner, repo),
 		rawInstallerBase: fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/installer", owner, repo),
 	}
 }
@@ -369,17 +369,20 @@ func checkSystemUpdateForRepo(currentVersion, tok string, repo repoEndpoints) *S
 	if code, err := getJSONNoCache(client, repo.commitsURL, tok, "application/vnd.github+json", &ghCommits); err == nil && len(ghCommits) > 0 {
 		gotCommits = true
 		sources = append(sources, "commits")
-		for i, c := range ghCommits {
+		for _, c := range ghCommits {
 			shortSHA := c.SHA
 			if len(shortSHA) > 7 {
 				shortSHA = shortSHA[:7]
 			}
 			firstLine := strings.TrimSpace(strings.Split(c.Commit.Message, "\n")[0])
+			if isAutomatedCommit(c.Commit.Author.Name, firstLine) {
+				continue
+			}
 			dateStr := c.Commit.Author.Date
 			if t, err := time.Parse(time.RFC3339, dateStr); err == nil {
 				dateStr = t.Local().Format("2006-01-02 15:04")
 			}
-			if i == 0 {
+			if info.LatestCommitSHA == "" {
 				info.LatestCommitSHA = shortSHA
 				info.LatestCommitMsg = firstLine
 				info.LatestCommitDate = dateStr
@@ -390,6 +393,9 @@ func checkSystemUpdateForRepo(currentVersion, tok string, repo repoEndpoints) *S
 				Author:  c.Commit.Author.Name,
 				Date:    dateStr,
 			})
+			if len(info.RecentCommits) >= 10 {
+				break
+			}
 		}
 		info.Changelog = mergeUpdaterCommitChangelog(info.Changelog, info.RecentCommits)
 	} else {
@@ -507,6 +513,23 @@ func checkSystemUpdateForRepo(currentVersion, tok string, repo repoEndpoints) *S
 	verCmp := compareVersions(info.LatestVersion, info.CurrentVersion)
 	info.HasUpdate = verCmp > 0 || (verCmp == 0 && info.LatestBuild != "" && info.LatestBuild > info.CurrentBuild)
 	return info
+}
+
+// isAutomatedCommit identifies automated bot/CI metadata commits that shouldn't
+// clutter the System Version Updater commit feed or changelog.
+func isAutomatedCommit(author, msg string) bool {
+	a := strings.ToLower(strings.TrimSpace(author))
+	m := strings.ToLower(strings.TrimSpace(msg))
+	if strings.Contains(a, "github-actions") {
+		return true
+	}
+	if strings.Contains(m, "[skip ci]") || strings.Contains(m, "[ci skip]") {
+		return true
+	}
+	if strings.HasPrefix(m, "chore: auto-update version.json") {
+		return true
+	}
+	return false
 }
 
 // mergeUpdaterCommitChangelog prepends newly pushed GitHub commits that are not already

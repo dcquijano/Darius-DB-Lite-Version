@@ -110,17 +110,25 @@
 
   // ---- Confirm modal ----
   let confirmResolve = null;
+  let confirmReturnFocus = null;
   function askConfirm(title, message, okLabel = "Confirm") {
+    confirmReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     $("confirmTitle").textContent = title;
     $("confirmMsg").textContent = message;
     $("btnConfirmOk").textContent = okLabel;
     $("modalConfirm").hidden = false;
+    setTimeout(() => $("btnConfirmCancel")?.focus?.(), 0);
     return new Promise((resolve) => {
       confirmResolve = resolve;
     });
   }
   function closeConfirm(val) {
     $("modalConfirm").hidden = true;
+    const ret = confirmReturnFocus;
+    confirmReturnFocus = null;
+    if (ret && ret.isConnected) {
+      try { ret.focus(); } catch {}
+    }
     if (confirmResolve) {
       const r = confirmResolve;
       confirmResolve = null;
@@ -4592,6 +4600,62 @@ try {
 
   const liveScheduledRuns = {};
 
+  const GUIDE_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const GUIDE_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  function formatPurgeDateGuide(dt, includeSeconds = true) {
+    const d = dt instanceof Date ? dt : new Date(dt);
+    if (isNaN(d.getTime())) return "—";
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const day = GUIDE_DAYS[d.getDay()];
+    const mon = GUIDE_MONTHS[d.getMonth()];
+    const dd = pad2(d.getDate());
+    const yyyy = d.getFullYear();
+    const h24 = d.getHours();
+    const h12 = pad2(h24 % 12 || 12);
+    const mm = pad2(d.getMinutes());
+    const ss = pad2(d.getSeconds());
+    const ampm = h24 >= 12 ? "PM" : "AM";
+    return `${day}, ${mon} ${dd}, ${yyyy} · ${h12}:${mm}${includeSeconds ? ":" + ss : ""} ${ampm}`;
+  }
+
+  function formatPurgeStamp(dt) {
+    const d = dt instanceof Date ? dt : new Date(dt);
+    if (isNaN(d.getTime())) return "—";
+    const pad2 = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}_${pad2(d.getMonth() + 1)}_${pad2(d.getDate())}_${GUIDE_DAYS[d.getDay()]}_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+  }
+
+  function computeSchedulePurgeGuide(sched, now = new Date()) {
+    const retDays = Math.max(1, Number(sched?.retentionDays) || 7);
+    const cutoff = new Date(now.getTime() - retDays * 86400000);
+    let baseDt = null;
+    let sourceLabel = "Next backup";
+    if (sched?.lastBackupAt) {
+      const parsed = new Date(String(sched.lastBackupAt).replace(" ", "T"));
+      if (!isNaN(parsed.getTime())) {
+        baseDt = parsed;
+        sourceLabel = "Last backup";
+      }
+    }
+    if (!baseDt) {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(String(sched?.backupTime || "02:00").trim());
+      baseDt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), m ? Number(m[1]) : 2, m ? Number(m[2]) : 0, 0, 0);
+      if (baseDt <= now) baseDt = new Date(baseDt.getTime() + 86400000);
+    }
+    const purgeAt = new Date(baseDt.getTime() + retDays * 86400000);
+    return {
+      retDays,
+      sourceLabel,
+      baseDt,
+      purgeAt,
+      cutoff,
+      purgeAtText: formatPurgeDateGuide(purgeAt, false),
+      purgeStamp: formatPurgeStamp(purgeAt),
+      cutoffText: formatPurgeDateGuide(cutoff, false),
+    };
+  }
+
   function computeNextScheduleText(hhmm, lastDate, createdAt) {
     const raw = String(hhmm || "02:00").trim();
     const m = /^(\d{1,2}):(\d{2})$/.exec(raw);
@@ -4669,6 +4733,10 @@ try {
         if (s.enabled && s.autoBackup) {
           nextLines.push(`Next auto-backup: ${computeNextScheduleText(s.backupTime, s.lastBackupDate, s.createdAt)}`);
         }
+        const purgeGuide = s.autoBackup ? computeSchedulePurgeGuide(s) : null;
+        const purgeGuideHtml = purgeGuide
+          ? `<div class="sched-purge-line" title="Purge stamp: ${esc(purgeGuide.purgeStamp)} · Cutoff now: files on/before ${esc(purgeGuide.cutoffText)}">🗑 Purge guide (≥${purgeGuide.retDays}d): ${esc(purgeGuide.sourceLabel)} purges <strong>${esc(purgeGuide.purgeAtText)}</strong> <code class="purge-stamp-tag">${esc(purgeGuide.purgeStamp)}</code></div>`
+          : "";
         const syncStat = s.lastSyncAt ? `Last sync (${s.lastSyncAt}): ${s.lastSyncStatus || "ok"}` : "Sync: pending next scheduled time";
         const bkpStat = s.lastBackupAt ? `Last backup (${s.lastBackupAt}): ${s.lastBackupStatus || "ok"}` : "Backup: pending next scheduled run";
         const liveHtml = isLiveRunning
@@ -4703,6 +4771,7 @@ try {
             }
           </div>
           ${nextLines.length ? `<div class="sched-next-line">${esc(nextLines.join(" · "))}</div>` : ""}
+          ${purgeGuideHtml}
           ${liveHtml}
           <div class="muted" style="font-size:11.5px;line-height:1.45">
             <div>${esc(syncStat)}</div>
@@ -5520,6 +5589,27 @@ try {
         const suffix = bkpSrc === "both" ? "_cloud" : "";
         $("schedAutoBackupNamePreview").textContent = buildAutoPullLocalDbName(base + suffix, fmt, previewDate) + ".zip";
       }
+
+      if ($("schedPurgeGuide")) {
+        const autoBkpOn = $("schedAutoBackup") ? !!$("schedAutoBackup").checked : true;
+        $("schedPurgeGuide").hidden = !autoBkpOn;
+        const retDays = Math.max(1, Number($("schedRetentionDays")?.value) || 7);
+        const now = new Date();
+        const bkpDate = new Date(now.getTime());
+        const [phh, pmm] = String($("schedBackupTime")?.value || "02:00").split(":").map(Number);
+        if (Number.isFinite(phh) && Number.isFinite(pmm)) bkpDate.setHours(phh, pmm, 0, 0);
+        const purgeDate = new Date(bkpDate.getTime() + retDays * 86400000);
+        const cutoffNow = new Date(now.getTime() - retDays * 86400000);
+        const daysLabel = retDays === 7 ? "7 days · 1 week" : `${retDays} ${retDays === 1 ? "day" : "days"}`;
+        const bkpText = formatPurgeDateGuide(bkpDate, true);
+        const purgeText = formatPurgeDateGuide(purgeDate, true);
+        if ($("schedPurgeDaysLabel")) $("schedPurgeDaysLabel").textContent = daysLabel;
+        if ($("schedPurgeTargetDate")) $("schedPurgeTargetDate").textContent = purgeText;
+        if ($("schedPurgeBackupDate")) $("schedPurgeBackupDate").textContent = bkpText;
+        if ($("schedPurgeTargetDateSub")) $("schedPurgeTargetDateSub").textContent = purgeText;
+        if ($("schedPurgeStampPreview")) $("schedPurgeStampPreview").textContent = formatPurgeStamp(purgeDate);
+        if ($("schedPurgeCutoffNow")) $("schedPurgeCutoffNow").textContent = formatPurgeDateGuide(cutoffNow, true);
+      }
     };
     const closeScheduleModal = () => ($("modalScheduleForm").hidden = true);
     const openScheduleModal = (existing = null) => {
@@ -5613,10 +5703,13 @@ try {
     }
     $("schedAutoNameLocal")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedAutoNameFmt")?.addEventListener("change", updateSchedAutoNameUI);
+    $("schedAutoBackup")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedAutoNameBackup")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedAutoNameBackupFmt")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedBackupSource")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedBackupTime")?.addEventListener("change", updateSchedAutoNameUI);
+    $("schedRetentionDays")?.addEventListener("input", updateSchedAutoNameUI);
+    $("schedRetentionDays")?.addEventListener("change", updateSchedAutoNameUI);
     $("schedLocalDb")?.addEventListener("input", updateSchedAutoNameUI);
     $("schedCloudDb")?.addEventListener("input", updateSchedAutoNameUI);
     $("schedSyncTime")?.addEventListener("change", updateSchedAutoNameUI);
@@ -5961,8 +6054,14 @@ try {
     const loadSnapshotsModal = async (schedId, keepProg = false) => {
       activeSnapSchedId = schedId;
       const sched = (state.schedules || []).find((s) => s.id === schedId);
+      const retDays = Math.max(1, Number(sched?.retentionDays) || 7);
+      const cutoffNow = new Date(Date.now() - retDays * 86400000);
       $("modalSnapTitle").textContent = `📦 Snapshots — ${sched ? sched.name : ""}`;
-      $("modalSnapMeta").textContent = `Retention policy: Purge snapshots ≥ ${sched?.retentionDays || 7} day(s) (1 week)`;
+      $("modalSnapMeta").textContent = `Purge after ${retDays} day(s) · Cutoff now: ${formatPurgeDateGuide(cutoffNow, false)} (older files purge)`;
+      if ($("btnSnapPurgeNow")) {
+        $("btnSnapPurgeNow").textContent = `🗑 Purge Expired (≥${retDays}d)`;
+        $("btnSnapPurgeNow").title = `Remove snapshots on or before ${formatPurgeDateGuide(cutoffNow, true)}`;
+      }
       if (!keepProg && $("snapBackupProgBox") && !(schedRunState.running && schedRunState.mode === "backup" && schedRunState.schedId === schedId)) {
         $("snapBackupProgBox").hidden = true;
       }
@@ -5973,10 +6072,18 @@ try {
       } else {
         box.innerHTML = list
           .map(
-            (sn) => `<div class="folder-row" style="padding:8px 10px">
+            (sn) => `<div class="folder-row" style="padding:9px 11px;align-items:flex-start">
               <div style="min-width:0;flex:1">
                 <strong style="font-size:12.5px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(sn.path)}">${esc(sn.name)}</strong>
-                <span class="muted" style="font-size:11px">${esc(sn.createdAt)} · ${esc(sn.sizeText)}</span>
+                <div class="muted" style="font-size:11px;margin-top:2px">📅 Created: ${esc(sn.createdDisplay || sn.createdAt)} · ${esc(sn.sizeText)}</div>
+                ${
+                  sn.purgeAt
+                    ? `<div class="snap-purge-line${sn.expired ? " expired" : ""}">
+                        <span>🗑 ${sn.expired ? "Purge due since:" : "Auto-Purge:"} <strong>${esc(sn.purgeAt)}</strong></span>
+                        ${sn.purgeStamp ? `<code class="purge-stamp-tag" title="Purge date/day/month/time guide">${esc(sn.purgeStamp)}</code>` : ""}
+                      </div>`
+                    : ""
+                }
               </div>
               <span class="pill ${sn.expired ? "stopped" : "running"}" style="flex-shrink:0">${esc(sn.expiresIn)}</span>
             </div>`
@@ -5991,8 +6098,16 @@ try {
     if ($("btnSnapPurgeNow")) {
       $("btnSnapPurgeNow").onclick = async () => {
         try {
+          const sched = (state.schedules || []).find((s) => s.id === activeSnapSchedId);
+          const retDays = Math.max(1, Number(sched?.retentionDays) || 7);
+          const cutoffStr = formatPurgeDateGuide(new Date(Date.now() - retDays * 86400000), false);
           const n = await api().PurgeScheduleSnapshots(activeSnapSchedId);
-          toast(`Purged ${n} expired snapshot(s).`, n > 0 ? "ok" : "info");
+          toast(
+            n > 0
+              ? `Purged ${n} expired snapshot(s) on/before ${cutoffStr}.`
+              : `No snapshots on/before ${cutoffStr} (≥${retDays}d) to purge.`,
+            n > 0 ? "ok" : "info"
+          );
           await loadSnapshotsModal(activeSnapSchedId);
         } catch (err) {
           toast(errMsg(err), "err");
@@ -6097,8 +6212,15 @@ try {
           await loadSnapshotsModal(s.id);
         } else if (act === "purge") {
           try {
+            const retDays = Math.max(1, Number(s.retentionDays) || 7);
+            const cutoffStr = formatPurgeDateGuide(new Date(Date.now() - retDays * 86400000), false);
             const n = await api().PurgeScheduleSnapshots(s.id);
-            toast(n > 0 ? `Purged ${n} snapshot(s) >= ${s.retentionDays || 7} days.` : `No snapshots >= ${s.retentionDays || 7} days old.`, n > 0 ? "ok" : "info");
+            toast(
+              n > 0
+                ? `Purged ${n} snapshot(s) on/before ${cutoffStr} (≥${retDays}d).`
+                : `No snapshots on/before ${cutoffStr} (≥${retDays}d) to purge.`,
+              n > 0 ? "ok" : "info"
+            );
           } catch (err) {
             toast(errMsg(err), "err");
           }

@@ -56,14 +56,21 @@ type BackupSyncSchedule struct {
 
 // BackupSnapshotInfo describes an automated snapshot file on disk and its purge lifetime.
 type BackupSnapshotInfo struct {
-	Name      string  `json:"name"`
-	Path      string  `json:"path"`
-	Size      int64   `json:"size"`
-	SizeText  string  `json:"sizeText"`
-	CreatedAt string  `json:"createdAt"`
-	AgeDays   float64 `json:"ageDays"`
-	ExpiresIn string  `json:"expiresIn"`
-	Expired   bool    `json:"expired"`
+	Name           string  `json:"name"`
+	Path           string  `json:"path"`
+	Size           int64   `json:"size"`
+	SizeText       string  `json:"sizeText"`
+	CreatedAt      string  `json:"createdAt"`
+	CreatedDisplay string  `json:"createdDisplay,omitempty"` // e.g. Mon, Nov 23, 2026 · 01:31:08 PM
+	AgeDays        float64 `json:"ageDays"`
+	ExpiresIn      string  `json:"expiresIn"`
+	PurgeAt        string  `json:"purgeAt,omitempty"`    // e.g. Mon, Nov 30, 2026 · 01:31:08 PM
+	PurgeStamp     string  `json:"purgeStamp,omitempty"` // e.g. 2026_11_30_Mon_133108
+	Expired        bool    `json:"expired"`
+}
+
+func formatPurgeDateGuide(t time.Time) string {
+	return t.Format("Mon, Jan 02, 2006 · 03:04:05 PM")
 }
 
 // ScheduleRunProgress describes live 0-100% progress during a manual or scheduled
@@ -563,14 +570,17 @@ func ListSnapshots(p *Paths, sched BackupSyncSchedule, now time.Time) ([]BackupS
 		list = append(list, item{
 			t: snapTime,
 			info: BackupSnapshotInfo{
-				Name:      e.Name(),
-				Path:      filepath.Join(dir, e.Name()),
-				Size:      st.Size(),
-				SizeText:  formatByteSize(st.Size()),
-				CreatedAt: snapTime.Format("2006-01-02 15:04"),
-				AgeDays:   ageDays,
-				ExpiresIn: expText,
-				Expired:   expired,
+				Name:           e.Name(),
+				Path:           filepath.Join(dir, e.Name()),
+				Size:           st.Size(),
+				SizeText:       formatByteSize(st.Size()),
+				CreatedAt:      snapTime.Format("2006-01-02 15:04"),
+				CreatedDisplay: formatPurgeDateGuide(snapTime),
+				AgeDays:        ageDays,
+				ExpiresIn:      expText,
+				PurgeAt:        formatPurgeDateGuide(expiresAt),
+				PurgeStamp:     expiresAt.Format("2006_01_02_Mon_150405"),
+				Expired:        expired,
 			},
 		})
 	}
@@ -786,6 +796,7 @@ func (sc *Scheduler) RunDueSchedules(now time.Time) {
 		if sched.AutoBackup {
 			dir := ScheduleBackupDir(sc.p, sched)
 			if purgedN, purgedNames, _ := PurgeOldSnapshots(dir, sched.RetentionDays, now); purgedN > 0 {
+				cutoff := now.Add(-time.Duration(sched.RetentionDays) * 24 * time.Hour)
 				sc.recordLog(SyncLogEntry{
 					ScheduleID: sched.ID,
 					Name:       sched.Name,
@@ -793,7 +804,7 @@ func (sc *Scheduler) RunDueSchedules(now time.Time) {
 					Action:     "purge",
 					Target:     dir,
 					Status:     "ok",
-					Detail:     fmt.Sprintf("Purged %d expired snapshot(s) (>= %d days old): %s", purgedN, sched.RetentionDays, strings.Join(purgedNames, ", ")),
+					Detail:     fmt.Sprintf("Purged %d expired snapshot(s) (>= %d days, cutoff %s): %s", purgedN, sched.RetentionDays, formatPurgeDateGuide(cutoff), strings.Join(purgedNames, ", ")),
 				})
 				_ = sc.updateScheduleStatus(sched.ID, func(cur *BackupSyncSchedule) {
 					cur.LastPurgedCount = purgedN

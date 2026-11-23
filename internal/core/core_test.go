@@ -1280,6 +1280,69 @@ func TestSchedulePullFolderNormalizationAndPaths(t *testing.T) {
 	}
 }
 
+func TestListSnapshotsIncludesPurgeDateDayMonthTimeGuide(t *testing.T) {
+	p := NewPaths(t.TempDir())
+	sched := (BackupSyncSchedule{
+		ID:            "sched_purge_guide",
+		Name:          "canyoneeringdb Daily",
+		AutoBackup:    true,
+		RetentionDays: 7,
+	}).Normalized()
+	dir := ScheduleBackupDir(p, sched)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	snapFile := filepath.Join(dir, "tsujkcilc_canyoneeringdb_2026_11_23_Mon_133108.zip")
+	if err := os.WriteFile(snapFile, []byte("zip-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Active snapshot 1 hour after creation
+	nowActive := time.Date(2026, 11, 23, 14, 31, 8, 0, time.Local)
+	snaps, err := ListSnapshots(p, sched, nowActive)
+	if err != nil || len(snaps) != 1 {
+		t.Fatalf("expected 1 snapshot, got len=%d err=%v", len(snaps), err)
+	}
+	got := snaps[0]
+	if got.CreatedDisplay != "Mon, Nov 23, 2026 · 01:31:08 PM" {
+		t.Errorf("CreatedDisplay = %q, want %q", got.CreatedDisplay, "Mon, Nov 23, 2026 · 01:31:08 PM")
+	}
+	if got.PurgeAt != "Mon, Nov 30, 2026 · 01:31:08 PM" {
+		t.Errorf("PurgeAt = %q, want %q", got.PurgeAt, "Mon, Nov 30, 2026 · 01:31:08 PM")
+	}
+	if got.PurgeStamp != "2026_11_30_Mon_133108" {
+		t.Errorf("PurgeStamp = %q, want %q", got.PurgeStamp, "2026_11_30_Mon_133108")
+	}
+	if got.Expired {
+		t.Errorf("expected snapshot to be active on %v, got Expired=true", nowActive)
+	}
+
+	// Expired snapshot at exact 7-day purge moment
+	nowExpired := time.Date(2026, 11, 30, 13, 31, 8, 0, time.Local)
+	snapsExp, err := ListSnapshots(p, sched, nowExpired)
+	if err != nil || len(snapsExp) != 1 {
+		t.Fatalf("expected 1 snapshot, got len=%d err=%v", len(snapsExp), err)
+	}
+	if !snapsExp[0].Expired || snapsExp[0].ExpiresIn != "Due for purge" {
+		t.Errorf("expected expired snapshot on %v, got Expired=%v ExpiresIn=%q", nowExpired, snapsExp[0].Expired, snapsExp[0].ExpiresIn)
+	}
+}
+
+func TestIsAutomatedCommitFiltering(t *testing.T) {
+	if !isAutomatedCommit("github-actions[bot]", "chore: auto-update version.json from commits [skip ci]") {
+		t.Fatal("expected github-actions[bot] commit to be filtered")
+	}
+	if !isAutomatedCommit("dcquijano", "chore: auto-update version.json from commits") {
+		t.Fatal("expected auto-update version.json commit to be filtered")
+	}
+	if !isAutomatedCommit("dcquijano", "docs: tweak readme [skip ci]") {
+		t.Fatal("expected [skip ci] commit to be filtered")
+	}
+	if isAutomatedCommit("dcquijano", "feat: add Purge Date/Day/Month/Time guide") {
+		t.Fatal("expected normal feature commit NOT to be filtered")
+	}
+}
+
 
 
 

@@ -1763,60 +1763,85 @@
     </div>
   </div>
 
-  <!-- Minimized Background Progress Stack (Manual Sync, Daily Auto-Sync, Daily Auto-Backup) -->
-  <div id="floatingProgressStack" class="floating-progress-stack">
-    <div id="syncFloatingBar" class="sync-floating" role="status" aria-live="polite" hidden>
-      <div class="sync-floating-top">
-        <div class="sync-floating-title-row">
-          <span id="syncFloatSpinner" class="sysup-spinner"></span>
-          <strong id="syncFloatStage">Syncing database...</strong>
-        </div>
-        <div class="sync-floating-meta">
-          <span id="syncFloatPct" class="sync-floating-pct">0%</span>
-          <button type="button" class="btn xs accent" id="btnRestoreCloudSync" title="Restore Manual Sync window">↗ Open</button>
-          <button type="button" class="btn xs danger-ghost" id="btnFloatCancelSync" title="Cancel running manual sync">🛑 Cancel</button>
-        </div>
+  <!-- Unified Background Progress Modal (Manual Sync, Daily Auto-Sync, Daily Auto-Backup separated inside) -->
+  <div id="floatingProgressStack" class="floating-progress-stack" role="region" aria-label="Background Sync and Backup Jobs" hidden>
+    <div id="floatingProgressHeader" class="floating-progress-head">
+      <div class="floating-progress-head-left">
+        <span class="floating-progress-title">⚡ Background Jobs</span>
+        <span id="floatStackSummary" class="pill accent">0 running</span>
       </div>
-      <div class="progress-bar" style="height:5px;margin:6px 0 4px">
-        <div id="syncFloatBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
+      <div class="floating-progress-head-actions">
+        <button type="button" class="btn xs ghost" id="btnClearFinishedFloats" hidden title="Dismiss finished or cancelled items">Clear done</button>
+        <button type="button" class="btn xs ghost" id="btnToggleFloatStack" aria-expanded="true" aria-label="Collapse background jobs panel" title="Collapse / Expand panel">▾</button>
       </div>
-      <div id="syncFloatDetail" class="sync-floating-detail">Preparing transfer...</div>
     </div>
 
-    <div id="autoSyncFloatingBar" class="sync-floating" role="status" aria-live="polite" hidden>
-      <div class="sync-floating-top">
-        <div class="sync-floating-title-row">
-          <span id="autoSyncFloatSpinner" class="sysup-spinner"></span>
-          <strong id="autoSyncFloatStage">Daily Auto-Sync running...</strong>
+    <div id="floatingProgressBody" class="floating-progress-body">
+      <div id="syncFloatingBar" class="sync-floating" role="status" aria-live="polite" hidden>
+        <div class="sync-floating-top">
+          <div class="sync-floating-lane-wrap">
+            <span class="sync-lane-badge manual">☁️ Manual Sync</span>
+            <div class="sync-floating-title-row">
+              <span id="syncFloatSpinner" class="sysup-spinner"></span>
+              <strong id="syncFloatStage">Syncing database...</strong>
+            </div>
+          </div>
+          <div class="sync-floating-meta">
+            <span id="syncFloatPct" class="sync-floating-pct">0%</span>
+            <button type="button" class="btn xs accent" id="btnRestoreCloudSync" title="Restore Manual Sync modal">↗ Open</button>
+            <button type="button" class="btn xs danger-ghost" id="btnFloatCancelSync" title="Cancel running manual sync">🛑 Cancel</button>
+            <button type="button" class="btn xs ghost" id="btnFloatCloseSync" hidden aria-label="Dismiss manual sync status" title="Dismiss">✕</button>
+          </div>
         </div>
-        <div class="sync-floating-meta">
-          <span id="autoSyncFloatPct" class="sync-floating-pct">0%</span>
-          <button type="button" class="btn xs accent" id="btnRestoreAutoSyncRun" title="Open Daily Auto-Sync progress modal">↗ Open</button>
-          <button type="button" class="btn xs danger-ghost" id="btnFloatCancelAutoSync" title="Cancel running Daily Auto-Sync">🛑 Cancel</button>
+        <div class="progress-bar" style="height:5px;margin:6px 0 4px">
+          <div id="syncFloatBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
         </div>
+        <div id="syncFloatDetail" class="sync-floating-detail">Preparing transfer...</div>
       </div>
-      <div class="progress-bar" style="height:5px;margin:6px 0 4px">
-        <div id="autoSyncFloatBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
-      </div>
-      <div id="autoSyncFloatDetail" class="sync-floating-detail">Preparing daily sync...</div>
-    </div>
 
-    <div id="autoBkpFloatingBar" class="sync-floating" role="status" aria-live="polite" hidden>
-      <div class="sync-floating-top">
-        <div class="sync-floating-title-row">
-          <span id="autoBkpFloatSpinner" class="sysup-spinner"></span>
-          <strong id="autoBkpFloatStage">Creating backup...</strong>
+      <div id="autoSyncFloatingBar" class="sync-floating" role="status" aria-live="polite" hidden>
+        <div class="sync-floating-top">
+          <div class="sync-floating-lane-wrap">
+            <span class="sync-lane-badge autosync">🔄 Auto-Sync</span>
+            <div class="sync-floating-title-row">
+              <span id="autoSyncFloatSpinner" class="sysup-spinner"></span>
+              <strong id="autoSyncFloatStage">Daily Auto-Sync running...</strong>
+            </div>
+          </div>
+          <div class="sync-floating-meta">
+            <span id="autoSyncFloatPct" class="sync-floating-pct">0%</span>
+            <button type="button" class="btn xs accent" id="btnRestoreAutoSyncRun" title="Open Daily Auto-Sync progress modal">↗ Open</button>
+            <button type="button" class="btn xs danger-ghost" id="btnFloatCancelAutoSync" title="Cancel running Daily Auto-Sync">🛑 Cancel</button>
+            <button type="button" class="btn xs ghost" id="btnFloatCloseAutoSync" hidden aria-label="Dismiss auto-sync status" title="Dismiss">✕</button>
+          </div>
         </div>
-        <div class="sync-floating-meta">
-          <span id="autoBkpFloatPct" class="sync-floating-pct">0%</span>
-          <button type="button" class="btn xs accent" id="btnRestoreAutoBkpRun" title="Open Daily Auto-Backup progress modal">↗ Open</button>
-          <button type="button" class="btn xs danger-ghost" id="btnFloatCancelAutoBkp" title="Cancel running Daily Auto-Backup">🛑 Cancel</button>
+        <div class="progress-bar" style="height:5px;margin:6px 0 4px">
+          <div id="autoSyncFloatBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
         </div>
+        <div id="autoSyncFloatDetail" class="sync-floating-detail">Preparing daily sync...</div>
       </div>
-      <div class="progress-bar" style="height:5px;margin:6px 0 4px">
-        <div id="autoBkpFloatBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
+
+      <div id="autoBkpFloatingBar" class="sync-floating" role="status" aria-live="polite" hidden>
+        <div class="sync-floating-top">
+          <div class="sync-floating-lane-wrap">
+            <span class="sync-lane-badge autobkp">📦 Auto-Backup</span>
+            <div class="sync-floating-title-row">
+              <span id="autoBkpFloatSpinner" class="sysup-spinner"></span>
+              <strong id="autoBkpFloatStage">Creating backup...</strong>
+            </div>
+          </div>
+          <div class="sync-floating-meta">
+            <span id="autoBkpFloatPct" class="sync-floating-pct">0%</span>
+            <button type="button" class="btn xs accent" id="btnRestoreAutoBkpRun" title="Open Daily Auto-Backup progress modal">↗ Open</button>
+            <button type="button" class="btn xs danger-ghost" id="btnFloatCancelAutoBkp" title="Cancel running Daily Auto-Backup">🛑 Cancel</button>
+            <button type="button" class="btn xs ghost" id="btnFloatCloseAutoBkp" hidden aria-label="Dismiss auto-backup status" title="Dismiss">✕</button>
+          </div>
+        </div>
+        <div class="progress-bar" style="height:5px;margin:6px 0 4px">
+          <div id="autoBkpFloatBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
+        </div>
+        <div id="autoBkpFloatDetail" class="sync-floating-detail">Preparing backup snapshot...</div>
       </div>
-      <div id="autoBkpFloatDetail" class="sync-floating-detail">Preparing backup snapshot...</div>
     </div>
   </div>
 

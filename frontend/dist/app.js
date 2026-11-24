@@ -4933,13 +4933,44 @@ try {
       summary: "",
     };
     let syncHideTimer = null;
+    let autoSyncRun = null;
+    let autoBkpRun = null;
 
     const updateFloatingStackBodyClass = () => {
-      const anyVisible =
-        !$("syncFloatingBar")?.hidden ||
-        !$("autoSyncFloatingBar")?.hidden ||
-        !$("autoBkpFloatingBar")?.hidden;
+      const stack = $("floatingProgressStack");
+      const syncVis = !$("syncFloatingBar")?.hidden;
+      const autoSyncVis = !$("autoSyncFloatingBar")?.hidden;
+      const autoBkpVis = !$("autoBkpFloatingBar")?.hidden;
+      const anyVisible = syncVis || autoSyncVis || autoBkpVis;
+      if (stack) stack.hidden = !anyVisible;
       document.body.classList.toggle("has-sync-floating", !!anyVisible);
+
+      const runningCount =
+        (syncVis && syncJob.running ? 1 : 0) +
+        (autoSyncVis && autoSyncRun?.st?.running ? 1 : 0) +
+        (autoBkpVis && autoBkpRun?.st?.running ? 1 : 0);
+      const visibleCount = (syncVis ? 1 : 0) + (autoSyncVis ? 1 : 0) + (autoBkpVis ? 1 : 0);
+      const finishedCount = Math.max(0, visibleCount - runningCount);
+
+      const sumEl = $("floatStackSummary");
+      if (sumEl) {
+        if (runningCount > 0 && finishedCount > 0) {
+          sumEl.textContent = `${runningCount} running · ${finishedCount} done`;
+          sumEl.className = "pill accent";
+        } else if (runningCount > 0) {
+          sumEl.textContent = `${runningCount} running`;
+          sumEl.className = "pill accent";
+        } else if (finishedCount > 0) {
+          sumEl.textContent = `${finishedCount} finished`;
+          sumEl.className = "pill";
+        } else {
+          sumEl.textContent = "0 active";
+          sumEl.className = "pill";
+        }
+      }
+      if ($("btnClearFinishedFloats")) {
+        $("btnClearFinishedFloats").hidden = finishedCount === 0;
+      }
     };
 
     const updateFloatingSync = () => {
@@ -4947,20 +4978,25 @@ try {
       if (!bar) return;
       const show = !!syncJob.minimized;
       bar.hidden = !show;
-      updateFloatingStackBodyClass();
-      if (!show) return;
-      if ($("syncFloatSpinner")) $("syncFloatSpinner").hidden = syncJob.state !== "running";
-      if ($("syncFloatStage")) $("syncFloatStage").textContent = syncJob.stage || syncJob.summary || "Syncing database...";
-      if ($("syncFloatPct")) $("syncFloatPct").textContent = `${syncJob.percent}%`;
-      if ($("syncFloatBar")) $("syncFloatBar").style.width = `${syncJob.percent}%`;
-      if ($("syncFloatDetail")) $("syncFloatDetail").textContent = syncJob.detail || syncJob.summary || "";
-      bar.className = "sync-floating" + (syncJob.state === "done" ? " success" : (syncJob.state === "error" || syncJob.state === "cancelled") ? " error" : "");
-      const fc = $("btnFloatCancelSync");
-      if (fc) {
-        fc.hidden = !syncJob.running;
-        fc.disabled = !!syncJob.cancelling;
-        fc.textContent = syncJob.cancelling ? "⏳ Cancelling..." : "🛑 Cancel";
+      if (show) {
+        if ($("syncFloatSpinner")) $("syncFloatSpinner").hidden = syncJob.state !== "running";
+        if ($("syncFloatStage")) $("syncFloatStage").textContent = syncJob.stage || syncJob.summary || "Syncing database...";
+        if ($("syncFloatPct")) $("syncFloatPct").textContent = `${syncJob.percent}%`;
+        if ($("syncFloatBar")) $("syncFloatBar").style.width = `${syncJob.percent}%`;
+        if ($("syncFloatDetail")) $("syncFloatDetail").textContent = syncJob.detail || syncJob.summary || "";
+        bar.className = "sync-floating" + (syncJob.state === "done" ? " success" : (syncJob.state === "error" || syncJob.state === "cancelled") ? " error" : "");
+        const fc = $("btnFloatCancelSync");
+        if (fc) {
+          fc.hidden = !syncJob.running;
+          fc.disabled = !!syncJob.cancelling;
+          fc.textContent = syncJob.cancelling ? "⏳ Cancelling..." : "🛑 Cancel";
+        }
+        const fclose = $("btnFloatCloseSync");
+        if (fclose) {
+          fclose.hidden = !!syncJob.running;
+        }
       }
+      updateFloatingStackBodyClass();
     };
 
     const setSyncFormLocked = (locked) => {
@@ -5424,7 +5460,13 @@ try {
       setSyncFormLocked(true);
       setSyncProgress(syncJob.percent, "running", "🛑 Cancelling sync...", "Stopping active export/import processes...");
       try {
-        await api().CancelCloudSync();
+        const stopped = await api().CancelCloudSync();
+        if (!stopped && syncJob.running) {
+          syncJob.running = false;
+          syncJob.cancelling = false;
+          setSyncFormLocked(false);
+          setSyncProgress(syncJob.percent, "cancelled", "🛑 Sync Cancelled", "No active sync process found.");
+        }
       } catch {
         // Ignore IPC cancel error; the main CloudSyncDatabase promise settles the UI state
       }
@@ -5491,6 +5533,27 @@ try {
     });
     $("btnOpenCloudSync").onclick = () => openCloudSyncModal("");
     if ($("btnMinimizeCloudSync")) $("btnMinimizeCloudSync").onclick = minimizeCloudSync;
+    if ($("btnToggleFloatStack")) {
+      $("btnToggleFloatStack").onclick = () => {
+        const stack = $("floatingProgressStack");
+        if (!stack) return;
+        const collapsed = stack.classList.toggle("collapsed");
+        $("btnToggleFloatStack").textContent = collapsed ? "▸" : "▾";
+        $("btnToggleFloatStack").setAttribute("aria-expanded", collapsed ? "false" : "true");
+        $("btnToggleFloatStack").title = collapsed ? "Expand background jobs panel" : "Collapse background jobs panel";
+      };
+    }
+    if ($("btnClearFinishedFloats")) {
+      $("btnClearFinishedFloats").onclick = () => {
+        if (!syncJob.running && syncJob.minimized) {
+          clearTimeout(syncHideTimer);
+          syncJob.minimized = false;
+          updateFloatingSync();
+        }
+        if (autoSyncRun && !autoSyncRun.st.running && autoSyncRun.st.minimized) autoSyncRun.close();
+        if (autoBkpRun && !autoBkpRun.st.running && autoBkpRun.st.minimized) autoBkpRun.close();
+      };
+    }
     if ($("btnRestoreCloudSync")) $("btnRestoreCloudSync").onclick = restoreCloudSync;
     if ($("btnFloatCancelSync")) {
       $("btnFloatCancelSync").onclick = (e) => {
@@ -5498,9 +5561,17 @@ try {
         cancelRunningSync();
       };
     }
+    if ($("btnFloatCloseSync")) {
+      $("btnFloatCloseSync").onclick = (e) => {
+        e.stopPropagation();
+        clearTimeout(syncHideTimer);
+        syncJob.minimized = false;
+        updateFloatingSync();
+      };
+    }
     if ($("syncFloatingBar")) {
       $("syncFloatingBar").onclick = (e) => {
-        if (e.target.closest("#btnFloatCancelSync")) return;
+        if (e.target.closest("#btnFloatCancelSync, #btnFloatCloseSync")) return;
         restoreCloudSync();
       };
     }
@@ -6016,20 +6087,25 @@ try {
         const bar = $(cfg.floatBarId);
         if (!bar) return;
         bar.hidden = !st.minimized;
-        updateFloatingStackBodyClass();
-        if (!st.minimized) return;
-        if ($(cfg.floatSpinnerId)) $(cfg.floatSpinnerId).hidden = st.state !== "running";
-        if ($(cfg.floatStageId)) $(cfg.floatStageId).textContent = st.stage || cfg.defaultStage;
-        if ($(cfg.floatPctId)) $(cfg.floatPctId).textContent = `${st.pct}%`;
-        if ($(cfg.floatBarFillId)) $(cfg.floatBarFillId).style.width = `${st.pct}%`;
-        if ($(cfg.floatDetailId)) $(cfg.floatDetailId).textContent = st.detail || "";
-        bar.className = "sync-floating" + (st.state === "done" ? " success" : (st.state === "error" || st.state === "cancelled") ? " error" : "");
-        const fc = $(cfg.floatCancelBtnId);
-        if (fc) {
-          fc.hidden = !st.running;
-          fc.disabled = !!st.cancelling;
-          fc.textContent = st.cancelling ? "⏳ Cancelling..." : "🛑 Cancel";
+        if (st.minimized) {
+          if ($(cfg.floatSpinnerId)) $(cfg.floatSpinnerId).hidden = st.state !== "running";
+          if ($(cfg.floatStageId)) $(cfg.floatStageId).textContent = st.stage || cfg.defaultStage;
+          if ($(cfg.floatPctId)) $(cfg.floatPctId).textContent = `${st.pct}%`;
+          if ($(cfg.floatBarFillId)) $(cfg.floatBarFillId).style.width = `${st.pct}%`;
+          if ($(cfg.floatDetailId)) $(cfg.floatDetailId).textContent = st.detail || "";
+          bar.className = "sync-floating" + (st.state === "done" ? " success" : (st.state === "error" || st.state === "cancelled") ? " error" : "");
+          const fc = $(cfg.floatCancelBtnId);
+          if (fc) {
+            fc.hidden = !st.running;
+            fc.disabled = !!st.cancelling;
+            fc.textContent = st.cancelling ? "⏳ Cancelling..." : "🛑 Cancel";
+          }
+          const fclose = cfg.floatCloseBtnId ? $(cfg.floatCloseBtnId) : null;
+          if (fclose) {
+            fclose.hidden = !!st.running;
+          }
         }
+        updateFloatingStackBodyClass();
       };
 
       const renderModal = (modeState, stage, detail) => {
@@ -6111,7 +6187,10 @@ try {
         st.cancelling = true;
         update(st.pct, "running", cfg.cancellingStage, "Stopping active database export/import...");
         try {
-          await api().CancelScheduleRun(st.schedId || "");
+          const stopped = await api().CancelScheduleRun(st.schedId || "");
+          if (!stopped && st.running) {
+            update(st.pct, "cancelled", cfg.cancellingStage.replace(/\.\.\.$/, ""), "No active background run found.");
+          }
         } catch {
           // Run promise settles cleanly once backend aborts
         }
@@ -6189,9 +6268,18 @@ try {
           cancel();
         };
       }
+      if (cfg.floatCloseBtnId && $(cfg.floatCloseBtnId)) {
+        $(cfg.floatCloseBtnId).onclick = (e) => {
+          e.stopPropagation();
+          clearTimeout(st.hideTimer);
+          st.minimized = false;
+          renderFloat();
+        };
+      }
       if ($(cfg.floatBarId)) {
         $(cfg.floatBarId).onclick = (e) => {
           if (e.target.closest("#" + cfg.floatCancelBtnId)) return;
+          if (cfg.floatCloseBtnId && e.target.closest("#" + cfg.floatCloseBtnId)) return;
           restore();
         };
       }
@@ -6199,7 +6287,7 @@ try {
       return { st, start, update, minimize, restore, close, stopTimer, renderFloat };
     };
 
-    const autoSyncRun = createSchedRunTracker({
+    autoSyncRun = createSchedRunTracker({
       mode: "sync",
       runTitle: "Running Daily Auto-Sync",
       defaultStage: "Syncing database...",
@@ -6229,9 +6317,10 @@ try {
       floatDetailId: "autoSyncFloatDetail",
       floatRestoreBtnId: "btnRestoreAutoSyncRun",
       floatCancelBtnId: "btnFloatCancelAutoSync",
+      floatCloseBtnId: "btnFloatCloseAutoSync",
     });
 
-    const autoBkpRun = createSchedRunTracker({
+    autoBkpRun = createSchedRunTracker({
       mode: "backup",
       runTitle: "Creating Backup",
       defaultStage: "Creating backup...",
@@ -6262,6 +6351,7 @@ try {
       floatDetailId: "autoBkpFloatDetail",
       floatRestoreBtnId: "btnRestoreAutoBkpRun",
       floatCancelBtnId: "btnFloatCancelAutoBkp",
+      floatCloseBtnId: "btnFloatCloseAutoBkp",
     });
 
     if ($("btnOpenSnapsAfterRun")) {

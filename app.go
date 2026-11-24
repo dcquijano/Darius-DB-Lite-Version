@@ -1233,11 +1233,46 @@ func (a *App) DeleteSchedule(id string) ([]core.BackupSyncSchedule, error) {
 	return a.Schedules(), nil
 }
 
+// ClearScheduleStatus clears LastSync or LastBackup display status fields for a schedule.
+func (a *App) ClearScheduleStatus(id, mode string) ([]core.BackupSyncSchedule, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, errors.New("schedule id is required")
+	}
+	var opErr error
+	found := false
+	err := a.settings.Update(func(s *core.Settings) {
+		for i := range s.Schedules {
+			if s.Schedules[i].ID == id {
+				found = true
+				opErr = core.ClearScheduleStatusFields(&s.Schedules[i], mode)
+				return
+			}
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("schedule %q not found", id)
+	}
+	if opErr != nil {
+		return nil, opErr
+	}
+	return a.Schedules(), nil
+}
+
 func (a *App) RunScheduleNow(id, mode string) (string, error) {
 	if a.sched == nil {
 		return "", errors.New("scheduler not initialized")
 	}
 	return a.sched.RunScheduleNow(id, mode)
+}
+
+func (a *App) CancelScheduleRun(id string) bool {
+	if a.sched == nil {
+		return false
+	}
+	return a.sched.CancelScheduleRun(id)
 }
 
 func (a *App) ScheduleSnapshots(id string) ([]core.BackupSnapshotInfo, error) {

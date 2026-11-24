@@ -2,8 +2,10 @@ package core
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"regexp"
@@ -45,6 +47,7 @@ func sqlDriverAndDSN(engine string, s EngineSettings, dbName string) (driverName
 		cfg.DBName = dbName
 		cfg.Timeout = 4 * time.Second
 		cfg.ReadTimeout = 120 * time.Second
+		cfg.WriteTimeout = 30 * time.Second
 		cfg.MultiStatements = true
 		cfg.AllowNativePasswords = true
 		cfg.AllowCleartextPasswords = true
@@ -178,7 +181,15 @@ func pooledSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) 
 	}
 	sqlPoolMu.Unlock()
 
-	db, _, err := openAndPingSQL(engine, s, dbName, 4, 2, 2*time.Minute, 10*time.Minute)
+	maxOpen, maxIdle := 4, 2
+	idleTime, lifetime := 2*time.Minute, 10*time.Minute
+	if isRemoteHost(s) {
+		// Remote shared hosts (e.g. cPanel) and NAT routers drop idle TCP/TLS sockets aggressively
+		maxIdle = 1
+		idleTime = 20 * time.Second
+		lifetime = 2 * time.Minute
+	}
+	db, _, err := openAndPingSQL(engine, s, dbName, maxOpen, maxIdle, idleTime, lifetime)
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +228,59 @@ func CloseSQLPools(engine, dbName string) {
 	for _, db := range toClose {
 		_ = db.Close()
 	}
+}
+
+// evictSQLPool removes and closes a single cached *sql.DB entry matching (engine, s, dbName)
+// so the next query opens a fresh connection instead of reusing a dropped socket.
+func evictSQLPool(engine string, s EngineSettings, dbName string) {
+	_, dsn, err := sqlDriverAndDSN(engine, s, dbName)
+	if err != nil {
+		return
+	}
+	key := engine + "|" + dsn
+	sqlPoolMu.Lock()
+	entry, ok := sqlPools[key]
+	if ok {
+		delete(sqlPools, key)
+	}
+	sqlPoolMu.Unlock()
+	if ok && entry.db != nil {
+		_ = entry.db.Close()
+	}
+}
+
+// isTransientConnErr returns true when an error indicates a dropped/stale network or pooled SQL
+// socket (such as go-sql-driver/mysql "invalid connection") where closing the stale pool and
+// redialling can succeed cleanly. Never treats explicit cancellations as transient.
+func isTransientConnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrSyncCancelled) {
+		return false
+	}
+	if errors.Is(err, driver.ErrBadConn) || errors.Is(err, mysql.ErrInvalidConn) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "context canceled") || strings.Contains(msg, "cancelled by user") {
+		return false
+	}
+	for _, needle := range []string{
+		"invalid connection",
+		"bad connection",
+		"unexpected eof",
+		"connection reset",
+		"broken pipe",
+		"wsarecv",
+		"wsasend",
+		"use of closed network connection",
+	} {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 type QueryResult struct {
@@ -292,55 +356,70 @@ func ListDatabases(engine string, s EngineSettings) ([]string, error) {
 	if engine == "mssql" {
 		return mssqlListDatabases(s)
 	}
-	db, err := pooledSQL(engine, s, s.DefaultDB)
-	if err != nil {
-		return nil, err
-	}
-	q := "SHOW DATABASES"
-	if engine == "postgresql" {
-		q = "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1"
-	}
-	rows, err := db.Query(q)
-	if err != nil {
-		if s.DefaultDB != "" {
-			return []string{s.DefaultDB}, nil
-		}
-		return nil, err
-	}
-	defer rows.Close()
-	out := []string{}
-	seenDefault := false
-	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err != nil {
+	for attempt := 0; attempt < 2; attempt++ {
+		db, err := pooledSQL(engine, s, s.DefaultDB)
+		if err != nil {
 			return nil, err
 		}
-		if s.DefaultDB != "" && strings.EqualFold(n, s.DefaultDB) {
-			seenDefault = true
+		q := "SHOW DATABASES"
+		if engine == "postgresql" {
+			q = "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1"
 		}
-		out = append(out, n)
-	}
-	if err := rows.Err(); err != nil {
-		if s.DefaultDB != "" {
-			return []string{s.DefaultDB}, nil
+		rows, err := db.Query(q)
+		if err != nil {
+			if attempt == 0 && isTransientConnErr(err) {
+				evictSQLPool(engine, s, s.DefaultDB)
+				continue
+			}
+			if s.DefaultDB != "" {
+				return []string{s.DefaultDB}, nil
+			}
+			return nil, err
 		}
-		return nil, err
+		out := []string{}
+		seenDefault := false
+		for rows.Next() {
+			var n string
+			if err := rows.Scan(&n); err != nil {
+				rows.Close()
+				if attempt == 0 && isTransientConnErr(err) {
+					evictSQLPool(engine, s, s.DefaultDB)
+					out = nil
+					break
+				}
+				return nil, err
+			}
+			if s.DefaultDB != "" && strings.EqualFold(n, s.DefaultDB) {
+				seenDefault = true
+			}
+			out = append(out, n)
+		}
+		rErr := rows.Err()
+		rows.Close()
+		if out == nil && attempt == 0 {
+			continue
+		}
+		if rErr != nil {
+			if attempt == 0 && isTransientConnErr(rErr) {
+				evictSQLPool(engine, s, s.DefaultDB)
+				continue
+			}
+			if s.DefaultDB != "" {
+				return []string{s.DefaultDB}, nil
+			}
+			return nil, rErr
+		}
+		if s.DefaultDB != "" && !seenDefault {
+			out = append([]string{s.DefaultDB}, out...)
+		}
+		return out, nil
 	}
-	if s.DefaultDB != "" && !seenDefault {
-		out = append([]string{s.DefaultDB}, out...)
-	}
-	return out, nil
+	return nil, errors.New("failed to list databases after reconnect")
 }
 
-func ListTables(engine string, s EngineSettings, dbName string) ([]TableInfo, error) {
-	if engine == "mssql" {
-		return mssqlListTables(s, dbName)
-	}
-	db, err := pooledSQL(engine, s, dbName)
-	if err != nil {
-		return nil, err
-	}
+func listTablesWithDB(engine string, db *sql.DB, dbName string) ([]TableInfo, error) {
 	var rows *sql.Rows
+	var err error
 	if isMy(engine) {
 		rows, err = db.Query("SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME", dbName)
 	} else {
@@ -369,6 +448,30 @@ func ListTables(engine string, s EngineSettings, dbName string) ([]TableInfo, er
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+func ListTables(engine string, s EngineSettings, dbName string) ([]TableInfo, error) {
+	if engine == "mssql" {
+		return mssqlListTables(s, dbName)
+	}
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		db, err := pooledSQL(engine, s, dbName)
+		if err != nil {
+			return nil, err
+		}
+		out, err := listTablesWithDB(engine, db, dbName)
+		if err == nil {
+			return out, nil
+		}
+		lastErr = err
+		if attempt == 0 && isTransientConnErr(err) {
+			evictSQLPool(engine, s, dbName)
+			continue
+		}
+		return nil, err
+	}
+	return nil, lastErr
 }
 
 var queryWords = map[string]bool{
@@ -411,6 +514,23 @@ func RunQueryWithLimit(engine string, s EngineSettings, dbName, q string, limit 
 	if engine == "mssql" {
 		return mssqlRunQueryWithLimit(s, dbName, q, limit)
 	}
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		res, err := runQueryOnceWithPool(engine, s, dbName, q, limit)
+		if err == nil {
+			return res, nil
+		}
+		lastErr = err
+		if attempt == 0 && isTransientConnErr(err) {
+			evictSQLPool(engine, s, dbName)
+			continue
+		}
+		return nil, err
+	}
+	return nil, lastErr
+}
+
+func runQueryOnceWithPool(engine string, s EngineSettings, dbName, q string, limit int) (*QueryResult, error) {
 	db, err := pooledSQL(engine, s, dbName)
 	if err != nil {
 		return nil, err
@@ -599,6 +719,23 @@ func DescribeTable(engine string, s EngineSettings, dbName, tableName string) ([
 	if engine == "mssql" {
 		return mssqlDescribeTable(s, dbName, schema, table)
 	}
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		cols, err := describeTableOnceWithPool(engine, s, dbName, schema, table)
+		if err == nil {
+			return cols, nil
+		}
+		lastErr = err
+		if attempt == 0 && isTransientConnErr(err) {
+			evictSQLPool(engine, s, dbName)
+			continue
+		}
+		return nil, err
+	}
+	return nil, lastErr
+}
+
+func describeTableOnceWithPool(engine string, s EngineSettings, dbName, schema, table string) ([]ColumnInfo, error) {
 	db, err := pooledSQL(engine, s, dbName)
 	if err != nil {
 		return nil, err

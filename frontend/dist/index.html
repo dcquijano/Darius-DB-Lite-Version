@@ -1650,38 +1650,78 @@
     </div>
   </div>
 
-  <!-- Schedule Run Now Progress Loading Modal -->
-  <div class="modal-backdrop" id="modalScheduleRun" role="dialog" aria-modal="true" aria-labelledby="schedRunModalTitle" hidden>
-    <div class="modal" style="width:520px;max-width:94vw">
+  <!-- Daily Auto-Sync Run Progress Modal (separate from Manual Sync & Auto-Backup) -->
+  <div class="modal-backdrop" id="modalAutoSyncRun" role="dialog" aria-modal="true" aria-labelledby="autoSyncRunModalTitle" hidden>
+    <div class="modal" style="width:540px;max-width:95vw">
       <div class="modal-head">
-        <h3 id="schedRunModalTitle">⏳ Running Schedule...</h3>
-        <button type="button" class="icon-btn" id="btnCloseSchedRun" aria-label="Close">✕</button>
+        <h3 id="autoSyncRunModalTitle">🔄 Running Daily Auto-Sync...</h3>
+        <div class="modal-head-actions">
+          <button type="button" class="icon-btn" id="btnMinimizeAutoSyncRun" title="Minimize while synchronizing" aria-label="Minimize" hidden>─</button>
+          <button type="button" class="icon-btn" id="btnCloseAutoSyncRun" aria-label="Close">✕</button>
+        </div>
       </div>
       <div class="modal-body">
-        <div class="sched-run-phases" id="schedRunPhases">
-          <span class="pill" id="schedRunPhaseSync">1. Sync (Cloud ↔ Local)</span>
-          <span class="pill" id="schedRunPhaseBackup">2. Backup (.zip) &amp; Purge</span>
-        </div>
-        <div id="schedRunProgBox" class="sysup-fetch-box" role="status" aria-live="polite">
+        <div id="autoSyncRunProgBox" class="sysup-fetch-box" role="status" aria-live="polite">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
             <div style="display:flex;align-items:center;gap:8px;min-width:0">
-              <span id="schedRunSpinner" class="sysup-spinner"></span>
-              <strong id="schedRunStage" style="font-size:12.5px">⏳ Starting schedule...</strong>
+              <span id="autoSyncRunSpinner" class="sysup-spinner"></span>
+              <strong id="autoSyncRunStage" style="font-size:12.5px">⏳ Starting Auto-Sync...</strong>
             </div>
             <div style="display:inline-flex;align-items:center;gap:8px;flex-shrink:0">
-              <span id="schedRunElapsed" class="muted" style="font-family:var(--font-mono);font-size:11px">0.0s</span>
-              <span id="schedRunPct" style="font-family:var(--font-mono);font-size:13px;font-weight:700">0%</span>
+              <span id="autoSyncRunElapsed" class="muted" style="font-family:var(--font-mono);font-size:11px">0.0s</span>
+              <span id="autoSyncRunPct" style="font-family:var(--font-mono);font-size:13px;font-weight:700">0%</span>
             </div>
           </div>
           <div class="progress-bar" style="margin-top:8px;height:8px">
-            <div id="schedRunBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
+            <div id="autoSyncRunBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
           </div>
-          <div id="schedRunDetail" style="font-size:11.5px;margin-top:7px;opacity:0.92;word-break:break-word;max-height:150px;overflow-y:auto;user-select:text">
-            Preparing sync and backup...
+          <div id="autoSyncRunDetail" style="font-size:11.5px;margin-top:7px;opacity:0.92;word-break:break-word;max-height:150px;overflow-y:auto;user-select:text">
+            Preparing daily sync...
           </div>
         </div>
         <div class="modal-actions">
-          <button type="button" class="btn" id="btnDoneSchedRun">Hide (Runs in Background)</button>
+          <button type="button" class="btn danger-ghost" id="btnCancelAutoSyncRun" hidden>🛑 Cancel Sync</button>
+          <button type="button" class="btn accent" id="btnMinFootAutoSyncRun" hidden>─ Minimize</button>
+          <button type="button" class="btn" id="btnDoneAutoSyncRun">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Daily Auto-Backup & Purge Run Progress Modal -->
+  <div class="modal-backdrop" id="modalAutoBackupRun" role="dialog" aria-modal="true" aria-labelledby="autoBkpRunModalTitle" hidden>
+    <div class="modal" style="width:540px;max-width:95vw">
+      <div class="modal-head">
+        <h3 id="autoBkpRunModalTitle">📦 Running Daily Auto-Backup...</h3>
+        <div class="modal-head-actions">
+          <button type="button" class="icon-btn" id="btnMinimizeAutoBackupRun" title="Minimize while backing up" aria-label="Minimize" hidden>─</button>
+          <button type="button" class="icon-btn" id="btnCloseAutoBackupRun" aria-label="Close">✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="autoBkpRunProgBox" class="sysup-fetch-box" role="status" aria-live="polite">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0">
+              <span id="autoBkpRunSpinner" class="sysup-spinner"></span>
+              <strong id="autoBkpRunStage" style="font-size:12.5px">⏳ Creating backup...</strong>
+            </div>
+            <div style="display:inline-flex;align-items:center;gap:8px;flex-shrink:0">
+              <span id="autoBkpRunElapsed" class="muted" style="font-family:var(--font-mono);font-size:11px">0.0s</span>
+              <span id="autoBkpRunPct" style="font-family:var(--font-mono);font-size:13px;font-weight:700">0%</span>
+            </div>
+          </div>
+          <div class="progress-bar" style="margin-top:8px;height:8px">
+            <div id="autoBkpRunBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
+          </div>
+          <div id="autoBkpRunDetail" style="font-size:11.5px;margin-top:7px;opacity:0.92;word-break:break-word;max-height:150px;overflow-y:auto;user-select:text">
+            Preparing backup snapshot...
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn danger-ghost" id="btnCancelAutoBackupRun" hidden>🛑 Cancel Backup</button>
+          <button type="button" class="btn accent" id="btnMinFootAutoBackupRun" hidden>─ Minimize</button>
+          <button type="button" class="btn accent" id="btnOpenSnapsAfterRun" hidden>📦 View Snapshots</button>
+          <button type="button" class="btn" id="btnDoneAutoBackupRun">Close</button>
         </div>
       </div>
     </div>
@@ -1723,23 +1763,61 @@
     </div>
   </div>
 
-  <!-- Minimized Background Sync Bar -->
-  <div id="syncFloatingBar" class="sync-floating" role="status" aria-live="polite" hidden>
-    <div class="sync-floating-top">
-      <div class="sync-floating-title-row">
-        <span id="syncFloatSpinner" class="sysup-spinner"></span>
-        <strong id="syncFloatStage">Syncing database...</strong>
+  <!-- Minimized Background Progress Stack (Manual Sync, Daily Auto-Sync, Daily Auto-Backup) -->
+  <div id="floatingProgressStack" class="floating-progress-stack">
+    <div id="syncFloatingBar" class="sync-floating" role="status" aria-live="polite" hidden>
+      <div class="sync-floating-top">
+        <div class="sync-floating-title-row">
+          <span id="syncFloatSpinner" class="sysup-spinner"></span>
+          <strong id="syncFloatStage">Syncing database...</strong>
+        </div>
+        <div class="sync-floating-meta">
+          <span id="syncFloatPct" class="sync-floating-pct">0%</span>
+          <button type="button" class="btn xs accent" id="btnRestoreCloudSync" title="Restore Manual Sync window">↗ Open</button>
+          <button type="button" class="btn xs danger-ghost" id="btnFloatCancelSync" title="Cancel running manual sync">🛑 Cancel</button>
+        </div>
       </div>
-      <div class="sync-floating-meta">
-        <span id="syncFloatPct" class="sync-floating-pct">0%</span>
-        <button type="button" class="btn xs accent" id="btnRestoreCloudSync" title="Restore Sync window">↗ Open</button>
-        <button type="button" class="btn xs danger-ghost" id="btnFloatCancelSync" title="Cancel running sync">🛑 Cancel</button>
+      <div class="progress-bar" style="height:5px;margin:6px 0 4px">
+        <div id="syncFloatBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
       </div>
+      <div id="syncFloatDetail" class="sync-floating-detail">Preparing transfer...</div>
     </div>
-    <div class="progress-bar" style="height:5px;margin:6px 0 4px">
-      <div id="syncFloatBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
+
+    <div id="autoSyncFloatingBar" class="sync-floating" role="status" aria-live="polite" hidden>
+      <div class="sync-floating-top">
+        <div class="sync-floating-title-row">
+          <span id="autoSyncFloatSpinner" class="sysup-spinner"></span>
+          <strong id="autoSyncFloatStage">Daily Auto-Sync running...</strong>
+        </div>
+        <div class="sync-floating-meta">
+          <span id="autoSyncFloatPct" class="sync-floating-pct">0%</span>
+          <button type="button" class="btn xs accent" id="btnRestoreAutoSyncRun" title="Open Daily Auto-Sync progress modal">↗ Open</button>
+          <button type="button" class="btn xs danger-ghost" id="btnFloatCancelAutoSync" title="Cancel running Daily Auto-Sync">🛑 Cancel</button>
+        </div>
+      </div>
+      <div class="progress-bar" style="height:5px;margin:6px 0 4px">
+        <div id="autoSyncFloatBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
+      </div>
+      <div id="autoSyncFloatDetail" class="sync-floating-detail">Preparing daily sync...</div>
     </div>
-    <div id="syncFloatDetail" class="sync-floating-detail">Preparing transfer...</div>
+
+    <div id="autoBkpFloatingBar" class="sync-floating" role="status" aria-live="polite" hidden>
+      <div class="sync-floating-top">
+        <div class="sync-floating-title-row">
+          <span id="autoBkpFloatSpinner" class="sysup-spinner"></span>
+          <strong id="autoBkpFloatStage">Creating backup...</strong>
+        </div>
+        <div class="sync-floating-meta">
+          <span id="autoBkpFloatPct" class="sync-floating-pct">0%</span>
+          <button type="button" class="btn xs accent" id="btnRestoreAutoBkpRun" title="Open Daily Auto-Backup progress modal">↗ Open</button>
+          <button type="button" class="btn xs danger-ghost" id="btnFloatCancelAutoBkp" title="Cancel running Daily Auto-Backup">🛑 Cancel</button>
+        </div>
+      </div>
+      <div class="progress-bar" style="height:5px;margin:6px 0 4px">
+        <div id="autoBkpFloatBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
+      </div>
+      <div id="autoBkpFloatDetail" class="sync-floating-detail">Preparing backup snapshot...</div>
+    </div>
   </div>
 
   <!-- Keyboard Shortcuts Overlay Modal -->

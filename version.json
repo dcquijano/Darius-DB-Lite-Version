@@ -1,19 +1,20 @@
 {
   "name": "Darius DB (Lite Version 0.1.5)",
   "version": "0.1.5",
-  "build": "202611241637",
+  "build": "202611241855",
   "channel": "Lite Version",
-  "releasedAt": "2026-11-23",
+  "releasedAt": "2026-11-24",
   "author": "Darius Cumpio",
-  "latestCommit": "5dce50d",
+  "latestCommit": "e3c0d98",
   "generatedFromGit": true,
   "installerUrl": "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing",
   "directSetupUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-Setup-0.1.5.exe",
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-0.1.5-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.5.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Ui: enlarge Daily Auto-Sync & Auto-Backup Schedule modal to 860px to prevent clipped dropdowns; Add Generated Folder backup/purge option with safe folder retention purge and fix Schedule Card overflow layout; Add Purge Date/Day/Month/Time guide, fix confirm modal stacking above Sync Logs, and stop auto-version bot commits.",
+  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Ui: separate Manual Sync, Daily Auto-Sync, and Daily Auto-Backup modals & sections; Ui: enlarge Daily Auto-Sync & Auto-Backup Schedule modal to 860px to prevent clipped dropdowns; Add Generated Folder backup/purge option with safe folder retention purge and fix Schedule Card overflow layout.",
   "changelog": [
+    "[e3c0d98] Ui: separate Manual Sync, Daily Auto-Sync, and Daily Auto-Backup modals & sections (build 202611241637) (2026-11-24)",
     "[5dce50d] Ui: enlarge Daily Auto-Sync & Auto-Backup Schedule modal to 860px to prevent clipped dropdowns (build 202611231539) (2026-11-23)",
     "[1261328] Add Generated Folder backup/purge option with safe folder retention purge and fix Schedule Card overflow layout (build 202611231427) (2026-11-23)",
     "[fce1198] Add Purge Date/Day/Month/Time guide, fix confirm modal stacking above Sync Logs, and stop auto-version bot commits (build 202611231409) (2026-11-23)",
@@ -57,7 +58,6 @@
     "[18881e7] Auto-start local DB engine during Sync and fix dark autofill input styling (2026-11-20)",
     "[8bec631] Fix MSSQL Msg 8106 by reconciling SET IDENTITY_INSERT against target tables (2026-11-20)",
     "[84a0b5c] Update upgrade example comment in installer/update.ps1 (0.1.3 -> 0.1.4) (2026-11-20)",
-    "[0d1d050] Add Daily Auto-Sync (Pull Cloud -> Local), 2 AM Auto-Backup, and 1-Week Snapshot Purge (2026-11-20)",
-    "[fa26346] Release Darius DB Lite Version 0.1.4 (2026-11-20)"
+    "[0d1d050] Add Daily Auto-Sync (Pull Cloud -> Local), 2 AM Auto-Backup, and 1-Week Snapshot Purge (2026-11-20)"
   ]
 }

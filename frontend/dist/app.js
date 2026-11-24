@@ -4225,7 +4225,8 @@ try {
     const closeTopModal = () => {
       if ($("modalConfirm") && !$("modalConfirm").hidden) { closeConfirm(false); return true; }
       if ($("modalSyncLogs") && !$("modalSyncLogs").hidden) { $("modalSyncLogs").hidden = true; return true; }
-      if ($("modalScheduleRun") && !$("modalScheduleRun").hidden) { $("modalScheduleRun").hidden = true; return true; }
+      if ($("modalAutoSyncRun") && !$("modalAutoSyncRun").hidden) { $("btnCloseAutoSyncRun")?.click(); return true; }
+      if ($("modalAutoBackupRun") && !$("modalAutoBackupRun").hidden) { $("btnCloseAutoBackupRun")?.click(); return true; }
       if ($("modalScheduleSnapshots") && !$("modalScheduleSnapshots").hidden) { $("modalScheduleSnapshots").hidden = true; return true; }
       if ($("modalAutoSyncForm") && !$("modalAutoSyncForm").hidden) { $("modalAutoSyncForm").hidden = true; return true; }
       if ($("modalAutoBackupForm") && !$("modalAutoBackupForm").hidden) { $("modalAutoBackupForm").hidden = true; return true; }
@@ -4781,7 +4782,10 @@ try {
                 <div class="sched-status-item">
                   <div class="sched-status-head">
                     <span class="sched-status-tag"><span class="sched-status-dot${syncIsOk ? " ok" : syncIsErr ? " err" : ""}"></span>Last Sync</span>
-                    <span class="sched-status-ts">${esc(s.lastSyncAt || "—")}</span>
+                    <div class="sched-status-right">
+                      <span class="sched-status-ts">${esc(s.lastSyncAt || "—")}</span>
+                      ${s.lastSyncAt || s.lastSyncStatus ? `<button type="button" class="sched-status-clear${syncIsErr ? " is-err" : ""}" data-sact="clear-sync-status" aria-label="Clear last sync status" title="Clear Last Sync status">✕</button>` : ""}
+                    </div>
                   </div>
                   <div class="sched-status-msg${syncIsErr ? " err" : ""}" title="${esc(syncMsgText)}">${esc(syncMsgText)}</div>
                 </div>
@@ -4887,7 +4891,10 @@ try {
                 <div class="sched-status-item">
                   <div class="sched-status-head">
                     <span class="sched-status-tag"><span class="sched-status-dot${bkpIsOk ? " ok" : bkpIsErr ? " err" : ""}"></span>Last Backup</span>
-                    <span class="sched-status-ts">${esc(s.lastBackupAt || "—")}</span>
+                    <div class="sched-status-right">
+                      <span class="sched-status-ts">${esc(s.lastBackupAt || "—")}</span>
+                      ${s.lastBackupAt || s.lastBackupStatus ? `<button type="button" class="sched-status-clear${bkpIsErr ? " is-err" : ""}" data-sact="clear-backup-status" aria-label="Clear last backup status" title="Clear Last Backup status">✕</button>` : ""}
+                    </div>
                   </div>
                   <div class="sched-status-msg${bkpIsErr ? " err" : ""}" title="${esc(bkpMsgText)}">${esc(bkpMsgText)}</div>
                 </div>
@@ -4927,12 +4934,20 @@ try {
     };
     let syncHideTimer = null;
 
+    const updateFloatingStackBodyClass = () => {
+      const anyVisible =
+        !$("syncFloatingBar")?.hidden ||
+        !$("autoSyncFloatingBar")?.hidden ||
+        !$("autoBkpFloatingBar")?.hidden;
+      document.body.classList.toggle("has-sync-floating", !!anyVisible);
+    };
+
     const updateFloatingSync = () => {
       const bar = $("syncFloatingBar");
       if (!bar) return;
       const show = !!syncJob.minimized;
       bar.hidden = !show;
-      document.body.classList.toggle("has-sync-floating", show);
+      updateFloatingStackBodyClass();
       if (!show) return;
       if ($("syncFloatSpinner")) $("syncFloatSpinner").hidden = syncJob.state !== "running";
       if ($("syncFloatStage")) $("syncFloatStage").textContent = syncJob.stage || syncJob.summary || "Syncing database...";
@@ -5476,30 +5491,17 @@ try {
     });
     $("btnOpenCloudSync").onclick = () => openCloudSyncModal("");
     if ($("btnMinimizeCloudSync")) $("btnMinimizeCloudSync").onclick = minimizeCloudSync;
-    const openFloatingTarget = () => {
-      if (syncJob.autoSchedId && !syncJob.running) {
-        openSyncLogsModal(syncJob.autoSchedId);
-        return;
-      }
-      restoreCloudSync();
-    };
-    if ($("btnRestoreCloudSync")) $("btnRestoreCloudSync").onclick = openFloatingTarget;
+    if ($("btnRestoreCloudSync")) $("btnRestoreCloudSync").onclick = restoreCloudSync;
     if ($("btnFloatCancelSync")) {
       $("btnFloatCancelSync").onclick = (e) => {
         e.stopPropagation();
-        if (syncJob.autoSchedId && !syncJob.running) {
-          syncJob.minimized = false;
-          syncJob.autoSchedId = "";
-          updateFloatingSync();
-          return;
-        }
         cancelRunningSync();
       };
     }
     if ($("syncFloatingBar")) {
       $("syncFloatingBar").onclick = (e) => {
         if (e.target.closest("#btnFloatCancelSync")) return;
-        openFloatingTarget();
+        restoreCloudSync();
       };
     }
     $("btnCloseCloudSync").onclick = closeCloudSync;
@@ -5991,134 +5993,301 @@ try {
     }
 
     let activeSnapSchedId = "";
-    let schedRunState = {
-      running: false,
-      schedId: "",
-      mode: "both", // "both" | "backup"
-      startedAt: 0,
-      pct: 0,
-      timer: null,
-      btn: null,
-    };
 
-    const stopSchedRunTimer = () => {
-      if (schedRunState.timer) {
-        clearInterval(schedRunState.timer);
-        schedRunState.timer = null;
-      }
-    };
-
-    const closeSchedRunModal = () => {
-      if ($("modalScheduleRun")) $("modalScheduleRun").hidden = true;
-    };
-    if ($("btnCloseSchedRun")) $("btnCloseSchedRun").onclick = closeSchedRunModal;
-    if ($("btnDoneSchedRun")) $("btnDoneSchedRun").onclick = closeSchedRunModal;
-
-    const updateSchedRunProgressUI = (pct, modeState, stage, detail) => {
-      const clamped = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
-      schedRunState.pct = clamped;
-      const elapsedSec = schedRunState.startedAt ? ((Date.now() - schedRunState.startedAt) / 1000).toFixed(1) + "s" : "0.0s";
-
-      if (schedRunState.mode === "backup") {
-        const box = $("snapBackupProgBox");
-        if (box) {
-          box.hidden = false;
-          box.className = "sysup-fetch-box" + (modeState === "done" ? " success" : modeState === "error" ? " error" : "");
-          if ($("snapBackupSpinner")) $("snapBackupSpinner").hidden = modeState !== "running";
-          if ($("snapBackupStage")) $("snapBackupStage").textContent = stage || "Backing up...";
-          if ($("snapBackupPct")) $("snapBackupPct").textContent = `${clamped}%`;
-          if ($("snapBackupElapsed")) $("snapBackupElapsed").textContent = elapsedSec;
-          if ($("snapBackupBar")) $("snapBackupBar").style.width = `${clamped}%`;
-          if ($("snapBackupDetail")) $("snapBackupDetail").textContent = detail || "";
-        }
-        if ($("btnSnapRunBackupNow") && modeState === "running") {
-          $("btnSnapRunBackupNow").textContent = `⏳ ${clamped}%`;
-        }
-        return;
-      }
-
-      const box = $("schedRunProgBox");
-      if (box) {
-        box.className = "sysup-fetch-box" + (modeState === "done" ? " success" : modeState === "error" ? " error" : "");
-        if ($("schedRunSpinner")) $("schedRunSpinner").hidden = modeState !== "running";
-        if ($("schedRunStage")) $("schedRunStage").textContent = stage || "Running schedule...";
-        if ($("schedRunPct")) $("schedRunPct").textContent = `${clamped}%`;
-        if ($("schedRunElapsed")) $("schedRunElapsed").textContent = elapsedSec;
-        if ($("schedRunBar")) $("schedRunBar").style.width = `${clamped}%`;
-        if ($("schedRunDetail")) $("schedRunDetail").textContent = detail || "";
-      }
-      const pSync = $("schedRunPhaseSync");
-      const pBkp = $("schedRunPhaseBackup");
-      if (pSync && pBkp) {
-        const isBackupPhase = /\[2\/2|backup|snapshot|retention|purg/i.test(stage || "") || clamped >= 54;
-        if (modeState === "done") {
-          pSync.className = "pill running";
-          pBkp.className = "pill running";
-        } else if (modeState === "error") {
-          if (isBackupPhase) { pSync.className = "pill running"; pBkp.className = "pill stopped"; }
-          else { pSync.className = "pill stopped"; pBkp.className = "pill"; }
-        } else if (isBackupPhase) {
-          pSync.className = "pill running";
-          pBkp.className = "pill accent";
-        } else {
-          pSync.className = "pill accent";
-          pBkp.className = "pill";
-        }
-      }
-      if ($("btnDoneSchedRun")) {
-        $("btnDoneSchedRun").textContent = modeState === "running" ? "Hide (Runs in Background)" : "Close";
-      }
-      if (schedRunState.btn && schedRunState.btn.isConnected && modeState === "running") {
-        schedRunState.btn.textContent = `⏳ ${clamped}%`;
-      }
-    };
-
-    const startSchedRunTracking = (sched, mode, btn) => {
-      stopSchedRunTimer();
-      schedRunState = {
-        running: true,
-        schedId: sched?.id || activeSnapSchedId,
-        mode,
-        startedAt: Date.now(),
-        pct: 2,
+    const createSchedRunTracker = (cfg) => {
+      const st = {
+        running: false,
+        cancelling: false,
+        minimized: false,
+        schedId: "",
+        name: "",
+        startedAt: 0,
+        pct: 0,
+        state: "idle",
+        stage: "",
+        detail: "",
         timer: null,
-        btn: btn || null,
+        hideTimer: null,
+        btn: null,
+        idleBtnLabel: cfg.idleBtnLabel,
       };
-      if (mode === "backup") {
-        updateSchedRunProgressUI(2, "running", "⏳ Starting snapshot backup...", `Preparing backup for ${sched?.name || "schedule"}...`);
-      } else {
-        if ($("schedRunModalTitle")) {
-          $("schedRunModalTitle").textContent = mode === "sync"
-            ? `🔄 Running Auto-Sync — ${sched?.name || "Schedule"}`
-            : `⏳ Running — ${sched?.name || "Schedule"}`;
+
+      const renderFloat = () => {
+        const bar = $(cfg.floatBarId);
+        if (!bar) return;
+        bar.hidden = !st.minimized;
+        updateFloatingStackBodyClass();
+        if (!st.minimized) return;
+        if ($(cfg.floatSpinnerId)) $(cfg.floatSpinnerId).hidden = st.state !== "running";
+        if ($(cfg.floatStageId)) $(cfg.floatStageId).textContent = st.stage || cfg.defaultStage;
+        if ($(cfg.floatPctId)) $(cfg.floatPctId).textContent = `${st.pct}%`;
+        if ($(cfg.floatBarFillId)) $(cfg.floatBarFillId).style.width = `${st.pct}%`;
+        if ($(cfg.floatDetailId)) $(cfg.floatDetailId).textContent = st.detail || "";
+        bar.className = "sync-floating" + (st.state === "done" ? " success" : (st.state === "error" || st.state === "cancelled") ? " error" : "");
+        const fc = $(cfg.floatCancelBtnId);
+        if (fc) {
+          fc.hidden = !st.running;
+          fc.disabled = !!st.cancelling;
+          fc.textContent = st.cancelling ? "⏳ Cancelling..." : "🛑 Cancel";
         }
-        if ($("schedRunPhaseSync")) $("schedRunPhaseSync").hidden = !sched?.autoSync;
-        if ($("schedRunPhaseBackup")) $("schedRunPhaseBackup").hidden = mode === "sync" || !sched?.autoBackup;
-        if ($("modalScheduleRun")) $("modalScheduleRun").hidden = false;
-        updateSchedRunProgressUI(2, "running", mode === "sync" ? "⏳ Starting Auto-Sync..." : "⏳ Starting schedule...", `Preparing ${sched?.name || "schedule"}...`);
+      };
+
+      const renderModal = (modeState, stage, detail) => {
+        const elapsedSec = st.startedAt ? ((Date.now() - st.startedAt) / 1000).toFixed(1) + "s" : "0.0s";
+        const box = $(cfg.boxId);
+        if (box) {
+          box.className = "sysup-fetch-box" + (modeState === "done" ? " success" : (modeState === "error" || modeState === "cancelled") ? " error" : "");
+          if ($(cfg.spinnerId)) $(cfg.spinnerId).hidden = modeState !== "running";
+          if ($(cfg.stageId)) $(cfg.stageId).textContent = stage || cfg.defaultStage;
+          if ($(cfg.pctId)) $(cfg.pctId).textContent = `${st.pct}%`;
+          if ($(cfg.elapsedId)) $(cfg.elapsedId).textContent = elapsedSec;
+          if ($(cfg.barId)) $(cfg.barId).style.width = `${st.pct}%`;
+          if ($(cfg.detailId)) $(cfg.detailId).textContent = detail || "";
+        }
+        const isRun = modeState === "running";
+        if ($(cfg.minHeadBtnId)) $(cfg.minHeadBtnId).hidden = !isRun;
+        if ($(cfg.minFootBtnId)) $(cfg.minFootBtnId).hidden = !isRun;
+        if ($(cfg.cancelBtnId)) {
+          $(cfg.cancelBtnId).hidden = !isRun;
+          $(cfg.cancelBtnId).disabled = !!st.cancelling;
+          $(cfg.cancelBtnId).textContent = st.cancelling ? "⏳ Cancelling..." : cfg.cancelLabel;
+        }
+        if ($(cfg.doneBtnId)) {
+          $(cfg.doneBtnId).textContent = isRun ? "Hide" : "Close";
+        }
+        if (cfg.snapsBtnId && $(cfg.snapsBtnId)) {
+          $(cfg.snapsBtnId).hidden = isRun || !st.schedId;
+        }
+        if (st.btn && st.btn.isConnected && isRun) {
+          st.btn.textContent = `⏳ ${st.pct}%`;
+        }
+      };
+
+      const stopTimer = () => {
+        if (st.timer) {
+          clearInterval(st.timer);
+          st.timer = null;
+        }
+      };
+
+      const minimize = () => {
+        if (!st.running) {
+          if ($(cfg.modalId)) $(cfg.modalId).hidden = true;
+          return;
+        }
+        st.minimized = true;
+        if ($(cfg.modalId)) $(cfg.modalId).hidden = true;
+        renderFloat();
+      };
+
+      const restore = () => {
+        clearTimeout(st.hideTimer);
+        st.minimized = false;
+        renderFloat();
+        if ($(cfg.modalTitleId)) {
+          const icon = cfg.mode === "sync" ? "🔄" : "📦";
+          $(cfg.modalTitleId).textContent = st.running
+            ? `${icon} ${cfg.runTitle} — ${st.name || "Schedule"}`
+            : `${st.state === "done" ? "✅" : st.state === "cancelled" ? "🛑" : "⚠️"} ${st.name || cfg.runTitle}`;
+        }
+        renderModal(st.state === "idle" ? "running" : st.state, st.stage, st.detail);
+        if ($(cfg.modalId)) $(cfg.modalId).hidden = false;
+      };
+
+      const close = () => {
+        if (st.running) {
+          minimize();
+          toast(`${cfg.runTitle} is still running in the background — click 🛑 Cancel on the floating bar to abort.`, "info");
+          return;
+        }
+        clearTimeout(st.hideTimer);
+        st.minimized = false;
+        renderFloat();
+        if ($(cfg.modalId)) $(cfg.modalId).hidden = true;
+      };
+
+      const cancel = async () => {
+        if (!st.running || st.cancelling) return;
+        st.cancelling = true;
+        update(st.pct, "running", cfg.cancellingStage, "Stopping active database export/import...");
+        try {
+          await api().CancelScheduleRun(st.schedId || "");
+        } catch {
+          // Run promise settles cleanly once backend aborts
+        }
+      };
+
+      const update = (pct, modeState, stage, detail) => {
+        const clamped = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+        st.pct = clamped;
+        st.state = modeState || "running";
+        st.stage = stage || cfg.defaultStage;
+        st.detail = detail || "";
+        if (st.state !== "running") {
+          st.running = false;
+          st.cancelling = false;
+          stopTimer();
+          if ($(cfg.modalTitleId)) {
+            const prefix = st.state === "done" ? "✅ Completed" : st.state === "cancelled" ? "🛑 Cancelled" : "⚠️ Failed";
+            $(cfg.modalTitleId).textContent = `${prefix} — ${st.name || cfg.runTitle}`;
+          }
+          if (st.btn && st.btn.isConnected) {
+            st.btn.disabled = false;
+            st.btn.textContent = st.idleBtnLabel;
+          }
+          if (st.minimized) {
+            clearTimeout(st.hideTimer);
+            st.hideTimer = setTimeout(() => {
+              if (!st.running && st.minimized) {
+                st.minimized = false;
+                renderFloat();
+              }
+            }, 5000);
+          }
+        }
+        renderModal(st.state, st.stage, st.detail);
+        renderFloat();
+      };
+
+      const start = (sched, btn, openModal = true) => {
+        stopTimer();
+        clearTimeout(st.hideTimer);
+        st.running = true;
+        st.cancelling = false;
+        st.minimized = !openModal;
+        st.schedId = sched?.id || "";
+        st.name = sched?.name || cfg.runTitle;
+        st.startedAt = Date.now();
+        st.pct = 2;
+        st.state = "running";
+        st.btn = btn || null;
+        if ($(cfg.modalTitleId)) {
+          const icon = cfg.mode === "sync" ? "🔄" : "📦";
+          $(cfg.modalTitleId).textContent = `${icon} ${cfg.runTitle} — ${st.name}`;
+        }
+        update(2, "running", cfg.startStage, `Preparing ${st.name}...`);
+        if (openModal && $(cfg.modalId)) {
+          $(cfg.modalId).hidden = false;
+        }
+        st.timer = setInterval(() => {
+          if (!st.running) return;
+          if ($(cfg.elapsedId)) {
+            $(cfg.elapsedId).textContent = ((Date.now() - st.startedAt) / 1000).toFixed(1) + "s";
+          }
+        }, 350);
+      };
+
+      if ($(cfg.minHeadBtnId)) $(cfg.minHeadBtnId).onclick = minimize;
+      if ($(cfg.minFootBtnId)) $(cfg.minFootBtnId).onclick = minimize;
+      if ($(cfg.closeBtnId)) $(cfg.closeBtnId).onclick = close;
+      if ($(cfg.doneBtnId)) $(cfg.doneBtnId).onclick = close;
+      if ($(cfg.cancelBtnId)) $(cfg.cancelBtnId).onclick = cancel;
+      if ($(cfg.floatRestoreBtnId)) $(cfg.floatRestoreBtnId).onclick = restore;
+      if ($(cfg.floatCancelBtnId)) {
+        $(cfg.floatCancelBtnId).onclick = (e) => {
+          e.stopPropagation();
+          cancel();
+        };
       }
-      schedRunState.timer = setInterval(() => {
-        if (!schedRunState.running) return;
-        const elapsedSec = ((Date.now() - schedRunState.startedAt) / 1000).toFixed(1) + "s";
-        if (schedRunState.mode === "backup") {
-          if ($("snapBackupElapsed")) $("snapBackupElapsed").textContent = elapsedSec;
-        } else {
-          if ($("schedRunElapsed")) $("schedRunElapsed").textContent = elapsedSec;
-        }
-      }, 350);
+      if ($(cfg.floatBarId)) {
+        $(cfg.floatBarId).onclick = (e) => {
+          if (e.target.closest("#" + cfg.floatCancelBtnId)) return;
+          restore();
+        };
+      }
+
+      return { st, start, update, minimize, restore, close, stopTimer, renderFloat };
     };
+
+    const autoSyncRun = createSchedRunTracker({
+      mode: "sync",
+      runTitle: "Running Daily Auto-Sync",
+      defaultStage: "Syncing database...",
+      startStage: "⏳ Starting Auto-Sync...",
+      cancellingStage: "🛑 Cancelling Auto-Sync...",
+      cancelLabel: "🛑 Cancel Sync",
+      idleBtnLabel: "▶ Run Sync",
+      modalId: "modalAutoSyncRun",
+      modalTitleId: "autoSyncRunModalTitle",
+      boxId: "autoSyncRunProgBox",
+      spinnerId: "autoSyncRunSpinner",
+      stageId: "autoSyncRunStage",
+      pctId: "autoSyncRunPct",
+      elapsedId: "autoSyncRunElapsed",
+      barId: "autoSyncRunBar",
+      detailId: "autoSyncRunDetail",
+      minHeadBtnId: "btnMinimizeAutoSyncRun",
+      minFootBtnId: "btnMinFootAutoSyncRun",
+      closeBtnId: "btnCloseAutoSyncRun",
+      doneBtnId: "btnDoneAutoSyncRun",
+      cancelBtnId: "btnCancelAutoSyncRun",
+      floatBarId: "autoSyncFloatingBar",
+      floatSpinnerId: "autoSyncFloatSpinner",
+      floatStageId: "autoSyncFloatStage",
+      floatPctId: "autoSyncFloatPct",
+      floatBarFillId: "autoSyncFloatBar",
+      floatDetailId: "autoSyncFloatDetail",
+      floatRestoreBtnId: "btnRestoreAutoSyncRun",
+      floatCancelBtnId: "btnFloatCancelAutoSync",
+    });
+
+    const autoBkpRun = createSchedRunTracker({
+      mode: "backup",
+      runTitle: "Creating Backup",
+      defaultStage: "Creating backup...",
+      startStage: "⏳ Creating backup...",
+      cancellingStage: "🛑 Cancelling Backup...",
+      cancelLabel: "🛑 Cancel Backup",
+      idleBtnLabel: "▶ Backup Now",
+      modalId: "modalAutoBackupRun",
+      modalTitleId: "autoBkpRunModalTitle",
+      boxId: "autoBkpRunProgBox",
+      spinnerId: "autoBkpRunSpinner",
+      stageId: "autoBkpRunStage",
+      pctId: "autoBkpRunPct",
+      elapsedId: "autoBkpRunElapsed",
+      barId: "autoBkpRunBar",
+      detailId: "autoBkpRunDetail",
+      minHeadBtnId: "btnMinimizeAutoBackupRun",
+      minFootBtnId: "btnMinFootAutoBackupRun",
+      closeBtnId: "btnCloseAutoBackupRun",
+      doneBtnId: "btnDoneAutoBackupRun",
+      cancelBtnId: "btnCancelAutoBackupRun",
+      snapsBtnId: "btnOpenSnapsAfterRun",
+      floatBarId: "autoBkpFloatingBar",
+      floatSpinnerId: "autoBkpFloatSpinner",
+      floatStageId: "autoBkpFloatStage",
+      floatPctId: "autoBkpFloatPct",
+      floatBarFillId: "autoBkpFloatBar",
+      floatDetailId: "autoBkpFloatDetail",
+      floatRestoreBtnId: "btnRestoreAutoBkpRun",
+      floatCancelBtnId: "btnFloatCancelAutoBkp",
+    });
+
+    if ($("btnOpenSnapsAfterRun")) {
+      $("btnOpenSnapsAfterRun").onclick = async () => {
+        const sid = autoBkpRun.st.schedId;
+        autoBkpRun.close();
+        if (sid) await loadSnapshotsModal(sid);
+      };
+    }
 
     rt()?.EventsOn?.("schedule-run-progress", (p) => {
       if (!p) return;
+      const st = p.state || "running";
       const isAuto = p.trigger === "scheduled";
+      const mode = p.mode || "both";
+      const targetTracker = mode === "backup" ? autoBkpRun : autoSyncRun;
+
       if (isAuto && p.scheduleId) {
         const prev = liveScheduledRuns[p.scheduleId];
-        const st = p.state || "running";
         liveScheduledRuns[p.scheduleId] = p;
+        const label = mode === "backup" ? "Auto-Backup" : "Auto-Sync";
         if (!prev && st === "running") {
-          toast(`⏰ Auto-Sync started: ${p.name || "Schedule"}`, "info");
+          toast(`⏰ ${label} started: ${p.name || "Schedule"}`, "info");
+          targetTracker.start({ id: p.scheduleId, name: p.name }, null, false);
         } else if (st === "done") {
-          toast(`✅ Auto-Sync finished: ${p.name || "Schedule"} — ${p.detail || "OK"}`, "ok");
+          toast(`✅ ${label} finished: ${p.name || "Schedule"} — ${p.detail || "OK"}`, "ok");
           invalidateSqlCache();
           if (state.tab === "database") loadSqlDatabases(true).catch(() => {});
           setTimeout(() => {
@@ -6127,8 +6296,13 @@ try {
               if (state.tab === "cloud") renderSchedules();
             }
           }, 2500);
-        } else if (st === "error") {
-          toast(`⚠️ Auto-Sync failed (${p.name || "Schedule"}): ${p.detail || "See Sync Logs"}`, "err");
+        } else if (st === "error" || st === "cancelled") {
+          toast(
+            st === "cancelled"
+              ? `🛑 ${label} cancelled: ${p.name || "Schedule"}`
+              : `⚠️ ${label} failed (${p.name || "Schedule"}): ${p.detail || "See Sync Logs"}`,
+            st === "cancelled" ? "info" : "err"
+          );
           setTimeout(() => {
             if (liveScheduledRuns[p.scheduleId]?.state !== "running") {
               delete liveScheduledRuns[p.scheduleId];
@@ -6136,34 +6310,14 @@ try {
             }
           }, 4000);
         }
-        // Mirror automatic scheduled run onto the floating progress bar when no manual sync owns it
-        if (!syncJob.running) {
-          syncJob.autoSchedId = p.scheduleId;
-          syncJob.percent = Math.max(0, Math.min(100, Math.round(Number(p.percent) || 0)));
-          syncJob.state = st === "error" ? "error" : st === "done" ? "done" : "running";
-          syncJob.stage = `⏰ ${p.name || "Auto-Sync"}: ${p.stage || "Running..."}`;
-          syncJob.detail = p.detail || "";
-          syncJob.minimized = true;
-          updateFloatingSync();
-          if ($("btnFloatCancelSync")) $("btnFloatCancelSync").hidden = true;
-          if ($("btnRestoreCloudSync")) $("btnRestoreCloudSync").textContent = "📋 Logs";
-          if (st === "done" || st === "error") {
-            clearTimeout(syncHideTimer);
-            syncHideTimer = setTimeout(() => {
-              if (!syncJob.running) {
-                syncJob.minimized = false;
-                syncJob.autoSchedId = "";
-                if ($("btnRestoreCloudSync")) $("btnRestoreCloudSync").textContent = "↗ Open";
-                updateFloatingSync();
-              }
-            }, 6000);
-          }
-        }
         if (state.tab === "cloud") renderSchedules();
       }
-      if (!schedRunState.running && (!schedRunState.schedId || p.scheduleId !== schedRunState.schedId)) return;
-      if (schedRunState.schedId && p.scheduleId && p.scheduleId !== schedRunState.schedId) return;
-      updateSchedRunProgressUI(p.percent, p.state || "running", p.stage || "Running...", p.detail || "");
+
+      if (targetTracker.st.schedId && p.scheduleId && p.scheduleId !== targetTracker.st.schedId) return;
+      if (!targetTracker.st.running && st === "running" && !isAuto) return;
+      if (targetTracker.st.cancelling && st === "running") return;
+      const stagePrefix = isAuto && p.name ? `${p.name}: ` : "";
+      targetTracker.update(p.percent, st, stagePrefix + (p.stage || "Running..."), p.detail || "");
     });
 
     // ---- Sync & Auto-Schedule Trace Logs Modal ----
@@ -6294,7 +6448,7 @@ try {
         $("btnSnapPurgeNow").textContent = `🗑 Purge Expired (≥${retDays}d)`;
         $("btnSnapPurgeNow").title = `Remove snapshots on or before ${formatPurgeDateGuide(cutoffNow, true)}`;
       }
-      if (!keepProg && $("snapBackupProgBox") && !(schedRunState.running && schedRunState.mode === "backup" && schedRunState.schedId === schedId)) {
+      if (!keepProg && $("snapBackupProgBox")) {
         $("snapBackupProgBox").hidden = true;
       }
       const list = (await api().ScheduleSnapshots(schedId).catch(() => [])) || [];
@@ -6348,30 +6502,26 @@ try {
     }
     if ($("btnSnapRunBackupNow")) {
       $("btnSnapRunBackupNow").onclick = async () => {
-        const btn = $("btnSnapRunBackupNow");
         const sched = (state.schedules || []).find((s) => s.id === activeSnapSchedId);
-        btn.disabled = true;
-        btn.textContent = "⏳ 2%";
-        startSchedRunTracking(sched, "backup", btn);
+        if (!sched) return;
+        closeSnapModal();
+        autoBkpRun.start(sched, null, true);
         try {
           const msg = await api().RunScheduleNow(activeSnapSchedId, "backup");
-          schedRunState.running = false;
-          stopSchedRunTimer();
-          updateSchedRunProgressUI(100, "done", "✅ Snapshot backup complete!", msg || "Snapshot created!");
+          autoBkpRun.update(100, "done", "✅ Snapshot backup complete!", msg || "Snapshot created!");
           toast(msg || "Snapshot created!", "ok");
           state.schedules = (await api().Schedules()) || state.schedules;
-          renderSchedules();
-          await loadSnapshotsModal(activeSnapSchedId, true);
+          renderCloudView();
         } catch (err) {
-          schedRunState.running = false;
-          stopSchedRunTimer();
-          updateSchedRunProgressUI(100, "error", "⚠️ Snapshot backup failed", errMsg(err));
-          toast(errMsg(err), "err");
-        } finally {
-          schedRunState.running = false;
-          stopSchedRunTimer();
-          btn.disabled = false;
-          btn.textContent = "▶ Backup Now";
+          const em = errMsg(err);
+          const cancelled = autoBkpRun.st.cancelling || /cancel/i.test(em);
+          autoBkpRun.update(
+            cancelled ? autoBkpRun.st.pct : 100,
+            cancelled ? "cancelled" : "error",
+            cancelled ? "🛑 Backup Cancelled" : "⚠️ Snapshot backup failed",
+            cancelled ? "Auto-Backup was cancelled by user." : em
+          );
+          toast(cancelled ? "Auto-Backup cancelled." : em, cancelled ? "info" : "err");
         }
       };
     }
@@ -6412,42 +6562,41 @@ try {
 
       if (act === "run-sync" || act === "run-backup" || act === "run") {
         const mode = act === "run-sync" ? "sync" : act === "run-backup" ? "backup" : "both";
+        const tracker = mode === "backup" ? autoBkpRun : autoSyncRun;
+        if (tracker.st.running) {
+          tracker.restore();
+          return;
+        }
         const prev = btn.textContent;
         btn.disabled = true;
         btn.textContent = "⏳ 2%";
-        if (mode === "backup") {
-          await loadSnapshotsModal(s.id, true);
-        }
-        startSchedRunTracking(s, mode, btn);
+        tracker.start(s, btn, true);
         try {
           const msg = await api().RunScheduleNow(s.id, mode);
-          schedRunState.running = false;
-          stopSchedRunTimer();
-          if (mode === "backup") {
-            updateSchedRunProgressUI(100, "done", "✅ Backup complete!", msg || "Backup snapshot created!");
-            await loadSnapshotsModal(s.id, true);
-          } else {
-            if ($("schedRunModalTitle")) $("schedRunModalTitle").textContent = `✅ Completed — ${s.name}`;
-            updateSchedRunProgressUI(100, "done", "✅ Sync complete!", msg || "Sync complete!");
-          }
+          tracker.update(
+            100,
+            "done",
+            mode === "backup" ? "✅ Backup complete!" : "✅ Sync complete!",
+            msg || (mode === "backup" ? "Backup snapshot created!" : "Sync complete!")
+          );
           toast(msg || "Complete!", "ok");
           state.schedules = (await api().Schedules()) || state.schedules;
           renderCloudView();
           invalidateSqlCache();
           if (state.tab === "database") await loadSqlDatabases(true);
         } catch (err) {
-          schedRunState.running = false;
-          stopSchedRunTimer();
-          if (mode === "backup") {
-            updateSchedRunProgressUI(100, "error", "⚠️ Backup failed", errMsg(err));
-          } else {
-            if ($("schedRunModalTitle")) $("schedRunModalTitle").textContent = `⚠️ Failed — ${s.name}`;
-            updateSchedRunProgressUI(100, "error", "⚠️ Sync failed", errMsg(err));
-          }
-          toast(errMsg(err), "err");
+          const em = errMsg(err);
+          const cancelled = tracker.st.cancelling || /cancel/i.test(em);
+          tracker.update(
+            cancelled ? tracker.st.pct : 100,
+            cancelled ? "cancelled" : "error",
+            cancelled ? (mode === "backup" ? "🛑 Backup Cancelled" : "🛑 Sync Cancelled") : (mode === "backup" ? "⚠️ Backup failed" : "⚠️ Sync failed"),
+            cancelled ? "Run was cancelled by user." : em
+          );
+          toast(cancelled ? "Run cancelled." : em, cancelled ? "info" : "err");
         } finally {
-          schedRunState.running = false;
-          stopSchedRunTimer();
+          tracker.st.running = false;
+          tracker.stopTimer();
           btn.disabled = false;
           btn.textContent = prev;
         }
@@ -6503,6 +6652,15 @@ try {
         }
         renderCloudView();
         toast(`Removed Auto-Sync "${s.name}"`, "ok");
+      } else if (act === "clear-sync-status" || act === "clear-backup-status") {
+        const mode = act === "clear-sync-status" ? "sync" : "backup";
+        try {
+          state.schedules = (await api().ClearScheduleStatus(s.id, mode)) || state.schedules;
+          renderCloudView();
+          toast(mode === "sync" ? "Cleared Last Sync status." : "Cleared Last Backup status.", "info");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
       } else if (act === "del-backup" || act === "del") {
         if (s.autoSync && act === "del-backup") {
           if (!(await askConfirm("Remove Daily Auto-Backup?", `Remove Daily Auto-Backup for "${s.name}"? (Your Daily Auto-Sync and existing files on disk will be kept.)`, "Remove Backup"))) return;

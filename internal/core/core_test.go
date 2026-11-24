@@ -1427,6 +1427,90 @@ func TestPurgeAndListGeneratedSnapshotFoldersSafety(t *testing.T) {
 	}
 }
 
+func TestCancelScheduleRunAndCancelledBackupContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	p := NewPaths(t.TempDir())
+	outZip := filepath.Join(p.Backups, "should_not_exist.zip")
+	err := ExportDatabaseFullZipWithContext(ctx, p, "mysql", EngineSettings{}, "demo", nil, true, true, outZip, nil)
+	if !errors.Is(err, ErrSyncCancelled) {
+		t.Fatalf("expected ErrSyncCancelled from pre-cancelled ctx, got %v", err)
+	}
+	if fileExists(outZip) {
+		t.Fatal("expected cancelled backup not to leave output zip behind")
+	}
+
+	sc := NewScheduler(p, LoadSettings(p.Root), nil, nil, nil)
+	called := false
+	sc.cancelMu.Lock()
+	sc.runCancels["sched_sync_1:sync"] = func() { called = true }
+	sc.cancelMu.Unlock()
+	if !sc.CancelScheduleRun("sched_sync_1") || !called {
+		t.Fatal("expected CancelScheduleRun to invoke matching schedule cancel hook")
+	}
+}
+
+func TestIsTransientConnErrClassification(t *testing.T) {
+	if !isTransientConnErr(errors.New("invalid connection")) {
+		t.Fatal("expected 'invalid connection' to be classified as transient")
+	}
+	if !isTransientConnErr(errors.New("query users: invalid connection")) {
+		t.Fatal("expected wrapped 'invalid connection' to be classified as transient")
+	}
+	if !isTransientConnErr(errors.New("read tcp 192.168.1.2: wsarecv: connection reset by peer")) {
+		t.Fatal("expected wsarecv reset error to be classified as transient")
+	}
+	if isTransientConnErr(ErrSyncCancelled) {
+		t.Fatal("explicit cancellation must never be classified as transient")
+	}
+	if isTransientConnErr(context.Canceled) {
+		t.Fatal("context.Canceled must never be classified as transient")
+	}
+	if isTransientConnErr(errors.New("Error 1045: Access denied for user")) {
+		t.Fatal("auth error must not be classified as transient")
+	}
+}
+
+func TestClearScheduleStatusFields(t *testing.T) {
+	s := BackupSyncSchedule{
+		ID:               "sched_1",
+		LastSyncAt:       "2026-11-24 16:45",
+		LastSyncDate:     "2026-11-24",
+		LastSyncStatus:   "err [Manual]: SQL dump failed: invalid connection",
+		LastBackupAt:     "2026-11-24 16:50",
+		LastBackupDate:   "2026-11-24",
+		LastBackupStatus: "err [Manual]: SQL dump failed: invalid connection",
+	}
+
+	if err := ClearScheduleStatusFields(&s, "sync"); err != nil {
+		t.Fatalf("unexpected error clearing sync status: %v", err)
+	}
+	if s.LastSyncAt != "" || s.LastSyncStatus != "" {
+		t.Fatalf("expected sync status cleared, got at=%q status=%q", s.LastSyncAt, s.LastSyncStatus)
+	}
+	if s.LastSyncDate != "2026-11-24" {
+		t.Fatalf("expected LastSyncDate preserved, got %q", s.LastSyncDate)
+	}
+	if s.LastBackupAt == "" || s.LastBackupStatus == "" {
+		t.Fatal("clearing sync status must preserve backup status")
+	}
+
+	if err := ClearScheduleStatusFields(&s, "backup"); err != nil {
+		t.Fatalf("unexpected error clearing backup status: %v", err)
+	}
+	if s.LastBackupAt != "" || s.LastBackupStatus != "" {
+		t.Fatalf("expected backup status cleared, got at=%q status=%q", s.LastBackupAt, s.LastBackupStatus)
+	}
+	if s.LastBackupDate != "2026-11-24" {
+		t.Fatalf("expected LastBackupDate preserved, got %q", s.LastBackupDate)
+	}
+
+	if err := ClearScheduleStatusFields(&s, "invalid"); err == nil {
+		t.Fatal("expected error for invalid clear mode")
+	}
+}
+
 
 
 

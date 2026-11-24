@@ -696,9 +696,13 @@ func mysqlImportSQLWithProgressCtx(ctx context.Context, p *Paths, engine string,
 				totalBytes = st.Size()
 			}
 		}
+		port := s.Port
+		if port <= 0 {
+			port = 3306
+		}
 		args := []string{
 			"-h", host,
-			"-P", fmt.Sprint(s.Port),
+			"-P", fmt.Sprint(port),
 			"-u", fallbackStr(s.User, "root"),
 			"--binary-mode=1",
 			"--max-allowed-packet=256M",
@@ -764,10 +768,43 @@ func mysqlWriteGoDumpCtx(ctx context.Context, engine string, s EngineSettings, d
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() {
+		if db != nil {
+			_ = db.Close()
+		}
+	}()
 
-	allTables, err := ListTables(engine, s, dbName)
-	if err != nil {
+	reconnect := func() error {
+		if db != nil {
+			_ = db.Close()
+			db = nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		time.Sleep(250 * time.Millisecond)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		ndb, oerr := openSQL(engine, s, dbName)
+		if oerr != nil {
+			return oerr
+		}
+		db = ndb
+		return nil
+	}
+
+	var allTables []TableInfo
+	for attempt := 0; attempt < 3; attempt++ {
+		allTables, err = listTablesWithDB(engine, db, dbName)
+		if err == nil {
+			break
+		}
+		if attempt < 2 && isTransientConnErr(err) && ctx.Err() == nil {
+			if rerr := reconnect(); rerr == nil {
+				continue
+			}
+		}
 		return err
 	}
 	if err := ctx.Err(); err != nil {
@@ -803,114 +840,159 @@ func mysqlWriteGoDumpCtx(ctx context.Context, engine string, s EngineSettings, d
 			onTable(i+1, len(todo), t.Name)
 		}
 		qt := quoteIdent(engine, t.Name)
-		if includeSchema {
-			var tbl, createSQL string
-			if err := db.QueryRowContext(ctx, "SHOW CREATE TABLE "+qt).Scan(&tbl, &createSQL); err == nil {
-				fmt.Fprintf(bw, "DROP TABLE IF EXISTS %s;\n%s;\n\n", qt, createSQL)
-			} else if ctx.Err() != nil {
-				return ctx.Err()
-			}
-		}
-		if !includeData || strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
-			continue
-		}
 
-		rows, err := db.QueryContext(ctx, "SELECT * FROM "+qt)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return fmt.Errorf("query %s: %w", t.Name, err)
-		}
-		colTypes, _ := rows.ColumnTypes()
-		cols, _ := rows.Columns()
-		binCols := make([]bool, len(cols))
-		for cIdx, ct := range colTypes {
-			if ct != nil && isMySQLBinaryCol(ct.DatabaseTypeName()) {
-				binCols[cIdx] = true
-			}
-		}
-
-		raw := make([]sql.RawBytes, len(cols))
-		ptrs := make([]interface{}, len(cols))
-		for idx := range raw {
-			ptrs[idx] = &raw[idx]
-		}
-
-		var colNames []string
-		for _, c := range cols {
-			colNames = append(colNames, quoteIdent(engine, c))
-		}
-		insertHead := fmt.Sprintf("INSERT INTO %s (%s) VALUES\n", qt, strings.Join(colNames, ", "))
-
-		var batchBuf strings.Builder
-		batchRows := 0
-		flushBatch := func() error {
-			if batchRows == 0 {
-				return nil
-			}
-			_, werr := bw.WriteString(insertHead)
-			if werr == nil {
-				_, werr = bw.WriteString(batchBuf.String())
-			}
-			if werr == nil {
-				_, werr = bw.WriteString(";\n")
-			}
-			batchBuf.Reset()
-			batchRows = 0
-			return werr
-		}
-
-		for rows.Next() {
-			if err := ctx.Err(); err != nil {
-				rows.Close()
-				return err
-			}
-			if err := rows.Scan(ptrs...); err != nil {
-				rows.Close()
-				return fmt.Errorf("scan %s: %w", t.Name, err)
-			}
-			if batchRows > 0 {
-				batchBuf.WriteString(",\n")
-			}
-			batchBuf.WriteByte('(')
-			for cIdx, b := range raw {
-				if cIdx > 0 {
-					batchBuf.WriteString(", ")
-				}
-				if b == nil {
-					batchBuf.WriteString("NULL")
-				} else if binCols[cIdx] {
-					if len(b) == 0 {
-						batchBuf.WriteString("''")
-					} else {
-						batchBuf.WriteString("0x")
-						batchBuf.WriteString(hex.EncodeToString(b))
-					}
-				} else {
-					batchBuf.WriteByte('\'')
-					batchBuf.WriteString(sqlEscape(string(b)))
-					batchBuf.WriteByte('\'')
+		dumpOneTable := func() (bool, error) {
+			wroteStream := false
+			var headerSQL string
+			if includeSchema {
+				var tbl, createSQL string
+				if err := db.QueryRowContext(ctx, "SHOW CREATE TABLE "+qt).Scan(&tbl, &createSQL); err == nil {
+					headerSQL = fmt.Sprintf("DROP TABLE IF EXISTS %s;\n%s;\n\n", qt, createSQL)
+				} else if ctx.Err() != nil {
+					return false, ctx.Err()
+				} else if isTransientConnErr(err) {
+					return false, fmt.Errorf("show create %s: %w", t.Name, err)
 				}
 			}
-			batchBuf.WriteByte(')')
-			batchRows++
-			if batchBuf.Len() >= 256*1024 || batchRows >= 250 {
-				if err := flushBatch(); err != nil {
+			writeHeaderOnce := func() error {
+				if headerSQL == "" {
+					return nil
+				}
+				wroteStream = true
+				_, werr := bw.WriteString(headerSQL)
+				headerSQL = ""
+				return werr
+			}
+
+			if !includeData || strings.Contains(strings.ToUpper(t.Kind), "VIEW") {
+				if err := writeHeaderOnce(); err != nil {
+					return wroteStream, err
+				}
+				return wroteStream, nil
+			}
+
+			rows, err := db.QueryContext(ctx, "SELECT * FROM "+qt)
+			if err != nil {
+				if ctx.Err() != nil {
+					return false, ctx.Err()
+				}
+				return false, fmt.Errorf("query %s: %w", t.Name, err)
+			}
+			colTypes, _ := rows.ColumnTypes()
+			cols, _ := rows.Columns()
+			binCols := make([]bool, len(cols))
+			for cIdx, ct := range colTypes {
+				if ct != nil && isMySQLBinaryCol(ct.DatabaseTypeName()) {
+					binCols[cIdx] = true
+				}
+			}
+
+			raw := make([]sql.RawBytes, len(cols))
+			ptrs := make([]interface{}, len(cols))
+			for idx := range raw {
+				ptrs[idx] = &raw[idx]
+			}
+
+			var colNames []string
+			for _, c := range cols {
+				colNames = append(colNames, quoteIdent(engine, c))
+			}
+			insertHead := fmt.Sprintf("INSERT INTO %s (%s) VALUES\n", qt, strings.Join(colNames, ", "))
+
+			var batchBuf strings.Builder
+			batchRows := 0
+			flushBatch := func() error {
+				if batchRows == 0 {
+					return nil
+				}
+				if werr := writeHeaderOnce(); werr != nil {
+					return werr
+				}
+				wroteStream = true
+				_, werr := bw.WriteString(insertHead)
+				if werr == nil {
+					_, werr = bw.WriteString(batchBuf.String())
+				}
+				if werr == nil {
+					_, werr = bw.WriteString(";\n")
+				}
+				batchBuf.Reset()
+				batchRows = 0
+				return werr
+			}
+
+			for rows.Next() {
+				if err := ctx.Err(); err != nil {
 					rows.Close()
-					return err
+					return wroteStream, err
+				}
+				if err := rows.Scan(ptrs...); err != nil {
+					rows.Close()
+					return wroteStream, fmt.Errorf("scan %s: %w", t.Name, err)
+				}
+				if batchRows > 0 {
+					batchBuf.WriteString(",\n")
+				}
+				batchBuf.WriteByte('(')
+				for cIdx, b := range raw {
+					if cIdx > 0 {
+						batchBuf.WriteString(", ")
+					}
+					if b == nil {
+						batchBuf.WriteString("NULL")
+					} else if binCols[cIdx] {
+						if len(b) == 0 {
+							batchBuf.WriteString("''")
+						} else {
+							batchBuf.WriteString("0x")
+							batchBuf.WriteString(hex.EncodeToString(b))
+						}
+					} else {
+						batchBuf.WriteByte('\'')
+						batchBuf.WriteString(sqlEscape(string(b)))
+						batchBuf.WriteByte('\'')
+					}
+				}
+				batchBuf.WriteByte(')')
+				batchRows++
+				if batchBuf.Len() >= 256*1024 || batchRows >= 250 {
+					if err := flushBatch(); err != nil {
+						rows.Close()
+						return wroteStream, err
+					}
 				}
 			}
-		}
-		if rerr := rows.Err(); rerr != nil {
+			if rerr := rows.Err(); rerr != nil {
+				rows.Close()
+				return wroteStream, rerr
+			}
 			rows.Close()
-			return rerr
+			if err := writeHeaderOnce(); err != nil {
+				return wroteStream, err
+			}
+			if err := flushBatch(); err != nil {
+				return wroteStream, err
+			}
+			if _, err := bw.WriteString("\n"); err != nil {
+				return wroteStream, err
+			}
+			return wroteStream, nil
 		}
-		rows.Close()
-		if err := flushBatch(); err != nil {
-			return err
+
+		var tableErr error
+		for attempt := 0; attempt < 3; attempt++ {
+			var wroteStream bool
+			wroteStream, tableErr = dumpOneTable()
+			if tableErr == nil {
+				break
+			}
+			if attempt < 2 && !wroteStream && isTransientConnErr(tableErr) && ctx.Err() == nil {
+				if rerr := reconnect(); rerr == nil {
+					continue
+				}
+			}
+			return tableErr
 		}
-		_, _ = bw.WriteString("\n")
 	}
 
 	_, _ = bw.WriteString("COMMIT;\nSET AUTOCOMMIT=1;\nSET UNIQUE_CHECKS=1;\nSET FOREIGN_KEY_CHECKS=1;\n")
@@ -1317,7 +1399,7 @@ func ExportDatabaseSelectionWithContext(ctx context.Context, p *Paths, engine st
 		ext = strings.ToLower(strings.TrimPrefix(filepath.Ext(outPath), "."))
 	}
 	if ext == "zip" || strings.EqualFold(filepath.Ext(outPath), ".zip") {
-		return ExportDatabaseFullZipWithProgress(p, engine, s, dbName, tables, includeSchema, includeData, outPath, onProgress)
+		return ExportDatabaseFullZipWithContext(ctx, p, engine, s, dbName, tables, includeSchema, includeData, outPath, onProgress)
 	}
 
 	if ext == "csv" {
@@ -1458,6 +1540,11 @@ func ExportDatabaseFullZip(p *Paths, engine string, s EngineSettings, dbName str
 
 // ExportDatabaseFullZipWithProgress creates a full .zip backup while reporting stage & per-table percentage progress.
 func ExportDatabaseFullZipWithProgress(p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, onProgress func(BackupProgress)) error {
+	return ExportDatabaseFullZipWithContext(context.Background(), p, engine, s, dbName, tables, includeSchema, includeData, outPath, onProgress)
+}
+
+// ExportDatabaseFullZipWithContext creates a full .zip backup while reporting stage & per-table percentage progress and respecting ctx cancellation.
+func ExportDatabaseFullZipWithContext(ctx context.Context, p *Paths, engine string, s EngineSettings, dbName string, tables []string, includeSchema, includeData bool, outPath string, onProgress func(BackupProgress)) error {
 	lastPct := 0
 	report := func(pct int, state, stage, detail string) {
 		if pct > lastPct {
@@ -1469,7 +1556,14 @@ func ExportDatabaseFullZipWithProgress(p *Paths, engine string, s EngineSettings
 			onProgress(BackupProgress{Percent: pct, State: state, Stage: stage, Detail: detail})
 		}
 	}
+	isCancelled := func(err error) bool {
+		return errors.Is(err, context.Canceled) || errors.Is(err, ErrSyncCancelled) || (ctx != nil && ctx.Err() != nil)
+	}
 
+	if ctx != nil && ctx.Err() != nil {
+		report(lastPct, "cancelled", "Backup Cancelled", ErrSyncCancelled.Error())
+		return ErrSyncCancelled
+	}
 	if !includeSchema && !includeData {
 		includeSchema = true
 		includeData = true
@@ -1484,8 +1578,16 @@ func ExportDatabaseFullZipWithProgress(p *Paths, engine string, s EngineSettings
 	report(5, "running", "Inspecting tables...", fmt.Sprintf("Listing base tables in %q (%s)...", dbName, strings.ToUpper(engine)))
 	allTables, err := ListTables(engine, s, dbName)
 	if err != nil {
+		if isCancelled(err) {
+			report(lastPct, "cancelled", "Backup Cancelled", ErrSyncCancelled.Error())
+			return ErrSyncCancelled
+		}
 		report(lastPct, "error", "Backup Failed", err.Error())
 		return err
+	}
+	if ctx != nil && ctx.Err() != nil {
+		report(lastPct, "cancelled", "Backup Cancelled", ErrSyncCancelled.Error())
+		return ErrSyncCancelled
 	}
 	selected := map[string]bool{}
 	for _, t := range tables {
@@ -1538,7 +1640,7 @@ func ExportDatabaseFullZipWithProgress(p *Paths, engine string, s EngineSettings
 		}
 	}()
 
-	err = ExportDatabaseSelectionWithProgress(p, engine, s, dbName, tables, "sql", includeSchema, includeData, sqlPath, func(bp BackupProgress) {
+	err = ExportDatabaseSelectionWithContext(ctx, p, engine, s, dbName, tables, "sql", includeSchema, includeData, sqlPath, func(bp BackupProgress) {
 		if bp.State == "running" {
 			// Map inner SQL dump 0..100 into outer 13..45%
 			pct := 13 + (bp.Percent * 32 / 100)
@@ -1550,6 +1652,10 @@ func ExportDatabaseFullZipWithProgress(p *Paths, engine string, s EngineSettings
 	})
 	close(sqlDone)
 	if err != nil {
+		if isCancelled(err) {
+			report(lastPct, "cancelled", "Backup Cancelled", ErrSyncCancelled.Error())
+			return ErrSyncCancelled
+		}
 		outErr := fmt.Errorf("SQL dump failed: %w", err)
 		report(lastPct, "error", "SQL Dump Failed", outErr.Error())
 		return outErr
@@ -1561,6 +1667,10 @@ func ExportDatabaseFullZipWithProgress(p *Paths, engine string, s EngineSettings
 		tablesDir := filepath.Join(tmpDir, "tables")
 		_ = os.MkdirAll(tablesDir, 0o755)
 		for i, t := range exportTables {
+			if ctx != nil && ctx.Err() != nil {
+				report(lastPct, "cancelled", "Backup Cancelled", ErrSyncCancelled.Error())
+				return ErrSyncCancelled
+			}
 			pct := 46 + ((i + 1) * 39 / len(exportTables))
 			if pct > 85 {
 				pct = 85
@@ -1575,6 +1685,10 @@ func ExportDatabaseFullZipWithProgress(p *Paths, engine string, s EngineSettings
 				csvFiles["tables/"+safeTbl+".csv"] = csvPath
 			}
 		}
+	}
+	if ctx != nil && ctx.Err() != nil {
+		report(lastPct, "cancelled", "Backup Cancelled", ErrSyncCancelled.Error())
+		return ErrSyncCancelled
 	}
 
 	report(86, "running", "Packaging .zip archive...", fmt.Sprintf("Writing manifest.json and compressing %s...", filepath.Base(outPath)))
@@ -1729,9 +1843,13 @@ func mysqlExportTablesSQLWithProgressCtx(ctx context.Context, p *Paths, engine s
 	}
 	host := fallbackStr(strings.TrimSpace(s.Host), "127.0.0.1")
 	if dump := findMySQLClientTool(p, engine, s, "mariadb-dump.exe", "mysqldump.exe"); dump != "" {
+		port := s.Port
+		if port <= 0 {
+			port = 3306
+		}
 		args := []string{
 			"-h", host,
-			"-P", fmt.Sprint(s.Port),
+			"-P", fmt.Sprint(port),
 			"-u", fallbackStr(s.User, "root"),
 			"--single-transaction",
 			"--hex-blob",

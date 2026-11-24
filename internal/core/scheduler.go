@@ -3,6 +3,7 @@
 package core
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -230,6 +231,30 @@ func ClearSyncLogs(p *Paths) error {
 	defer syncLogMu.Unlock()
 	_ = os.Remove(syncLogJSONLPath(p))
 	_ = os.WriteFile(syncLogTextPath(p), []byte{}, 0o644)
+	return nil
+}
+
+// ClearScheduleStatusFields clears the displayed LastSync/LastBackup status banner fields
+// while keeping LastSyncDate/LastBackupDate intact so today's automatic slot stays respected.
+func ClearScheduleStatusFields(cur *BackupSyncSchedule, mode string) error {
+	if cur == nil {
+		return errors.New("schedule is nil")
+	}
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "sync":
+		cur.LastSyncAt = ""
+		cur.LastSyncStatus = ""
+	case "backup":
+		cur.LastBackupAt = ""
+		cur.LastBackupStatus = ""
+	case "both", "":
+		cur.LastSyncAt = ""
+		cur.LastSyncStatus = ""
+		cur.LastBackupAt = ""
+		cur.LastBackupStatus = ""
+	default:
+		return fmt.Errorf("unsupported clear mode %q", mode)
+	}
 	return nil
 }
 
@@ -815,9 +840,11 @@ type Scheduler struct {
 	onScheduleProgress func(ScheduleRunProgress)
 	onSyncLog          func(SyncLogEntry)
 
-	stopOnce sync.Once
-	stopCh   chan struct{}
-	runMu    sync.Mutex
+	stopOnce   sync.Once
+	stopCh     chan struct{}
+	runMu      sync.Mutex
+	cancelMu   sync.Mutex
+	runCancels map[string]context.CancelFunc
 }
 
 func NewScheduler(p *Paths, st *SettingsStore, mgr *Manager, onChange func(), onProgress func(CloudSyncProgress)) *Scheduler {
@@ -828,7 +855,24 @@ func NewScheduler(p *Paths, st *SettingsStore, mgr *Manager, onChange func(), on
 		onChange:   onChange,
 		onProgress: onProgress,
 		stopCh:     make(chan struct{}),
+		runCancels: make(map[string]context.CancelFunc),
 	}
+}
+
+// CancelScheduleRun aborts an active sync/backup run for schedule ID (or all active runs if id == "").
+func (sc *Scheduler) CancelScheduleRun(id string) bool {
+	sc.cancelMu.Lock()
+	var cancels []context.CancelFunc
+	for key, fn := range sc.runCancels {
+		if fn != nil && (id == "" || key == id || strings.HasPrefix(key, id+":")) {
+			cancels = append(cancels, fn)
+		}
+	}
+	sc.cancelMu.Unlock()
+	for _, fn := range cancels {
+		fn()
+	}
+	return len(cancels) > 0
 }
 
 // SetScheduleProgressCallback registers a listener for unified 0-100% schedule run progress.
@@ -1018,6 +1062,27 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 		runMode = "backup"
 	}
 
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	cancelKey := id + ":" + runMode
+	sc.cancelMu.Lock()
+	if sc.runCancels == nil {
+		sc.runCancels = make(map[string]context.CancelFunc)
+	}
+	if prev := sc.runCancels[cancelKey]; prev != nil {
+		prev()
+	}
+	sc.runCancels[cancelKey] = cancelRun
+	sc.cancelMu.Unlock()
+	defer func() {
+		cancelRun()
+		sc.cancelMu.Lock()
+		delete(sc.runCancels, cancelKey)
+		sc.cancelMu.Unlock()
+	}()
+	isCancelledErr := func(err error) bool {
+		return errors.Is(err, context.Canceled) || errors.Is(err, ErrSyncCancelled) || runCtx.Err() != nil
+	}
+
 	lastPct := 0
 	emitProg := func(pct int, state, stage, detail string) {
 		if pct < 0 {
@@ -1115,7 +1180,7 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 			if mkErr := os.MkdirAll(runDir, 0o755); mkErr != nil {
 				syncErr = mkErr
 			} else {
-				syncErr = ExportDatabaseFullZipWithProgress(sc.p, cloudEng, cloudEs, cloudDB, nil, true, true, outZip, func(bp BackupProgress) {
+				syncErr = ExportDatabaseFullZipWithContext(runCtx, sc.p, cloudEng, cloudEs, cloudDB, nil, true, true, outZip, func(bp BackupProgress) {
 					if bp.State == "running" {
 						mapped := mapProgressRange(bp.Percent, syncStart+2, syncEnd)
 						emitProg(mapped, "running", syncPrefix+fallbackStr(bp.Stage, "Exporting Cloud DB to folder..."), bp.Detail)
@@ -1128,8 +1193,16 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 			durMs := time.Since(syncStartedAt).Milliseconds()
 			if syncErr != nil {
 				firstErr = syncErr
+				cancelled := isCancelledErr(syncErr)
+				stTag := "err"
+				logStatus := "error"
+				if cancelled {
+					_ = os.Remove(outZip)
+					stTag = "cancelled"
+					logStatus = "cancelled"
+				}
 				_ = sc.updateScheduleStatus(id, func(cur *BackupSyncSchedule) {
-					cur.LastSyncAt, cur.LastSyncStatus = humanNow, fmt.Sprintf("err [%s]: %s", trigTag, syncErr.Error())
+					cur.LastSyncAt, cur.LastSyncStatus = humanNow, fmt.Sprintf("%s [%s]: %s", stTag, trigTag, syncErr.Error())
 				})
 				sc.recordLog(SyncLogEntry{
 					ScheduleID: sched.ID,
@@ -1139,7 +1212,7 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 					Direction:  "pull_folder",
 					Source:     srcDesc,
 					Target:     dstDesc,
-					Status:     "error",
+					Status:     logStatus,
 					DurationMs: durMs,
 					Detail:     syncErr.Error(),
 				})
@@ -1191,9 +1264,6 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 			})
 			emitProg(syncStart, "running", syncPrefix+"Checking local service...", fmt.Sprintf("Ensuring local %s is ready for %s...", strings.ToUpper(localEng), localDB))
 			syncProgressCB := func(p CloudSyncProgress) {
-				if sc.onProgress != nil {
-					sc.onProgress(p)
-				}
 				if p.State == "running" {
 					mapped := mapProgressRange(p.Percent, syncStart+2, syncEnd)
 					emitProg(mapped, "running", syncPrefix+fallbackStr(p.Stage, "Syncing database..."), p.Detail)
@@ -1203,16 +1273,25 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 			var syncErr error
 			if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
 				syncErr = rErr
+			} else if runCtx.Err() != nil {
+				syncErr = ErrSyncCancelled
 			} else if sched.SyncDirection == "push" {
-				msg, syncErr = CloudSyncDatabaseWithProgress(sc.p, effEng, effEs, localDB, cloudEng, cloudEs, cloudDB, syncProgressCB)
+				msg, syncErr = CloudSyncDatabaseWithContext(runCtx, sc.p, effEng, effEs, localDB, cloudEng, cloudEs, cloudDB, syncProgressCB)
 			} else {
-				msg, syncErr = CloudSyncDatabaseWithProgress(sc.p, cloudEng, cloudEs, cloudDB, effEng, effEs, localDB, syncProgressCB)
+				msg, syncErr = CloudSyncDatabaseWithContext(runCtx, sc.p, cloudEng, cloudEs, cloudDB, effEng, effEs, localDB, syncProgressCB)
 			}
 			durMs := time.Since(syncStartedAt).Milliseconds()
 			if syncErr != nil {
 				firstErr = syncErr
+				cancelled := isCancelledErr(syncErr)
+				stTag := "err"
+				logStatus := "error"
+				if cancelled {
+					stTag = "cancelled"
+					logStatus = "cancelled"
+				}
 				_ = sc.updateScheduleStatus(id, func(cur *BackupSyncSchedule) {
-					cur.LastSyncAt, cur.LastSyncStatus = humanNow, fmt.Sprintf("err [%s]: %s", trigTag, syncErr.Error())
+					cur.LastSyncAt, cur.LastSyncStatus = humanNow, fmt.Sprintf("%s [%s]: %s", stTag, trigTag, syncErr.Error())
 				})
 				sc.recordLog(SyncLogEntry{
 					ScheduleID: sched.ID,
@@ -1222,7 +1301,7 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 					Direction:  sched.SyncDirection,
 					Source:     srcDesc,
 					Target:     dstDesc,
-					Status:     "error",
+					Status:     logStatus,
 					DurationMs: durMs,
 					Detail:     syncErr.Error(),
 				})
@@ -1310,12 +1389,15 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 					zipName = fmt.Sprintf("%s%s_%s.zip", safe, suffix, stamp)
 				}
 				outZip := filepath.Join(dir, zipName)
-				bErr = ExportDatabaseFullZipWithProgress(sc.p, eng, es, db, nil, true, true, outZip, func(bp BackupProgress) {
+				bErr = ExportDatabaseFullZipWithContext(runCtx, sc.p, eng, es, db, nil, true, true, outZip, func(bp BackupProgress) {
 					if bp.State == "running" {
 						mapped := mapProgressRange(bp.Percent, rangeStart, rangeEnd)
 						emitProg(mapped, "running", bkpPrefix+fallbackStr(bp.Stage, "Exporting .zip snapshot..."), bp.Detail)
 					}
 				})
+				if bErr != nil && isCancelledErr(bErr) {
+					_ = os.Remove(outZip)
+				}
 				if bErr == nil {
 					snapFiles = append(snapFiles, filepath.Base(outZip))
 				}
@@ -1364,12 +1446,15 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 					if mkErr := os.MkdirAll(runDir, 0o755); mkErr != nil {
 						bErr = mkErr
 					} else {
-						bErr = ExportDatabaseFullZipWithProgress(sc.p, cloudEng, cloudEs, cloudDB, nil, true, true, outZip, func(bp BackupProgress) {
+						bErr = ExportDatabaseFullZipWithContext(runCtx, sc.p, cloudEng, cloudEs, cloudDB, nil, true, true, outZip, func(bp BackupProgress) {
 							if bp.State == "running" {
 								mapped := mapProgressRange(bp.Percent, bkpStart, bkpEnd)
 								emitProg(mapped, "running", bkpPrefix+fallbackStr(bp.Stage, "Exporting Cloud DB to folder..."), bp.Detail)
 							}
 						})
+						if bErr != nil && isCancelledErr(bErr) {
+							_ = os.RemoveAll(runDir)
+						}
 						if bErr == nil {
 							snapFiles = append(snapFiles, folderName+"/"+folderName+".zip")
 						}
@@ -1408,8 +1493,15 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 				if firstErr == nil {
 					firstErr = bErr
 				}
+				cancelled := isCancelledErr(bErr)
+				stTag := "err"
+				logStatus := "error"
+				if cancelled {
+					stTag = "cancelled"
+					logStatus = "cancelled"
+				}
 				_ = sc.updateScheduleStatus(id, func(cur *BackupSyncSchedule) {
-					cur.LastBackupAt, cur.LastBackupStatus, cur.LastPurgedCount = humanNow, fmt.Sprintf("err [%s]: %s", trigTag, bErr.Error()), purgedN
+					cur.LastBackupAt, cur.LastBackupStatus, cur.LastPurgedCount = humanNow, fmt.Sprintf("%s [%s]: %s", stTag, trigTag, bErr.Error()), purgedN
 				})
 				sc.recordLog(SyncLogEntry{
 					ScheduleID: sched.ID,
@@ -1418,7 +1510,7 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 					Action:     "backup",
 					Source:     sched.BackupSource,
 					Target:     dir,
-					Status:     "error",
+					Status:     logStatus,
 					DurationMs: durMs,
 					Detail:     bErr.Error(),
 				})
@@ -1461,7 +1553,11 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 		if summary != "" {
 			detail = summary + " · Error: " + detail
 		}
-		emitProg(100, "error", "Schedule finished with error", detail)
+		if isCancelledErr(firstErr) {
+			emitProg(lastPct, "cancelled", "Cancelled", detail)
+		} else {
+			emitProg(100, "error", "Schedule finished with error", detail)
+		}
 		return summary, firstErr
 	}
 	if len(parts) == 0 {

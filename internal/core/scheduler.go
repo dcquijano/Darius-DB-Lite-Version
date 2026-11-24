@@ -861,12 +861,25 @@ func NewScheduler(p *Paths, st *SettingsStore, mgr *Manager, onChange func(), on
 
 // CancelScheduleRun aborts an active sync/backup run for schedule ID (or all active runs if id == "").
 func (sc *Scheduler) CancelScheduleRun(id string) bool {
+	return sc.CancelScheduleRunMode(id, "")
+}
+
+// CancelScheduleRunMode aborts an active run matching schedule ID and optional mode ("sync" | "backup" | "").
+func (sc *Scheduler) CancelScheduleRunMode(id, mode string) bool {
+	mode = strings.ToLower(strings.TrimSpace(mode))
 	sc.cancelMu.Lock()
 	var cancels []context.CancelFunc
 	for key, fn := range sc.runCancels {
-		if fn != nil && (id == "" || key == id || strings.HasPrefix(key, id+":")) {
-			cancels = append(cancels, fn)
+		if fn == nil {
+			continue
 		}
+		if id != "" && key != id && !strings.HasPrefix(key, id+":") {
+			continue
+		}
+		if mode != "" && key != id+":"+mode && key != id+":both" {
+			continue
+		}
+		cancels = append(cancels, fn)
 	}
 	sc.cancelMu.Unlock()
 	for _, fn := range cancels {
@@ -1417,11 +1430,13 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 				if hasCloud {
 					runZip(cloudEng, cloudEs, fallbackStr(sched.CloudDB, cloudConn.Database), "_cloud", bkpStart, cloudEnd)
 				}
-				if hasLocal {
+				if hasLocal && bErr == nil && runCtx.Err() == nil {
 					if effEng, effEs, rErr := EnsureLocalEngineReady(sc.p, sc.st, sc.mgr, localEng, localEs); rErr != nil {
 						if bErr == nil {
 							bErr = rErr
 						}
+					} else if runCtx.Err() != nil {
+						bErr = ErrSyncCancelled
 					} else {
 						runZip(effEng, effEs, effectiveLocalDB, "_local", localStart, bkpEnd)
 					}
@@ -1486,8 +1501,11 @@ func (sc *Scheduler) executeLocked(id string, doSync, doBackup bool, now time.Ti
 				}
 			}
 
-			emitProg(97, "running", bkpPrefix+"Checking snapshot retention...", fmt.Sprintf("Purging snapshots older than %d day(s)...", sched.RetentionDays))
-			purgedN, _, _ := PurgeScheduleAllDirs(sc.p, sched, now)
+			var purgedN int
+			if bErr == nil || !isCancelledErr(bErr) {
+				emitProg(97, "running", bkpPrefix+"Checking snapshot retention...", fmt.Sprintf("Purging snapshots older than %d day(s)...", sched.RetentionDays))
+				purgedN, _, _ = PurgeScheduleAllDirs(sc.p, sched, now)
+			}
 			durMs := time.Since(bkpStartedAt).Milliseconds()
 			if bErr != nil {
 				if firstErr == nil {

@@ -3851,18 +3851,441 @@ try {
       }
     };
 
-    $("btnSqlRun").onclick = () => runSqlQuery(false);
+    $("btnSqlRun").onclick = () => {
+      closeSqlSuggest();
+      runSqlQuery(false);
+    };
     $("btnSqlClear").onclick = () => {
+      closeSqlSuggest();
       $("sqlEditor").value = "";
       const tab = getActiveSqlTab();
       if (tab) tab.sql = "";
       $("sqlEditor").focus();
     };
+
+    // SQL Editor IDE-style Tab Autocomplete & Snippet Suggestions (CREATE, SHOW, SELECT, Tables, Columns)
+    const sqlSuggestState = {
+      open: false,
+      items: [],
+      activeIdx: 0,
+      replaceStart: 0,
+      replaceEnd: 0,
+      prefix: "",
+    };
+
+    function closeSqlSuggest() {
+      sqlSuggestState.open = false;
+      sqlSuggestState.items = [];
+      sqlSuggestState.activeIdx = 0;
+      const menu = $("sqlSuggestMenu");
+      if (menu) menu.hidden = true;
+    }
+
+    function getCaretCoordsInTextarea(ta, pos) {
+      const div = document.createElement("div");
+      const cs = getComputedStyle(ta);
+      const copyProps = [
+        "boxSizing", "width", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+        "borderTopWidth", "borderLeftWidth", "fontStyle", "fontVariant", "fontWeight",
+        "fontStretch", "fontSize", "lineHeight", "fontFamily", "letterSpacing", "tabSize",
+      ];
+      div.style.position = "absolute";
+      div.style.visibility = "hidden";
+      div.style.whiteSpace = "pre-wrap";
+      div.style.wordWrap = "break-word";
+      copyProps.forEach((p) => { div.style[p] = cs[p]; });
+      div.textContent = ta.value.slice(0, pos);
+      const marker = document.createElement("span");
+      marker.textContent = ta.value.slice(pos) || ".";
+      div.appendChild(marker);
+      document.body.appendChild(div);
+      const top = marker.offsetTop - ta.scrollTop;
+      const left = marker.offsetLeft - ta.scrollLeft;
+      document.body.removeChild(div);
+      return { top, left };
+    }
+
+    function getSqlSuggestContext(text, cursorPos) {
+      const before = text.slice(0, cursorPos);
+      // Extract identifier/keyword token right before cursor (supports table.col too)
+      const tokMatch = before.match(/([A-Za-z0-9_`".*]*)$/);
+      const rawTok = tokMatch ? tokMatch[1] : "";
+      const replaceStart = cursorPos - rawTok.length;
+      const beforeTok = before.slice(0, replaceStart);
+      const prefix = rawTok.replace(/^[`"]+/, "");
+      const dotIdx = prefix.lastIndexOf(".");
+      const tableQualifier = dotIdx >= 0 ? prefix.slice(0, dotIdx).replace(/[`"]/g, "") : "";
+      const colPrefix = dotIdx >= 0 ? prefix.slice(dotIdx + 1) : prefix;
+      const lastSemi = before.lastIndexOf(";");
+      const stmtRaw = before.slice(lastSemi + 1);
+      const stmtTrimLeft = stmtRaw.replace(/^\s+/, "");
+      const stmtStartPos = (lastSemi + 1) + (stmtRaw.length - stmtTrimLeft.length);
+      const isLeadCommandPhrase = /^(create|show|alter|drop|insert|update|delete|describe|explain|truncate)\s+[A-Za-z0-9_]*$/i.test(stmtTrimLeft);
+
+      const prevStmtChunk = beforeTok.split(";").pop() || "";
+      const prevTrim = prevStmtChunk.trimEnd();
+      const prevUpper = prevTrim.toUpperCase();
+      const atStatementStart = prevTrim === "" || /;\s*$/.test(prevStmtChunk);
+      const expectTable = /\b(FROM|JOIN|INTO|UPDATE|TABLE|DESCRIBE|DESC|TRUNCATE|SHOW\s+CREATE\s+TABLE|SHOW\s+COLUMNS\s+FROM|SHOW\s+INDEX\s+FROM)\s*$/i.test(prevTrim);
+      const expectDb = /\b(USE|DATABASE|SCHEMA)\s*$/i.test(prevTrim);
+      const expectColumn = /\b(SELECT|WHERE|AND|OR|SET|ORDER\s+BY|GROUP\s+BY|HAVING|ON)\s*$/i.test(prevTrim) || /,\s*$/.test(prevTrim) || dotIdx >= 0;
+      const effectivePrefix = isLeadCommandPhrase ? stmtTrimLeft : colPrefix;
+      const effectiveStart = isLeadCommandPhrase ? stmtStartPos : (dotIdx >= 0 ? replaceStart + dotIdx + 1 : replaceStart);
+      return {
+        rawTok,
+        prefix,
+        colPrefix: effectivePrefix,
+        tableQualifier,
+        replaceStart: effectiveStart,
+        replaceEnd: cursorPos,
+        atStatementStart: atStatementStart || isLeadCommandPhrase,
+        isLeadCommandPhrase,
+        expectTable: isLeadCommandPhrase ? false : expectTable,
+        expectDb: isLeadCommandPhrase ? false : expectDb,
+        expectColumn: isLeadCommandPhrase ? false : expectColumn,
+        prevUpper,
+      };
+    }
+
+    function buildSqlSuggestions(ctx) {
+      const engine = (state.dbEngine || "mysql").startsWith("cloud:")
+        ? ((state.cloudProfiles || []).find((p) => "cloud:" + p.id === state.dbEngine)?.engine || "mysql")
+        : (state.dbEngine || "mysql");
+      const sampleTbl = state.sqlTable || (state.sqlTables && state.sqlTables[0]?.name) || "table_name";
+      const sampleDb = state.sqlDb || "my_database";
+      const qTbl = engine === "mysql" || engine === "mariadb" ? "`" + sampleTbl + "`" : sampleTbl;
+      const autoIncCol = engine === "postgresql"
+        ? "id SERIAL PRIMARY KEY"
+        : engine === "mssql"
+          ? "id INT IDENTITY(1,1) PRIMARY KEY"
+          : "id INT AUTO_INCREMENT PRIMARY KEY";
+
+      const templates = [
+        {
+          kind: "tmpl",
+          label: "CREATE TABLE ...",
+          meta: "Template",
+          insert: `CREATE TABLE new_table (\n  ${autoIncCol},\n  name VARCHAR(120) NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);`,
+          cursorToken: "new_table",
+        },
+        { kind: "tmpl", label: "CREATE DATABASE ...", meta: "Template", insert: `CREATE DATABASE ${sampleDb}_new;`, cursorToken: `${sampleDb}_new` },
+        { kind: "tmpl", label: "CREATE INDEX ...", meta: "Template", insert: `CREATE INDEX idx_${sampleTbl}_col ON ${qTbl} (column_name);`, cursorToken: "column_name" },
+        { kind: "tmpl", label: "CREATE VIEW ...", meta: "Template", insert: `CREATE VIEW v_${sampleTbl} AS\nSELECT * FROM ${qTbl};`, cursorToken: `v_${sampleTbl}` },
+        {
+          kind: "tmpl",
+          label: "SHOW TABLES;",
+          meta: "Template",
+          insert: engine === "postgresql"
+            ? "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_name;"
+            : engine === "mssql"
+              ? "SELECT s.name AS schema_name, o.name AS table_name FROM sys.objects o JOIN sys.schemas s ON o.schema_id = s.schema_id WHERE o.type = 'U' ORDER BY s.name, o.name;"
+              : "SHOW TABLES;",
+        },
+        {
+          kind: "tmpl",
+          label: "SHOW DATABASES;",
+          meta: "Template",
+          insert: engine === "postgresql"
+            ? "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY datname;"
+            : engine === "mssql"
+              ? "SELECT name FROM sys.databases ORDER BY name;"
+              : "SHOW DATABASES;",
+        },
+        {
+          kind: "tmpl",
+          label: `SHOW CREATE TABLE ${sampleTbl};`,
+          meta: "Template",
+          insert: engine === "mysql" || engine === "mariadb"
+            ? `SHOW CREATE TABLE ${qTbl};`
+            : `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '${sampleTbl}';`,
+        },
+        {
+          kind: "tmpl",
+          label: `SHOW COLUMNS FROM ${sampleTbl};`,
+          meta: "Template",
+          insert: engine === "mysql" || engine === "mariadb"
+            ? `SHOW COLUMNS FROM ${qTbl};`
+            : `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '${sampleTbl}';`,
+        },
+        { kind: "tmpl", label: "SHOW STATUS / VARIABLES;", meta: "Template", insert: "SHOW VARIABLES LIKE '%timeout%';", cursorToken: "%timeout%" },
+        {
+          kind: "tmpl",
+          label: `SELECT * FROM ${sampleTbl}`,
+          meta: "Template",
+          insert: engine === "mssql" ? `SELECT TOP 100 * FROM ${qTbl};` : `SELECT * FROM ${qTbl} LIMIT 100;`,
+        },
+        { kind: "tmpl", label: `SELECT COUNT(*) FROM ${sampleTbl};`, meta: "Template", insert: `SELECT COUNT(*) AS total FROM ${qTbl};` },
+        { kind: "tmpl", label: `INSERT INTO ${sampleTbl} ...`, meta: "Template", insert: `INSERT INTO ${qTbl} (col1, col2) VALUES ('val1', 'val2');`, cursorToken: "col1" },
+        { kind: "tmpl", label: `UPDATE ${sampleTbl} SET ...`, meta: "Template", insert: `UPDATE ${qTbl} SET col1 = 'value' WHERE id = 1;`, cursorToken: "col1" },
+        { kind: "tmpl", label: `DELETE FROM ${sampleTbl} WHERE ...`, meta: "Template", insert: `DELETE FROM ${qTbl} WHERE id = 1;`, cursorToken: "id = 1" },
+        { kind: "tmpl", label: `ALTER TABLE ${sampleTbl} ADD ...`, meta: "Template", insert: `ALTER TABLE ${qTbl} ADD COLUMN new_col VARCHAR(120);`, cursorToken: "new_col" },
+        { kind: "tmpl", label: `DESCRIBE ${sampleTbl};`, meta: "Template", insert: `DESCRIBE ${qTbl};` },
+        { kind: "tmpl", label: `EXPLAIN SELECT ...`, meta: "Template", insert: `EXPLAIN SELECT * FROM ${qTbl} LIMIT 100;` },
+        { kind: "tmpl", label: `DROP TABLE IF EXISTS ${sampleTbl};`, meta: "Template", insert: `DROP TABLE IF EXISTS ${qTbl};` },
+        { kind: "tmpl", label: `TRUNCATE TABLE ${sampleTbl};`, meta: "Template", insert: `TRUNCATE TABLE ${qTbl};` },
+      ];
+
+      const tables = (state.sqlTables || []).map((t) => ({
+        kind: "tbl",
+        label: t.name,
+        meta: /view/i.test(t.kind || "") ? "View" : "Table",
+        insert: t.name,
+      }));
+
+      const cols = (state.sqlColumns || []).map((c) => ({
+        kind: "col",
+        label: c.name,
+        meta: c.dataType || "Column",
+        insert: c.name,
+      }));
+
+      const dbs = (state.sqlDbs || []).map((d) => ({
+        kind: "tbl",
+        label: d,
+        meta: "Database",
+        insert: d,
+      }));
+
+      const keywords = [
+        "SELECT", "CREATE", "SHOW", "INSERT", "UPDATE", "DELETE", "ALTER", "DROP", "DESCRIBE", "EXPLAIN",
+        "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN", "IS NULL", "IS NOT NULL",
+        "ORDER BY", "GROUP BY", "HAVING", "LIMIT", "OFFSET", "JOIN", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN",
+        "ON", "AS", "DISTINCT", "VALUES", "SET", "INTO", "TABLE", "DATABASE", "INDEX", "VIEW", "COLUMN",
+        "PRIMARY KEY", "FOREIGN KEY", "REFERENCES", "AUTO_INCREMENT", "NOT NULL", "DEFAULT",
+        "COUNT(*)", "SUM()", "AVG()", "MIN()", "MAX()", "COALESCE()", "NOW()", "CURRENT_TIMESTAMP",
+        "VARCHAR(255)", "INT", "BIGINT", "TEXT", "BOOLEAN", "DECIMAL(10,2)", "DATETIME", "TIMESTAMP",
+      ].map((kw) => ({ kind: "kw", label: kw, meta: "SQL", insert: kw }));
+
+      const q = (ctx.colPrefix || "").toLowerCase();
+      let pool = [];
+      if (ctx.tableQualifier && cols.length) {
+        pool = [...cols];
+      } else if (ctx.expectTable) {
+        pool = [...tables, ...dbs];
+      } else if (ctx.expectDb) {
+        pool = [...dbs];
+      } else if (ctx.expectColumn) {
+        pool = [...cols, ...tables, ...keywords];
+      } else if (ctx.atStatementStart) {
+        pool = [...templates, ...keywords, ...tables];
+      } else {
+        pool = [...keywords, ...tables, ...cols, ...templates];
+      }
+
+      const scored = [];
+      const seen = new Set();
+      for (const item of pool) {
+        const key = item.kind + ":" + item.label.toLowerCase();
+        if (seen.has(key)) continue;
+        const lblLower = item.label.toLowerCase();
+        let score = 0;
+        if (!q) {
+          score = item.kind === "tmpl" ? 90 : item.kind === "tbl" ? 85 : item.kind === "col" ? 80 : 60;
+        } else if (lblLower === q) {
+          score = 200;
+        } else if (lblLower.startsWith(q)) {
+          score = 150 + (item.kind === "tmpl" && ctx.atStatementStart ? 20 : item.kind === "tbl" && ctx.expectTable ? 25 : 0);
+        } else if (lblLower.includes(q)) {
+          score = 80;
+        } else {
+          continue;
+        }
+        seen.add(key);
+        scored.push({ ...item, score });
+      }
+      scored.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label));
+      return scored.slice(0, 12);
+    }
+
+    function renderSqlSuggestMenu() {
+      const menu = $("sqlSuggestMenu");
+      const ta = $("sqlEditor");
+      if (!menu || !ta) return;
+      if (!sqlSuggestState.open || !sqlSuggestState.items.length) {
+        menu.hidden = true;
+        return;
+      }
+      const coords = getCaretCoordsInTextarea(ta, sqlSuggestState.replaceEnd);
+      const stageW = $("sqlEditorStage")?.clientWidth || ta.clientWidth || 500;
+      const stageH = $("sqlEditorStage")?.clientHeight || ta.clientHeight || 200;
+      const maxLeft = Math.max(8, stageW - 320);
+      const leftPx = Math.max(8, Math.min(maxLeft, coords.left + 8));
+      let topPx = coords.top + 22;
+      if (topPx + 190 > stageH && coords.top > 140) {
+        topPx = Math.max(6, coords.top - 185);
+      }
+      menu.style.left = `${leftPx}px`;
+      menu.style.top = `${Math.max(6, topPx)}px`;
+
+      const q = (sqlSuggestState.prefix || "").toLowerCase();
+      const highlightMatch = (lbl) => {
+        if (!q) return esc(lbl);
+        const idx = lbl.toLowerCase().indexOf(q);
+        if (idx < 0) return esc(lbl);
+        return esc(lbl.slice(0, idx)) + `<mark>${esc(lbl.slice(idx, idx + q.length))}</mark>` + esc(lbl.slice(idx + q.length));
+      };
+
+      menu.innerHTML =
+        `<div class="sql-suggest-list">` +
+        sqlSuggestState.items
+          .map((item, idx) => {
+            const active = idx === sqlSuggestState.activeIdx;
+            const kindLabel = item.kind === "tmpl" ? "Snippet" : item.kind === "tbl" ? "Table" : item.kind === "col" ? "Col" : "SQL";
+            return `<button type="button" class="sql-suggest-item${active ? " active" : ""}" role="option" aria-selected="${active}" data-sg-idx="${idx}">
+              <span class="sql-suggest-left">
+                <span class="sql-suggest-kind ${esc(item.kind)}">${kindLabel}</span>
+                <span class="sql-suggest-label">${highlightMatch(item.label)}</span>
+              </span>
+              <span class="sql-suggest-meta">${active ? `<span class="sql-suggest-tab-key">Tab ⇥</span>` : esc(item.meta || "")}</span>
+            </button>`;
+          })
+          .join("") +
+        `</div>` +
+        `<div class="sql-suggest-foot"><span>↑↓ choose · <strong>Tab</strong> or click to insert</span><span>Esc close</span></div>`;
+      menu.hidden = false;
+      const activeEl = menu.querySelector(".sql-suggest-item.active");
+      if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
+    }
+
+    function openSqlSuggest(forceShow = false) {
+      const ta = $("sqlEditor");
+      if (!ta) return;
+      const pos = ta.selectionStart ?? 0;
+      const ctx = getSqlSuggestContext(ta.value, pos);
+      if (!forceShow && !ctx.colPrefix && !ctx.expectTable && !ctx.expectDb && !ctx.tableQualifier) {
+        closeSqlSuggest();
+        return;
+      }
+      const items = buildSqlSuggestions(ctx);
+      if (!items.length) {
+        closeSqlSuggest();
+        return;
+      }
+      sqlSuggestState.open = true;
+      sqlSuggestState.items = items;
+      sqlSuggestState.activeIdx = 0;
+      sqlSuggestState.replaceStart = ctx.replaceStart;
+      sqlSuggestState.replaceEnd = ctx.replaceEnd;
+      sqlSuggestState.prefix = ctx.colPrefix;
+      renderSqlSuggestMenu();
+    }
+
+    function applySqlSuggestion(idx = sqlSuggestState.activeIdx) {
+      const ta = $("sqlEditor");
+      const item = sqlSuggestState.items[idx];
+      if (!ta || !item) return false;
+      const val = ta.value;
+      const start = sqlSuggestState.replaceStart;
+      const end = sqlSuggestState.replaceEnd;
+      let insertText = item.insert || item.label;
+      const needTrailingSpace = item.kind === "kw" && !insertText.endsWith(")") && !insertText.endsWith(";");
+      if (needTrailingSpace && (val[end] === undefined || !/\s/.test(val[end]))) {
+        insertText += " ";
+      }
+      ta.value = val.slice(0, start) + insertText + val.slice(end);
+      let nextPos = start + insertText.length;
+      if (item.cursorToken) {
+        const tokIdx = insertText.indexOf(item.cursorToken);
+        if (tokIdx >= 0) {
+          ta.focus();
+          ta.setSelectionRange(start + tokIdx, start + tokIdx + item.cursorToken.length);
+          const tab = getActiveSqlTab();
+          if (tab) tab.sql = ta.value;
+          closeSqlSuggest();
+          return true;
+        }
+      }
+      if (insertText.endsWith("()")) {
+        nextPos -= 1;
+      }
+      ta.focus();
+      ta.setSelectionRange(nextPos, nextPos);
+      const tab = getActiveSqlTab();
+      if (tab) tab.sql = ta.value;
+      closeSqlSuggest();
+      return true;
+    }
+
+    if ($("sqlSuggestMenu")) {
+      $("sqlSuggestMenu").addEventListener("mousedown", (e) => {
+        // Prevent textarea blur before click completes
+        e.preventDefault();
+        const btn = e.target.closest("[data-sg-idx]");
+        if (!btn) return;
+        applySqlSuggestion(Number(btn.dataset.sgIdx));
+      });
+    }
+
+    $("sqlEditor").addEventListener("input", () => {
+      openSqlSuggest(false);
+    });
+    $("sqlEditor").addEventListener("blur", () => {
+      setTimeout(() => closeSqlSuggest(), 120);
+    });
     $("sqlEditor").addEventListener("keydown", (e) => {
-      if (e.defaultPrevented || e.shiftKey) return;
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
+        closeSqlSuggest();
         runSqlQuery(false);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.code === "Space") {
+        e.preventDefault();
+        openSqlSuggest(true);
+        return;
+      }
+      if (e.key === "Escape" && sqlSuggestState.open) {
+        e.preventDefault();
+        closeSqlSuggest();
+        return;
+      }
+      if (sqlSuggestState.open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        e.preventDefault();
+        const len = sqlSuggestState.items.length;
+        if (len > 0) {
+          sqlSuggestState.activeIdx = e.key === "ArrowDown"
+            ? (sqlSuggestState.activeIdx + 1) % len
+            : (sqlSuggestState.activeIdx - 1 + len) % len;
+          renderSqlSuggestMenu();
+        }
+        return;
+      }
+      if (e.key === "Tab" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const ta = $("sqlEditor");
+        if (sqlSuggestState.open && sqlSuggestState.items.length) {
+          e.preventDefault();
+          applySqlSuggestion(sqlSuggestState.activeIdx);
+          return;
+        }
+        // If user presses Tab right after typing a prefix (e.g. "cre", "sho", "sel"), open/accept inline!
+        if (!e.shiftKey && ta && ta.selectionStart === ta.selectionEnd) {
+          const ctx = getSqlSuggestContext(ta.value, ta.selectionStart);
+          if (ctx.colPrefix) {
+            const items = buildSqlSuggestions(ctx);
+            if (items.length === 1) {
+              e.preventDefault();
+              sqlSuggestState.items = items;
+              sqlSuggestState.replaceStart = ctx.replaceStart;
+              sqlSuggestState.replaceEnd = ctx.replaceEnd;
+              sqlSuggestState.prefix = ctx.colPrefix;
+              applySqlSuggestion(0);
+              return;
+            }
+            if (items.length > 1) {
+              e.preventDefault();
+              openSqlSuggest(true);
+              return;
+            }
+          }
+          // Otherwise indent cleanly with 2 spaces instead of tabbing focus away from SQL editor
+          e.preventDefault();
+          const pos = ta.selectionStart;
+          ta.value = ta.value.slice(0, pos) + "  " + ta.value.slice(pos);
+          ta.setSelectionRange(pos + 2, pos + 2);
+          const tab = getActiveSqlTab();
+          if (tab) tab.sql = ta.value;
+          return;
+        }
       }
     });
 
@@ -6187,7 +6610,9 @@ try {
         st.cancelling = true;
         update(st.pct, "running", cfg.cancellingStage, "Stopping active database export/import...");
         try {
-          const stopped = await api().CancelScheduleRun(st.schedId || "");
+          const stopped = api().CancelScheduleRunMode
+            ? await api().CancelScheduleRunMode(st.schedId || "", cfg.mode || "")
+            : await api().CancelScheduleRun(st.schedId || "");
           if (!stopped && st.running) {
             update(st.pct, "cancelled", cfg.cancellingStage.replace(/\.\.\.$/, ""), "No active background run found.");
           }

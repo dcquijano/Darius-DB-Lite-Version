@@ -716,6 +716,7 @@ func mysqlImportSQLWithProgressCtx(ctx context.Context, p *Paths, engine string,
 		impCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
 		cmd := exec.CommandContext(impCtx, cli, args...)
+		cmd.WaitDelay = 2 * time.Second
 		hideWindow(cmd)
 		if onBytes != nil && totalBytes > 0 {
 			cmd.Stdin = &countingProgressReader{r: f, total: totalBytes, onBytes: onBytes}
@@ -740,7 +741,7 @@ func mysqlImportSQLWithProgressCtx(ctx context.Context, p *Paths, engine string,
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	targetConn, err := openSQL(engine, s, targetDB)
+	targetConn, err := openSQLCtx(ctx, engine, s, targetDB)
 	if err != nil {
 		return err
 	}
@@ -764,7 +765,7 @@ func mysqlWriteGoDumpCtx(ctx context.Context, engine string, s EngineSettings, d
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	db, err := openSQL(engine, s, dbName)
+	db, err := openSQLCtx(ctx, engine, s, dbName)
 	if err != nil {
 		return err
 	}
@@ -782,11 +783,15 @@ func mysqlWriteGoDumpCtx(ctx context.Context, engine string, s EngineSettings, d
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		time.Sleep(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		ndb, oerr := openSQL(engine, s, dbName)
+		ndb, oerr := openSQLCtx(ctx, engine, s, dbName)
 		if oerr != nil {
 			return oerr
 		}
@@ -796,7 +801,7 @@ func mysqlWriteGoDumpCtx(ctx context.Context, engine string, s EngineSettings, d
 
 	var allTables []TableInfo
 	for attempt := 0; attempt < 3; attempt++ {
-		allTables, err = listTablesWithDB(engine, db, dbName)
+		allTables, err = listTablesWithDBCtx(ctx, engine, db, dbName)
 		if err == nil {
 			break
 		}
@@ -1498,10 +1503,23 @@ func ExportDatabaseSelectionWithContext(ctx context.Context, p *Paths, engine st
 }
 
 func exportTableCSV(engine string, s EngineSettings, dbName, tableName, outPath string) error {
+	return exportTableCSVCtx(context.Background(), engine, s, dbName, tableName, outPath)
+}
+
+func exportTableCSVCtx(ctx context.Context, engine string, s EngineSettings, dbName, tableName, outPath string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	schema, table := splitSchemaTable(engine, dbName, tableName)
 	q := "SELECT * FROM " + qualifiedTable(engine, schema, table) + ";"
-	res, err := RunQueryAll(engine, s, dbName, q)
+	res, err := RunQueryAllCtx(ctx, engine, s, dbName, q)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	f, err := os.Create(outPath)
@@ -1576,7 +1594,7 @@ func ExportDatabaseFullZipWithContext(ctx context.Context, p *Paths, engine stri
 	defer os.RemoveAll(tmpDir)
 
 	report(5, "running", "Inspecting tables...", fmt.Sprintf("Listing base tables in %q (%s)...", dbName, strings.ToUpper(engine)))
-	allTables, err := ListTables(engine, s, dbName)
+	allTables, err := ListTablesCtx(ctx, engine, s, dbName)
 	if err != nil {
 		if isCancelled(err) {
 			report(lastPct, "cancelled", "Backup Cancelled", ErrSyncCancelled.Error())
@@ -1620,6 +1638,8 @@ func ExportDatabaseFullZipWithContext(ctx context.Context, p *Paths, engine stri
 		for {
 			select {
 			case <-sqlDone:
+				return
+			case <-ctx.Done():
 				return
 			case <-tick.C:
 				steps++
@@ -1681,8 +1701,11 @@ func ExportDatabaseFullZipWithContext(ctx context.Context, p *Paths, engine stri
 			}
 			report(pct, "running", fmt.Sprintf("Exporting table CSV (%d/%d)...", i+1, len(exportTables)), fmt.Sprintf("Exporting tables/%s.csv...", safeTbl))
 			csvPath := filepath.Join(tablesDir, safeTbl+".csv")
-			if err := exportTableCSV(engine, s, dbName, t, csvPath); err == nil {
+			if err := exportTableCSVCtx(ctx, engine, s, dbName, t, csvPath); err == nil {
 				csvFiles["tables/"+safeTbl+".csv"] = csvPath
+			} else if isCancelled(err) {
+				report(lastPct, "cancelled", "Backup Cancelled", ErrSyncCancelled.Error())
+				return ErrSyncCancelled
 			}
 		}
 	}
@@ -1876,6 +1899,7 @@ func mysqlExportTablesSQLWithProgressCtx(ctx context.Context, p *Paths, engine s
 		expCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
 		cmd := exec.CommandContext(expCtx, dump, args...)
+		cmd.WaitDelay = 2 * time.Second
 		hideWindow(cmd)
 		if out, err := cmd.CombinedOutput(); err == nil {
 			return nil
@@ -1921,6 +1945,7 @@ func postgresExportTablesSQLCtx(ctx context.Context, p *Paths, s EngineSettings,
 		expCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		cmd := exec.CommandContext(expCtx, pgDump, args...)
+		cmd.WaitDelay = 2 * time.Second
 		hideWindow(cmd)
 		env := os.Environ()
 		if s.Password != "" {

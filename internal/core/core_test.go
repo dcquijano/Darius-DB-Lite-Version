@@ -1511,6 +1511,38 @@ func TestClearScheduleStatusFields(t *testing.T) {
 	}
 }
 
+func TestCancelScheduleRunModeAndPromptContextAbort(t *testing.T) {
+	p := &Paths{Root: t.TempDir()}
+	sc := NewScheduler(p, LoadSettings(p.Root), nil, nil, nil)
+	syncCancelled := false
+	bkpCancelled := false
+	sc.cancelMu.Lock()
+	sc.runCancels["sched_x:sync"] = func() { syncCancelled = true }
+	sc.runCancels["sched_x:backup"] = func() { bkpCancelled = true }
+	sc.cancelMu.Unlock()
+
+	if !sc.CancelScheduleRunMode("sched_x", "sync") {
+		t.Fatal("expected CancelScheduleRunMode(sync) to report true")
+	}
+	if !syncCancelled || bkpCancelled {
+		t.Fatalf("expected only sync cancelled, got sync=%v backup=%v", syncCancelled, bkpCancelled)
+	}
+	if !sc.CancelScheduleRunMode("sched_x", "backup") || !bkpCancelled {
+		t.Fatal("expected CancelScheduleRunMode(backup) to cancel backup hook")
+	}
+
+	// Pre-cancelled context must abort ListTablesCtx & ExportDatabaseFullZipWithContext immediately.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	if _, err := ListTablesCtx(ctx, "mysql", EngineSettings{Host: "192.0.2.1", Port: 3306}, "demo"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled from ListTablesCtx, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("expected ListTablesCtx to abort immediately on cancelled ctx, took %v", elapsed)
+	}
+}
+
 
 
 

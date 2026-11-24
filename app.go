@@ -1275,6 +1275,13 @@ func (a *App) CancelScheduleRun(id string) bool {
 	return a.sched.CancelScheduleRun(id)
 }
 
+func (a *App) CancelScheduleRunMode(id, mode string) bool {
+	if a.sched == nil {
+		return false
+	}
+	return a.sched.CancelScheduleRunMode(id, mode)
+}
+
 func (a *App) ScheduleSnapshots(id string) ([]core.BackupSnapshotInfo, error) {
 	for _, s := range a.Schedules() {
 		if s.ID == id {

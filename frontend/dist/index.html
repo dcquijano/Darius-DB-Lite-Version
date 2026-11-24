@@ -316,7 +316,7 @@
                 <span class="chip" id="sqlActiveDb">No DB selected</span>
                 <span class="chip accent" id="sqlActiveTable" hidden></span>
                 <div class="spacer"></div>
-                <span class="hint">Ctrl+Enter to run</span>
+                <span class="hint">Tab to suggest · Ctrl+Enter to run</span>
                 <button class="btn xs accent" id="btnRowCreate" title="Create / Insert a new row in the selected table"
                   hidden>+ Create</button>
                 <button class="btn xs" id="btnSqlShowAll"
@@ -324,8 +324,11 @@
                 <button class="btn xs" id="btnSqlClear">Clear</button>
                 <button class="btn xs primary" id="btnSqlRun">Run Query</button>
               </div>
-              <textarea id="sqlEditor" class="code-area" spellcheck="false"
-                placeholder="SELECT 1; -- Click a table on the left or write SQL here..."></textarea>
+              <div class="sql-editor-stage" id="sqlEditorStage">
+                <textarea id="sqlEditor" class="code-area" spellcheck="false"
+                  placeholder="SELECT 1; -- Click a table on the left or write SQL here (press Tab for CREATE, SHOW, SELECT suggestions)..."></textarea>
+                <div id="sqlSuggestMenu" class="sql-suggest-menu" role="listbox" aria-label="SQL autocomplete suggestions" hidden></div>
+              </div>
             </div>
             <div class="split-handle split-h" id="sqlMainSplitH" title="Drag to resize SQL editor / results · Double-click to reset">
               <div class="split-actions">

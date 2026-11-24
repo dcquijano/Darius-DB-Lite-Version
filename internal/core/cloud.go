@@ -590,8 +590,8 @@ func CloudSyncDatabaseWithContext(ctx context.Context, p *Paths, srcEngine strin
 	}
 
 	report(5, "running", "Connecting to source...", fmt.Sprintf("Inspecting base tables in %s (%s)...", srcDB, strings.ToUpper(srcEngine)))
-	tables, err := ListTables(srcEngine, srcCfg, srcDB)
-	if ctx.Err() != nil {
+	tables, err := ListTablesCtx(ctx, srcEngine, srcCfg, srcDB)
+	if isCancelled(err) {
 		return abortCancelled()
 	}
 	if err != nil {

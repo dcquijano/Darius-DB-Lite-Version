@@ -876,7 +876,11 @@ func mssqlListDatabases(s EngineSettings) ([]string, error) {
 }
 
 func mssqlListTables(s EngineSettings, dbName string) ([]TableInfo, error) {
-	res, err := mssqlRunQuery(s, dbName, `SET NOCOUNT ON;
+	return mssqlListTablesCtx(context.Background(), s, dbName)
+}
+
+func mssqlListTablesCtx(ctx context.Context, s EngineSettings, dbName string) ([]TableInfo, error) {
+	res, err := mssqlRunQueryCtx(ctx, s, dbName, `SET NOCOUNT ON;
 SELECT s.name, o.name, CASE o.type WHEN 'V' THEN 'VIEW' ELSE 'BASE TABLE' END
 FROM sys.objects o
 INNER JOIN sys.schemas s ON o.schema_id = s.schema_id

@@ -1,19 +1,20 @@
 {
   "name": "Darius DB (Lite Version 0.1.5)",
   "version": "0.1.5",
-  "build": "202611241910",
+  "build": "202611241937",
   "channel": "Lite Version",
   "releasedAt": "2026-11-24",
   "author": "Darius Cumpio",
-  "latestCommit": "e89e66a",
+  "latestCommit": "ffb2bd7",
   "generatedFromGit": true,
   "installerUrl": "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing",
   "directSetupUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-Setup-0.1.5.exe",
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-0.1.5-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.5.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Recover MySQL dumps on invalid connection, split Sync/Backup run modals, and add Last Sync/Backup clear button; Ui: separate Manual Sync, Daily Auto-Sync, and Daily Auto-Backup modals & sections; Ui: enlarge Daily Auto-Sync & Auto-Backup Schedule modal to 860px to prevent clipped dropdowns.",
+  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Ui: unify minimized floating progress into one modal with separated lanes; Recover MySQL dumps on invalid connection, split Sync/Backup run modals, and add Last Sync/Backup clear button; Ui: separate Manual Sync, Daily Auto-Sync, and Daily Auto-Backup modals & sections.",
   "changelog": [
+    "[ffb2bd7] Ui: unify minimized floating progress into one modal with separated lanes (build 202611241910) (2026-11-24)",
     "[e89e66a] Recover MySQL dumps on invalid connection, split Sync/Backup run modals, and add Last Sync/Backup clear button (build 202611241855) (2026-11-24)",
     "[e3c0d98] Ui: separate Manual Sync, Daily Auto-Sync, and Daily Auto-Backup modals & sections (build 202611241637) (2026-11-24)",
     "[5dce50d] Ui: enlarge Daily Auto-Sync & Auto-Backup Schedule modal to 860px to prevent clipped dropdowns (build 202611231539) (2026-11-23)",
@@ -57,7 +58,6 @@
     "[e16243d] Add Dashboard Auto-Run toggle selector bar and per-service Auto pills (2026-11-20)",
     "[29a2e1c] Fix MySQL BLOB ASCII NUL crash, batch INSERTs, and add MB streaming progress (2026-11-20)",
     "[18881e7] Auto-start local DB engine during Sync and fix dark autofill input styling (2026-11-20)",
-    "[8bec631] Fix MSSQL Msg 8106 by reconciling SET IDENTITY_INSERT against target tables (2026-11-20)",
-    "[84a0b5c] Update upgrade example comment in installer/update.ps1 (0.1.3 -> 0.1.4) (2026-11-20)"
+    "[8bec631] Fix MSSQL Msg 8106 by reconciling SET IDENTITY_INSERT against target tables (2026-11-20)"
   ]
 }

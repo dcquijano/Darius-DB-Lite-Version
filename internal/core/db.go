@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -112,6 +113,16 @@ func isRemoteHost(s EngineSettings) bool {
 // openAndPingSQL opens and verifies a SQL connection pool, retrying once on remote TCP
 // dial timeouts so Dual-WAN load-balanced routers recover automatically when one WAN stalls.
 func openAndPingSQL(engine string, s EngineSettings, dbName string, maxOpen, maxIdle int, idleTime, lifetime time.Duration) (*sql.DB, string, error) {
+	return openAndPingSQLCtx(context.Background(), engine, s, dbName, maxOpen, maxIdle, idleTime, lifetime)
+}
+
+func openAndPingSQLCtx(ctx context.Context, engine string, s EngineSettings, dbName string, maxOpen, maxIdle int, idleTime, lifetime time.Duration) (*sql.DB, string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
 	driverName, dsn, err := sqlDriverAndDSN(engine, s, dbName)
 	if err != nil {
 		return nil, "", err
@@ -122,6 +133,9 @@ func openAndPingSQL(engine string, s EngineSettings, dbName string, maxOpen, max
 	}
 	var lastErr error
 	for i := 0; i < attempts; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, dsn, err
+		}
 		db, err := sql.Open(driverName, dsn)
 		if err != nil {
 			return nil, dsn, err
@@ -136,10 +150,13 @@ func openAndPingSQL(engine string, s EngineSettings, dbName string, maxOpen, max
 		if lifetime > 0 {
 			db.SetConnMaxLifetime(lifetime)
 		}
-		if err := db.Ping(); err == nil {
+		if err := db.PingContext(ctx); err == nil {
 			return db, dsn, nil
 		} else {
 			_ = db.Close()
+			if ctx.Err() != nil {
+				return nil, dsn, ctx.Err()
+			}
 			lastErr = err
 			if !strings.Contains(strings.ToLower(err.Error()), "timeout") {
 				break
@@ -150,7 +167,12 @@ func openAndPingSQL(engine string, s EngineSettings, dbName string, maxOpen, max
 }
 
 func openSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
-	db, _, err := openAndPingSQL(engine, s, dbName, 1, 0, 0, 0)
+	db, _, err := openAndPingSQLCtx(context.Background(), engine, s, dbName, 1, 0, 0, 0)
+	return db, err
+}
+
+func openSQLCtx(ctx context.Context, engine string, s EngineSettings, dbName string) (*sql.DB, error) {
+	db, _, err := openAndPingSQLCtx(ctx, engine, s, dbName, 1, 0, 0, 0)
 	return db, err
 }
 
@@ -168,6 +190,16 @@ var (
 // pooledSQL returns a reusable *sql.DB connection pool for interactive browser/CRUD queries.
 // Callers must NOT call db.Close() on the returned pool.
 func pooledSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) {
+	return pooledSQLCtx(context.Background(), engine, s, dbName)
+}
+
+func pooledSQLCtx(ctx context.Context, engine string, s EngineSettings, dbName string) (*sql.DB, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	_, dsn, err := sqlDriverAndDSN(engine, s, dbName)
 	if err != nil {
 		return nil, err
@@ -189,7 +221,7 @@ func pooledSQL(engine string, s EngineSettings, dbName string) (*sql.DB, error) 
 		idleTime = 20 * time.Second
 		lifetime = 2 * time.Minute
 	}
-	db, _, err := openAndPingSQL(engine, s, dbName, maxOpen, maxIdle, idleTime, lifetime)
+	db, _, err := openAndPingSQLCtx(ctx, engine, s, dbName, maxOpen, maxIdle, idleTime, lifetime)
 	if err != nil {
 		return nil, err
 	}
@@ -418,12 +450,22 @@ func ListDatabases(engine string, s EngineSettings) ([]string, error) {
 }
 
 func listTablesWithDB(engine string, db *sql.DB, dbName string) ([]TableInfo, error) {
+	return listTablesWithDBCtx(context.Background(), engine, db, dbName)
+}
+
+func listTablesWithDBCtx(ctx context.Context, engine string, db *sql.DB, dbName string) ([]TableInfo, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	var rows *sql.Rows
 	var err error
 	if isMy(engine) {
-		rows, err = db.Query("SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME", dbName)
+		rows, err = db.QueryContext(ctx, "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME", dbName)
 	} else {
-		rows, err = db.Query(`SELECT table_schema, table_name, table_type FROM information_schema.tables
+		rows, err = db.QueryContext(ctx, `SELECT table_schema, table_name, table_type FROM information_schema.tables
 			WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema <> 'public', 1, 2`)
 	}
 	if err != nil {
@@ -432,6 +474,9 @@ func listTablesWithDB(engine string, db *sql.DB, dbName string) ([]TableInfo, er
 	defer rows.Close()
 	out := []TableInfo{}
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var t TableInfo
 		if err := rows.Scan(&t.Schema, &t.Name, &t.Kind); err != nil {
 			return nil, err
@@ -451,21 +496,34 @@ func listTablesWithDB(engine string, db *sql.DB, dbName string) ([]TableInfo, er
 }
 
 func ListTables(engine string, s EngineSettings, dbName string) ([]TableInfo, error) {
+	return ListTablesCtx(context.Background(), engine, s, dbName)
+}
+
+func ListTablesCtx(ctx context.Context, engine string, s EngineSettings, dbName string) ([]TableInfo, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if engine == "mssql" {
-		return mssqlListTables(s, dbName)
+		return mssqlListTablesCtx(ctx, s, dbName)
 	}
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
-		db, err := pooledSQL(engine, s, dbName)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		db, err := pooledSQLCtx(ctx, engine, s, dbName)
 		if err != nil {
 			return nil, err
 		}
-		out, err := listTablesWithDB(engine, db, dbName)
+		out, err := listTablesWithDBCtx(ctx, engine, db, dbName)
 		if err == nil {
 			return out, nil
 		}
 		lastErr = err
-		if attempt == 0 && isTransientConnErr(err) {
+		if ctx.Err() == nil && attempt == 0 && isTransientConnErr(err) {
 			evictSQLPool(engine, s, dbName)
 			continue
 		}
@@ -503,7 +561,21 @@ func RunQueryAll(engine string, s EngineSettings, dbName, q string) (*QueryResul
 	return RunQueryWithLimit(engine, s, dbName, q, maxShowRows)
 }
 
+func RunQueryAllCtx(ctx context.Context, engine string, s EngineSettings, dbName, q string) (*QueryResult, error) {
+	return RunQueryWithLimitCtx(ctx, engine, s, dbName, q, maxShowRows)
+}
+
 func RunQueryWithLimit(engine string, s EngineSettings, dbName, q string, limit int) (*QueryResult, error) {
+	return RunQueryWithLimitCtx(context.Background(), engine, s, dbName, q, limit)
+}
+
+func RunQueryWithLimitCtx(ctx context.Context, engine string, s EngineSettings, dbName, q string, limit int) (*QueryResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return nil, errors.New("query is empty")
@@ -512,16 +584,19 @@ func RunQueryWithLimit(engine string, s EngineSettings, dbName, q string, limit 
 		limit = maxShowRows
 	}
 	if engine == "mssql" {
-		return mssqlRunQueryWithLimit(s, dbName, q, limit)
+		return mssqlRunQueryWithLimitCtx(ctx, s, dbName, q, limit)
 	}
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
-		res, err := runQueryOnceWithPool(engine, s, dbName, q, limit)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		res, err := runQueryOnceWithPoolCtx(ctx, engine, s, dbName, q, limit)
 		if err == nil {
 			return res, nil
 		}
 		lastErr = err
-		if attempt == 0 && isTransientConnErr(err) {
+		if ctx.Err() == nil && attempt == 0 && isTransientConnErr(err) {
 			evictSQLPool(engine, s, dbName)
 			continue
 		}
@@ -530,8 +605,8 @@ func RunQueryWithLimit(engine string, s EngineSettings, dbName, q string, limit 
 	return nil, lastErr
 }
 
-func runQueryOnceWithPool(engine string, s EngineSettings, dbName, q string, limit int) (*QueryResult, error) {
-	db, err := pooledSQL(engine, s, dbName)
+func runQueryOnceWithPoolCtx(ctx context.Context, engine string, s EngineSettings, dbName, q string, limit int) (*QueryResult, error) {
+	db, err := pooledSQLCtx(ctx, engine, s, dbName)
 	if err != nil {
 		return nil, err
 	}
@@ -543,7 +618,7 @@ func runQueryOnceWithPool(engine string, s EngineSettings, dbName, q string, lim
 	res := &QueryResult{Columns: []string{}, Rows: make([][]*string, 0, capRows)}
 
 	if !returnsRows(q) {
-		r, err := db.Exec(q)
+		r, err := db.ExecContext(ctx, q)
 		if err != nil {
 			return nil, err
 		}
@@ -552,7 +627,7 @@ func runQueryOnceWithPool(engine string, s EngineSettings, dbName, q string, lim
 		return res, nil
 	}
 
-	rows, err := db.Query(q)
+	rows, err := db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -569,6 +644,9 @@ func runQueryOnceWithPool(engine string, s EngineSettings, dbName, q string, lim
 		ptrs[i] = &raw[i]
 	}
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if len(res.Rows) >= limit {
 			res.Truncated = true
 			break

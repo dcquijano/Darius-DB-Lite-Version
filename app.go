@@ -1264,10 +1264,17 @@ func (a *App) PurgeScheduleSnapshots(id string) (int, error) {
 }
 
 func (a *App) OpenScheduleFolder(id string) error {
+	return a.OpenScheduleTargetFolder(id, "")
+}
+
+func (a *App) OpenScheduleTargetFolder(id, mode string) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
 	for _, s := range a.Schedules() {
 		if s.ID == id {
 			dir := core.ScheduleBackupDir(a.paths, s)
-			if s.SyncDirection == "pull_folder" && (strings.TrimSpace(s.SyncFolder) != "" || !s.AutoBackup) {
+			if mode == "sync" && s.SyncDirection == "pull_folder" {
+				dir = core.ScheduleSyncDir(a.paths, s)
+			} else if mode == "" && s.SyncDirection == "pull_folder" && (strings.TrimSpace(s.SyncFolder) != "" || !s.AutoBackup) {
 				dir = core.ScheduleSyncDir(a.paths, s)
 			}
 			_ = os.MkdirAll(dir, 0o755)

@@ -4227,7 +4227,8 @@ try {
       if ($("modalSyncLogs") && !$("modalSyncLogs").hidden) { $("modalSyncLogs").hidden = true; return true; }
       if ($("modalScheduleRun") && !$("modalScheduleRun").hidden) { $("modalScheduleRun").hidden = true; return true; }
       if ($("modalScheduleSnapshots") && !$("modalScheduleSnapshots").hidden) { $("modalScheduleSnapshots").hidden = true; return true; }
-      if ($("modalScheduleForm") && !$("modalScheduleForm").hidden) { $("modalScheduleForm").hidden = true; return true; }
+      if ($("modalAutoSyncForm") && !$("modalAutoSyncForm").hidden) { $("modalAutoSyncForm").hidden = true; return true; }
+      if ($("modalAutoBackupForm") && !$("modalAutoBackupForm").hidden) { $("modalAutoBackupForm").hidden = true; return true; }
       if ($("modalBackupProgress") && !$("modalBackupProgress").hidden) { $("modalBackupProgress").hidden = true; return true; }
       if ($("modalCloudSync") && !$("modalCloudSync").hidden) { $("btnCloseCloudSync")?.click(); return true; }
       if ($("modalCloudForm") && !$("modalCloudForm").hidden) { $("modalCloudForm").hidden = true; return true; }
@@ -4563,9 +4564,13 @@ try {
         const latPill = c.lastLatencyMs
           ? `<span class="pill running" title="Last connected ${esc(c.lastConnected || "")}">${c.lastLatencyMs} ms</span>`
           : `<span class="pill">Ready</span>`;
-        const sched = (state.schedules || []).find((s) => s.cloudId === c.id && s.enabled);
-        const autoPill = sched
-          ? `<span class="pill running" title="Scheduled daily @ ${esc(sched.backupTime || sched.syncTime)}">⏰ Auto ${esc(sched.syncDirection === "push" ? "Push" : "Pull")} / ${sched.retentionDays || 7}d</span>`
+        const syncScheds = (state.schedules || []).filter((s) => s.cloudId === c.id && s.enabled && s.autoSync);
+        const bkpScheds = (state.schedules || []).filter((s) => s.cloudId === c.id && s.enabled && s.autoBackup);
+        const autoSyncPill = syncScheds.length
+          ? `<span class="pill running" title="Daily Auto-Sync @ ${esc(syncScheds[0].syncTime || "02:00")}">🔄 Auto-Sync @ ${esc(syncScheds[0].syncTime || "02:00")}</span>`
+          : "";
+        const autoBkpPill = bkpScheds.length
+          ? `<span class="pill accent" title="Daily Auto-Backup @ ${esc(bkpScheds[0].backupTime || "02:00")} · Purge >= ${bkpScheds[0].retentionDays || 7}d">📦 Auto-Backup ${bkpScheds[0].retentionDays || 7}d</span>`
           : "";
         return `<div class="cloud-card" data-cid="${esc(c.id)}">
           <div class="cloud-card-head">
@@ -4575,7 +4580,8 @@ try {
                 <span class="pill accent">${esc(providerLabel)}</span>
                 <span class="pill">${esc(engineLabel)}</span>
                 ${c.sslMode && c.sslMode !== "disable" ? `<span class="pill">TLS: ${esc(c.sslMode)}</span>` : ""}
-                ${autoPill}
+                ${autoSyncPill}
+                ${autoBkpPill}
               </div>
             </div>
             ${latPill}
@@ -4587,7 +4593,7 @@ try {
             <button type="button" class="btn xs primary" data-cact="browse">🔌 Connect &amp; Browse</button>
             <button type="button" class="btn xs accent" data-cact="test">↻ Test</button>
             ${c.engine !== "redis" ? `<button type="button" class="btn xs" data-cact="backupzip" title="Download full .zip backup (SQL + CSVs)">📦 Backup .zip</button>` : ""}
-            <button type="button" class="btn xs" data-cact="sync">🔄 Sync</button>
+            <button type="button" class="btn xs" data-cact="sync" title="Open one-time Manual Sync modal">🔄 Sync</button>
             ${c.panelUrl ? `<button type="button" class="btn xs" data-cact="panel">🌐 Panel ↗</button>` : ""}
             <button type="button" class="btn xs ghost" data-cact="uri">Copy URI</button>
             <button type="button" class="btn xs ghost" data-cact="edit">Edit</button>
@@ -4692,141 +4698,219 @@ try {
         ? `Registered in Windows Task Scheduler (${state.winTask.detail || "02:00 AM daily"}). Click to remove.`
         : "Click to register daily 2:00 AM Windows Task Scheduler trigger even when app is closed";
     }
-    const grid = $("cloudScheduleGrid");
-    if (!grid) return;
-    const list = state.schedules || [];
-    if (!list.length) {
-      grid.innerHTML = `<div class="empty-note" style="grid-column:1 / -1;padding:18px">
-        No daily schedules configured yet. Click <strong>+ New Schedule</strong> or open <strong>🔄 Sync</strong> and check <strong>Enable Daily Auto-Sync &amp; 2:00 AM Auto-Backup</strong> to automatically pull <strong>Cloud → Local</strong> every day and purge backup snapshots older than <strong>7 days (1 week)</strong>.
-      </div>`;
-      return;
-    }
-    grid.innerHTML = list
-      .map((s) => {
-        const cloud = (state.cloudProfiles || []).find((p) => p.id === s.cloudId);
-        const dirLabel =
-          s.syncDirection === "push"
-            ? "Push Local → Cloud"
-            : s.syncDirection === "pull_folder"
-              ? "Pull Cloud → Folder"
-              : "Pull Cloud → Local DB";
-        const syncBadge = s.autoSync
-          ? `<span class="pill accent">${s.syncDirection === "pull_folder" ? "📁" : "🔄"} ${dirLabel} @ ${esc(s.syncTime || "02:00")}</span>`
-          : "";
-        const autoNameBadge = s.autoSync && s.syncDirection !== "push" && s.autoNameLocalDb
-          ? `<span class="pill">✨ ${s.syncDirection === "pull_folder" ? "Auto-folder" : "Auto-named"}</span>`
-          : "";
-        const backupBadge = s.autoBackup
-          ? `<span class="pill">${s.backupSource === "cloud_folder" ? "📁 Folder" : "📦 .zip"} @ ${esc(s.backupTime || "02:00")} · Purge ≥ ${s.retentionDays || 7}d${s.autoNameBackup ? (s.backupSource === "cloud_folder" ? " · ✨ Auto-folder" : " · ✨ Auto-named") : ""}</span>`
-          : "";
-        const live = liveScheduledRuns[s.id];
-        const isLiveRunning = !!(live && live.state === "running");
-        const statusPill = isLiveRunning
-          ? `<span class="pill accent">⏳ Running ${Math.round(live.percent || 0)}%</span>`
-          : s.enabled
-            ? `<span class="pill running">Active</span>`
-            : `<span class="pill">Paused</span>`;
-        const nextRows = [];
-        if (s.enabled && s.autoSync) {
-          nextRows.push(`<div class="sched-timing-row"><span class="sched-timing-label">⏰ Next Auto-Sync</span><span class="sched-timing-val">${esc(computeNextScheduleText(s.syncTime, s.lastSyncDate, s.createdAt))}</span></div>`);
-        }
-        if (s.enabled && s.autoBackup) {
-          nextRows.push(`<div class="sched-timing-row"><span class="sched-timing-label">📦 Next Auto-Backup</span><span class="sched-timing-val">${esc(computeNextScheduleText(s.backupTime, s.lastBackupDate, s.createdAt))}</span></div>`);
-        }
-        const purgeGuide = s.autoBackup ? computeSchedulePurgeGuide(s) : null;
-        const purgeGuideHtml = purgeGuide
-          ? `<div class="sched-purge-line" title="Purge stamp: ${esc(purgeGuide.purgeStamp)} · Cutoff now: files on/before ${esc(purgeGuide.cutoffText)}">
-              <span>🗑 Purge guide (≥${purgeGuide.retDays}d · ${esc(purgeGuide.sourceLabel)})</span>
-              <span class="sched-purge-val-group"><strong>${esc(purgeGuide.purgeAtText)}</strong><code class="purge-stamp-tag">${esc(purgeGuide.purgeStamp)}</code></span>
-            </div>`
-          : "";
-        const timingPanelHtml = nextRows.length || purgeGuideHtml
-          ? `<div class="sched-timing-panel">${nextRows.join("")}${purgeGuideHtml}</div>`
-          : "";
-
-        const syncIsErr = /^err\b/i.test(String(s.lastSyncStatus || "").trim());
-        const syncIsOk = !!s.lastSyncAt && !syncIsErr;
-        const syncMsgText = s.lastSyncAt ? String(s.lastSyncStatus || "ok") : "Pending next scheduled time";
-        const bkpIsErr = /^err\b/i.test(String(s.lastBackupStatus || "").trim());
-        const bkpIsOk = !!s.lastBackupAt && !bkpIsErr;
-        const bkpMsgText = s.lastBackupAt ? String(s.lastBackupStatus || "ok") : "Pending next scheduled run";
-
-        const sourceText = cloud ? `${cloud.name} (${s.cloudDb || cloud.database || ""})` : (s.cloudDb || "Local only");
-        const destText =
-          s.syncDirection === "pull_folder"
-            ? `📁 ${s.syncFolder || "backups/" + s.name + "/syncs"}`
-            : `${(s.localEngine || "mssql").toUpperCase()}/${s.localDb || (s.autoNameLocalDb ? (s.cloudDb || "auto") : "-")}${s.autoNameLocalDb && s.syncDirection !== "push" ? "_<date_time>" : ""}`;
-
-        const liveHtml = isLiveRunning
-          ? `<div class="sched-live-box">
-              <div class="sched-live-top">
-                <span>⏰ ${esc(live.stage || "Auto-Sync running...")}</span>
-                <span style="font-family:var(--font-mono)">${Math.round(live.percent || 0)}%</span>
-              </div>
-              <div class="progress-bar" style="height:5px;margin:5px 0 3px">
-                <div class="progress-fill" style="width:${Math.max(2, Math.min(100, Math.round(live.percent || 0)))}%"></div>
-              </div>
-              <div class="muted" style="font-size:11px;overflow-wrap:anywhere;word-break:break-word">${esc(live.detail || "")}</div>
-            </div>`
-          : "";
-        return `<div class="cloud-card sched-card" data-sid="${esc(s.id)}">
-          <div class="cloud-card-head">
-            <div>
-              <strong style="font-size:14px">${esc(s.name)}</strong>
-              <div style="display:flex;gap:5px;margin-top:5px;flex-wrap:wrap">
-                ${syncBadge}
-                ${autoNameBadge}
-                ${backupBadge}
-              </div>
-            </div>
-            ${statusPill}
-          </div>
-          <div class="sched-route-box">
-            <div class="sched-route-row">
-              <span class="sched-route-k">From</span>
-              <span class="sched-route-v" title="${esc(sourceText)}">${esc(sourceText)}</span>
-            </div>
-            <div class="sched-route-row">
-              <span class="sched-route-k">${s.syncDirection === "push" ? "Cloud" : "Target"}</span>
-              <span class="sched-route-v" title="${esc(destText)}">${esc(destText)}</span>
-            </div>
-            ${s.autoBackup && s.backupDir ? `<div class="sched-route-row"><span class="sched-route-k">Backup</span><span class="sched-route-v" title="${esc(s.backupDir)}">📁 ${esc(s.backupDir)}</span></div>` : ""}
-          </div>
-          ${timingPanelHtml}
-          ${liveHtml}
-          <div class="sched-status-box">
-            <div class="sched-status-item">
-              <div class="sched-status-head">
-                <span class="sched-status-tag"><span class="sched-status-dot${syncIsOk ? " ok" : syncIsErr ? " err" : ""}"></span>Last Sync</span>
-                <span class="sched-status-ts">${esc(s.lastSyncAt || "—")}</span>
-              </div>
-              <div class="sched-status-msg${syncIsErr ? " err" : ""}" title="${esc(syncMsgText)}">${esc(syncMsgText)}</div>
-            </div>
-            <div class="sched-status-item">
-              <div class="sched-status-head">
-                <span class="sched-status-tag"><span class="sched-status-dot${bkpIsOk ? " ok" : bkpIsErr ? " err" : ""}"></span>Last Backup</span>
-                <span class="sched-status-ts">${esc(s.lastBackupAt || "—")}</span>
-              </div>
-              <div class="sched-status-msg${bkpIsErr ? " err" : ""}" title="${esc(bkpMsgText)}">${esc(bkpMsgText)}</div>
-            </div>
-          </div>
-          <div class="sched-card-footer">
-            <div class="sched-actions-main">
-              <button type="button" class="btn xs primary" data-sact="run">▶ Run Now</button>
-              <button type="button" class="btn xs accent" data-sact="logs" title="View Sync &amp; Backup trace log for this schedule">📋 Logs</button>
-              <button type="button" class="btn xs accent" data-sact="snaps">📦 Snapshots</button>
-              <button type="button" class="btn xs" data-sact="purge" title="Purge snapshots >= ${s.retentionDays || 7} days old">🗑 Purge</button>
-              <button type="button" class="btn xs" data-sact="folder">📁 Folder</button>
-            </div>
-            <div class="sched-actions-util">
-              <button type="button" class="btn xs ghost" data-sact="toggle">${s.enabled ? "Pause" : "Enable"}</button>
-              <button type="button" class="btn xs ghost" data-sact="edit">Edit</button>
-              <button type="button" class="btn xs danger-ghost" data-sact="del" aria-label="Delete schedule" title="Delete schedule">✕</button>
-            </div>
-          </div>
+    const syncGrid = $("cloudAutoSyncGrid");
+    const syncList = (state.schedules || []).filter((s) => s.autoSync);
+    if (syncGrid) {
+      if (!syncList.length) {
+        syncGrid.innerHTML = `<div class="empty-note" style="grid-column:1 / -1;padding:18px">
+          No Daily Auto-Sync schedules yet. Click <strong>+ New Auto-Sync</strong> to automatically pull <strong>Cloud → Local DB</strong>, export to a <strong>Generated Folder (No Local DB)</strong>, or push <strong>Local → Cloud</strong> every day.
         </div>`;
-      })
-      .join("");
+      } else {
+        syncGrid.innerHTML = syncList
+          .map((s) => {
+            const cloud = (state.cloudProfiles || []).find((p) => p.id === s.cloudId);
+            const dirLabel =
+              s.syncDirection === "push"
+                ? "Push Local → Cloud"
+                : s.syncDirection === "pull_folder"
+                  ? "Pull Cloud → Folder"
+                  : "Pull Cloud → Local DB";
+            const syncBadge = `<span class="pill accent">${s.syncDirection === "pull_folder" ? "📁" : "🔄"} ${dirLabel} @ ${esc(s.syncTime || "02:00")}</span>`;
+            const autoNameBadge = s.syncDirection !== "push" && s.autoNameLocalDb
+              ? `<span class="pill">✨ ${s.syncDirection === "pull_folder" ? "Auto-folder" : "Auto-named"}</span>`
+              : "";
+            const live = liveScheduledRuns[s.id];
+            const isLiveRunning = !!(live && live.state === "running" && live.mode !== "backup");
+            const statusPill = isLiveRunning
+              ? `<span class="pill accent">⏳ Running ${Math.round(live.percent || 0)}%</span>`
+              : s.enabled
+                ? `<span class="pill running">Active</span>`
+                : `<span class="pill">Paused</span>`;
+            const syncIsErr = /^err\b/i.test(String(s.lastSyncStatus || "").trim());
+            const syncIsOk = !!s.lastSyncAt && !syncIsErr;
+            const syncMsgText = s.lastSyncAt ? String(s.lastSyncStatus || "ok") : "Pending next scheduled time";
+            const cloudLabel = cloud ? `${cloud.name} (${s.cloudDb || cloud.database || ""})` : (s.cloudDb || "Cloud not set");
+            const localLabel = `${(s.localEngine || "mssql").toUpperCase()}/${s.localDb || (s.autoNameLocalDb ? (s.cloudDb || "auto") : "-")}${s.autoNameLocalDb && s.syncDirection !== "push" ? "_<date_time>" : ""}`;
+            const fromText = s.syncDirection === "push" ? localLabel : cloudLabel;
+            const targetText =
+              s.syncDirection === "pull_folder"
+                ? `📁 ${s.syncFolder || "backups/" + s.name + "/syncs"}`
+                : s.syncDirection === "push"
+                  ? cloudLabel
+                  : localLabel;
+            const liveHtml = isLiveRunning
+              ? `<div class="sched-live-box">
+                  <div class="sched-live-top">
+                    <span>⏰ ${esc(live.stage || "Auto-Sync running...")}</span>
+                    <span style="font-family:var(--font-mono)">${Math.round(live.percent || 0)}%</span>
+                  </div>
+                  <div class="progress-bar" style="height:5px;margin:5px 0 3px">
+                    <div class="progress-fill" style="width:${Math.max(2, Math.min(100, Math.round(live.percent || 0)))}%"></div>
+                  </div>
+                  <div class="muted" style="font-size:11px;overflow-wrap:anywhere;word-break:break-word">${esc(live.detail || "")}</div>
+                </div>`
+              : "";
+            return `<div class="cloud-card sched-card" data-sid="${esc(s.id)}">
+              <div class="cloud-card-head">
+                <div>
+                  <strong style="font-size:14px">${esc(s.name)}</strong>
+                  <div style="display:flex;gap:5px;margin-top:5px;flex-wrap:wrap">
+                    ${syncBadge}
+                    ${autoNameBadge}
+                  </div>
+                </div>
+                ${statusPill}
+              </div>
+              <div class="sched-route-box">
+                <div class="sched-route-row">
+                  <span class="sched-route-k">From</span>
+                  <span class="sched-route-v" title="${esc(fromText)}">${esc(fromText)}</span>
+                </div>
+                <div class="sched-route-row">
+                  <span class="sched-route-k">Target</span>
+                  <span class="sched-route-v" title="${esc(targetText)}">${esc(targetText)}</span>
+                </div>
+              </div>
+              ${
+                s.enabled
+                  ? `<div class="sched-timing-panel"><div class="sched-timing-row"><span class="sched-timing-label">⏰ Next Auto-Sync</span><span class="sched-timing-val">${esc(computeNextScheduleText(s.syncTime, s.lastSyncDate, s.createdAt))}</span></div></div>`
+                  : ""
+              }
+              ${liveHtml}
+              <div class="sched-status-box">
+                <div class="sched-status-item">
+                  <div class="sched-status-head">
+                    <span class="sched-status-tag"><span class="sched-status-dot${syncIsOk ? " ok" : syncIsErr ? " err" : ""}"></span>Last Sync</span>
+                    <span class="sched-status-ts">${esc(s.lastSyncAt || "—")}</span>
+                  </div>
+                  <div class="sched-status-msg${syncIsErr ? " err" : ""}" title="${esc(syncMsgText)}">${esc(syncMsgText)}</div>
+                </div>
+              </div>
+              <div class="sched-card-footer">
+                <div class="sched-actions-main">
+                  <button type="button" class="btn xs primary" data-sact="run-sync">▶ Run Sync</button>
+                  <button type="button" class="btn xs accent" data-sact="logs" title="View Sync trace log for this schedule">📋 Logs</button>
+                  ${s.syncDirection === "pull_folder" ? `<button type="button" class="btn xs" data-sact="folder-sync">📁 Folder</button>` : ""}
+                </div>
+                <div class="sched-actions-util">
+                  <button type="button" class="btn xs ghost" data-sact="toggle-sync">${s.enabled ? "Pause" : "Enable"}</button>
+                  <button type="button" class="btn xs ghost" data-sact="edit-sync">Edit</button>
+                  <button type="button" class="btn xs danger-ghost" data-sact="del-sync" aria-label="Delete auto-sync schedule" title="Delete Auto-Sync schedule">✕</button>
+                </div>
+              </div>
+            </div>`;
+          })
+          .join("");
+      }
+    }
+
+    const bkpGrid = $("cloudAutoBackupGrid");
+    const bkpList = (state.schedules || []).filter((s) => s.autoBackup);
+    if (bkpGrid) {
+      if (!bkpList.length) {
+        bkpGrid.innerHTML = `<div class="empty-note" style="grid-column:1 / -1;padding:18px">
+          No Daily Auto-Backup schedules yet. Click <strong>+ New Auto-Backup</strong> to save daily <strong>.zip</strong> snapshots or <strong>dated folders</strong> at 2:00 AM with automatic <strong>7-day (1 week) purge</strong>.
+        </div>`;
+      } else {
+        bkpGrid.innerHTML = bkpList
+          .map((s) => {
+            const cloud = (state.cloudProfiles || []).find((p) => p.id === s.cloudId);
+            const backupBadge = `<span class="pill">${s.backupSource === "cloud_folder" ? "📁 Folder" : "📦 .zip"} @ ${esc(s.backupTime || "02:00")} · Purge ≥ ${s.retentionDays || 7}d${s.autoNameBackup ? (s.backupSource === "cloud_folder" ? " · ✨ Auto-folder" : " · ✨ Auto-named") : ""}</span>`;
+            const live = liveScheduledRuns[s.id];
+            const isLiveRunning = !!(live && live.state === "running" && live.mode !== "sync");
+            const statusPill = isLiveRunning
+              ? `<span class="pill accent">⏳ Running ${Math.round(live.percent || 0)}%</span>`
+              : s.enabled
+                ? `<span class="pill running">Active</span>`
+                : `<span class="pill">Paused</span>`;
+            const purgeGuide = computeSchedulePurgeGuide(s);
+            const bkpIsErr = /^err\b/i.test(String(s.lastBackupStatus || "").trim());
+            const bkpIsOk = !!s.lastBackupAt && !bkpIsErr;
+            const bkpMsgText = s.lastBackupAt ? String(s.lastBackupStatus || "ok") : "Pending next scheduled run";
+
+            const cloudDesc = cloud ? `☁️ ${cloud.name} (${s.cloudDb || cloud.database || ""})` : (s.cloudDb ? `☁️ ${s.cloudDb}` : "☁️ Cloud");
+            const localDesc = `💻 ${(s.localEngine || "mssql").toUpperCase()}/${s.localDb || "-"}`;
+            const sourceDesc =
+              s.backupSource === "local"
+                ? localDesc
+                : s.backupSource === "both"
+                  ? `${cloudDesc} + ${localDesc}`
+                  : cloudDesc;
+            const folderDesc = `📁 ${s.backupDir || "backups/" + s.name}`;
+
+            const liveHtml = isLiveRunning
+              ? `<div class="sched-live-box">
+                  <div class="sched-live-top">
+                    <span>⏰ ${esc(live.stage || "Auto-Backup running...")}</span>
+                    <span style="font-family:var(--font-mono)">${Math.round(live.percent || 0)}%</span>
+                  </div>
+                  <div class="progress-bar" style="height:5px;margin:5px 0 3px">
+                    <div class="progress-fill" style="width:${Math.max(2, Math.min(100, Math.round(live.percent || 0)))}%"></div>
+                  </div>
+                  <div class="muted" style="font-size:11px;overflow-wrap:anywhere;word-break:break-word">${esc(live.detail || "")}</div>
+                </div>`
+              : "";
+
+            return `<div class="cloud-card sched-card" data-sid="${esc(s.id)}">
+              <div class="cloud-card-head">
+                <div>
+                  <strong style="font-size:14px">${esc(s.name)}</strong>
+                  <div style="display:flex;gap:5px;margin-top:5px;flex-wrap:wrap">
+                    ${backupBadge}
+                  </div>
+                </div>
+                ${statusPill}
+              </div>
+              <div class="sched-route-box">
+                <div class="sched-route-row">
+                  <span class="sched-route-k">Source</span>
+                  <span class="sched-route-v" title="${esc(sourceDesc)}">${esc(sourceDesc)}</span>
+                </div>
+                <div class="sched-route-row">
+                  <span class="sched-route-k">Folder</span>
+                  <span class="sched-route-v" title="${esc(folderDesc)}">${esc(folderDesc)}</span>
+                </div>
+              </div>
+              <div class="sched-timing-panel">
+                ${
+                  s.enabled
+                    ? `<div class="sched-timing-row"><span class="sched-timing-label">📦 Next Auto-Backup</span><span class="sched-timing-val">${esc(computeNextScheduleText(s.backupTime, s.lastBackupDate, s.createdAt))}</span></div>`
+                    : ""
+                }
+                <div class="sched-purge-line" title="Purge stamp: ${esc(purgeGuide.purgeStamp)} · Cutoff now: files on/before ${esc(purgeGuide.cutoffText)}">
+                  <span>🗑 Purge guide (≥${purgeGuide.retDays}d · ${esc(purgeGuide.sourceLabel)})</span>
+                  <span class="sched-purge-val-group"><strong>${esc(purgeGuide.purgeAtText)}</strong><code class="purge-stamp-tag">${esc(purgeGuide.purgeStamp)}</code></span>
+                </div>
+              </div>
+              ${liveHtml}
+              <div class="sched-status-box">
+                <div class="sched-status-item">
+                  <div class="sched-status-head">
+                    <span class="sched-status-tag"><span class="sched-status-dot${bkpIsOk ? " ok" : bkpIsErr ? " err" : ""}"></span>Last Backup</span>
+                    <span class="sched-status-ts">${esc(s.lastBackupAt || "—")}</span>
+                  </div>
+                  <div class="sched-status-msg${bkpIsErr ? " err" : ""}" title="${esc(bkpMsgText)}">${esc(bkpMsgText)}</div>
+                </div>
+              </div>
+              <div class="sched-card-footer">
+                <div class="sched-actions-main">
+                  <button type="button" class="btn xs primary" data-sact="run-backup">▶ Backup Now</button>
+                  <button type="button" class="btn xs accent" data-sact="snaps">📦 Snapshots</button>
+                  <button type="button" class="btn xs" data-sact="purge" title="Purge snapshots >= ${s.retentionDays || 7} days old">🗑 Purge</button>
+                  <button type="button" class="btn xs" data-sact="folder-backup">📁 Folder</button>
+                  <button type="button" class="btn xs accent" data-sact="logs" title="View Backup &amp; Purge trace log">📋 Logs</button>
+                </div>
+                <div class="sched-actions-util">
+                  <button type="button" class="btn xs ghost" data-sact="toggle-backup">${s.enabled ? "Pause" : "Enable"}</button>
+                  <button type="button" class="btn xs ghost" data-sact="edit-backup">Edit</button>
+                  <button type="button" class="btn xs danger-ghost" data-sact="del-backup" aria-label="Delete auto-backup schedule" title="Delete Auto-Backup schedule">✕</button>
+                </div>
+              </div>
+            </div>`;
+          })
+          .join("");
+      }
+    }
   }
 
   function wireCloudEvents() {
@@ -4875,12 +4959,6 @@ try {
         "syncAutoNameBase",
         "syncAutoNameFmt",
         "btnRefreshSyncAutoName",
-        "syncAlsoSaveSchedule",
-        "syncAutoTime",
-        "syncAutoBackupChk",
-        "syncAutoBackupTime",
-        "syncAutoKeepDays",
-        "btnSaveSyncScheduleOnly",
       ].forEach((id) => {
         if ($(id)) $(id).disabled = !!locked;
       });
@@ -5292,72 +5370,9 @@ try {
       if ($("syncAutoNameBase")) $("syncAutoNameBase").value = "";
       if ($("syncAutoNameFmt")) $("syncAutoNameFmt").value = "date_day_year_ts";
       updateSyncAutoNameUI({ applyInput: false });
-      if ($("syncAlsoSaveSchedule")) $("syncAlsoSaveSchedule").checked = false;
-      if ($("syncSchedMiniOpts")) $("syncSchedMiniOpts").hidden = true;
-      if ($("btnSaveSyncScheduleOnly")) $("btnSaveSyncScheduleOnly").hidden = true;
       if ($("cloudSyncBox")) $("cloudSyncBox").hidden = true;
       $("modalCloudSync").hidden = false;
     };
-
-    const saveScheduleFromSyncModal = async () => {
-      const dir = getSyncDirection();
-      const localEng = $("syncLocalEngine").value;
-      const autoName = dir === "pull" && !!$("syncAutoNameChk")?.checked;
-      const autoFmt = $("syncAutoNameFmt")?.value || "date_day_year_ts";
-      const cloudId = $("syncCloudProfile").value;
-      const cloudDb = $("syncCloudDb").value.trim();
-      const localDb = autoName ? (getSyncAutoBaseName() || cloudDb) : $("syncLocalDb").value.trim();
-      const c = (state.cloudProfiles || []).find((p) => p.id === cloudId);
-      const syncTime = $("syncAutoTime")?.value || "02:00";
-      const doBackup = $("syncAutoBackupChk") ? $("syncAutoBackupChk").checked : true;
-      const bkpTime = $("syncAutoBackupTime")?.value || "02:00";
-      const retDays = Math.max(1, Number($("syncAutoKeepDays")?.value) || 7);
-      const existing = (state.schedules || []).find((s) => s.cloudId === cloudId && s.localDb === localDb);
-      const payload = {
-        id: existing?.id || "",
-        name: existing?.name || `${c?.name || cloudDb} Daily`,
-        enabled: true,
-        cloudId,
-        cloudDb,
-        localEngine: localEng,
-        localDb,
-        autoNameLocalDb: autoName,
-        autoNameFormat: autoName ? autoFmt : "",
-        autoSync: true,
-        syncDirection: dir,
-        syncTime,
-        autoBackup: doBackup,
-        backupTime: bkpTime,
-        backupSource: "cloud",
-        retentionDays: retDays,
-      };
-      state.schedules = (await api().SaveSchedule(payload)) || [];
-      renderCloudView();
-    };
-
-    if ($("syncAlsoSaveSchedule")) {
-      $("syncAlsoSaveSchedule").addEventListener("change", () => {
-        const on = $("syncAlsoSaveSchedule").checked;
-        if ($("syncSchedMiniOpts")) $("syncSchedMiniOpts").hidden = !on;
-        if ($("btnSaveSyncScheduleOnly")) $("btnSaveSyncScheduleOnly").hidden = !on;
-      });
-    }
-    if ($("btnSaveSyncScheduleOnly")) {
-      $("btnSaveSyncScheduleOnly").onclick = async () => {
-        const autoPullOn = getSyncDirection() === "pull" && !!$("syncAutoNameChk")?.checked;
-        if ((!autoPullOn && !$("syncLocalDb").value.trim()) || !$("syncCloudDb").value.trim()) {
-          toast("Enter both Local Database and Cloud Database first", "err");
-          return;
-        }
-        try {
-          await saveScheduleFromSyncModal();
-          closeCloudSync();
-          toast("Saved daily Auto-Sync & 2:00 AM Auto-Backup (7-day purge) schedule!", "ok");
-        } catch (err) {
-          toast(errMsg(err), "err");
-        }
-      };
-    }
 
     const setSyncProgress = (pct, mode, title, detail) => {
       const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
@@ -5522,9 +5537,6 @@ try {
           : `Preparing Pull: Cloud (${cloudDb}) → Local (${localEng}/${localDb})`
       );
       try {
-        if ($("syncAlsoSaveSchedule")?.checked) {
-          await saveScheduleFromSyncModal();
-        }
         const msg = dir === "push"
           ? await api().CloudSyncDatabase(localEng, localDb, "cloud:" + cloudId, cloudDb)
           : await api().CloudSyncDatabase("cloud:" + cloudId, cloudDb, localEng, localDb);
@@ -5574,266 +5586,404 @@ try {
       }
     };
 
-    // ---- Daily Auto-Sync & 2:00 AM Auto-Backup Schedule Modal & Snapshot Viewer ----
-    const updateSchedAutoNameUI = () => {
-      const dir = $("schedSyncDir")?.value || "pull";
+    // ---- Separated Modals: Daily Auto-Sync (#modalAutoSyncForm) & Daily Auto-Backup (#modalAutoBackupForm) ----
+    const populateCloudProfileSelect = (sel, allowLocalOnly) => {
+      if (!sel) return [];
+      const sqlProfiles = (state.cloudProfiles || []).filter((p) => p.engine !== "redis");
+      const head = allowLocalOnly ? `<option value="">-- None (Local DB Only) --</option>` : "";
+      sel.innerHTML =
+        head +
+        sqlProfiles
+          .map((p) => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.engine)} · ${esc(p.host)})</option>`)
+          .join("");
+      return sqlProfiles;
+    };
+
+    const updateAutoSyncModalUI = () => {
+      const dir = $("syncSchedDir")?.value || "pull";
       const isPull = dir === "pull" || dir === "pull_folder";
       const isFolder = dir === "pull_folder";
-      if ($("schedSyncFolderRow")) $("schedSyncFolderRow").hidden = !isFolder;
-      if ($("schedAutoNameWrap")) $("schedAutoNameWrap").hidden = !isPull;
-      if ($("schedAutoNameLabel")) {
-        $("schedAutoNameLabel").textContent = isFolder
+      if ($("syncSchedLocalRow")) $("syncSchedLocalRow").hidden = isFolder;
+      if ($("syncSchedFolderRow")) $("syncSchedFolderRow").hidden = !isFolder;
+      if ($("syncSchedAutoNameWrap")) $("syncSchedAutoNameWrap").hidden = !isPull;
+      if ($("syncSchedAutoNameLabel")) {
+        $("syncSchedAutoNameLabel").textContent = isFolder
           ? "✨ Auto-generate dated Folder & .zip name on each daily Pull (Date, Day, Year & Timestamp)"
           : "✨ Auto-generate new Local DB name on each daily Pull (Date, Day, Year & Timestamp)";
       }
-      const autoOn = isPull && !!$("schedAutoNameLocal")?.checked;
-      if ($("schedAutoNameOpts")) $("schedAutoNameOpts").hidden = !autoOn;
-      if ($("schedLocalDb")) {
-        $("schedLocalDb").placeholder = isFolder
-          ? "Optional folder base name (blank = Cloud DB)"
-          : autoOn
-            ? "Base name (e.g. alegria · blank = Cloud DB)"
-            : "e.g. hris";
+      const autoOn = isPull && !!$("syncSchedAutoNameChk")?.checked;
+      if ($("syncSchedAutoNameOpts")) $("syncSchedAutoNameOpts").hidden = !autoOn;
+      if ($("syncSchedLocalDb")) {
+        $("syncSchedLocalDb").placeholder = autoOn
+          ? "Base name (e.g. alegria · blank = Cloud DB)"
+          : "e.g. hris";
       }
-      if ($("schedAutoNamePreview")) {
-        const base = ($("schedLocalDb")?.value || "").trim() || ($("schedCloudDb")?.value || "").trim() || "alegria";
-        const fmt = $("schedAutoNameFmt")?.value || "date_day_year_ts";
+      if ($("syncSchedAutoNamePreview")) {
+        const base = ($("syncSchedLocalDb")?.value || "").trim() || ($("syncSchedCloudDb")?.value || "").trim() || "alegria";
+        const fmt = $("syncSchedAutoNameFmt")?.value || "date_day_year_ts";
         const previewDate = new Date();
-        const [hh, mm] = String($("schedSyncTime")?.value || "02:00").split(":").map(Number);
+        const [hh, mm] = String($("syncSchedTime")?.value || "02:00").split(":").map(Number);
         if (Number.isFinite(hh) && Number.isFinite(mm)) previewDate.setHours(hh, mm, 0, 0);
         const gen = buildAutoPullLocalDbName(base, fmt, previewDate);
         if (isFolder) {
-          const folderPrefix = ($("schedSyncFolder")?.value || "").trim();
+          const folderPrefix = ($("syncSchedFolder")?.value || "").trim();
           const rootHint = folderPrefix ? folderPrefix.replace(/[\\/]+$/, "") : "backups/<schedule>/syncs";
-          $("schedAutoNamePreview").textContent = `${rootHint}/${gen}/${gen}.zip`;
+          $("syncSchedAutoNamePreview").textContent = `${rootHint}/${gen}/${gen}.zip`;
         } else {
-          $("schedAutoNamePreview").textContent = gen;
+          $("syncSchedAutoNamePreview").textContent = gen;
         }
       }
+    };
 
-      const bkpSrc = $("schedBackupSource")?.value || "cloud";
-      const isBkpFolder = bkpSrc === "cloud_folder";
-      if ($("schedBackupDirRow")) {
-        $("schedBackupDirRow").hidden = !isBkpFolder && !($("schedBackupDir")?.value || "").trim();
+    const closeAutoSyncModal = () => {
+      if ($("modalAutoSyncForm")) $("modalAutoSyncForm").hidden = true;
+    };
+    const openAutoSyncModal = (existing = null) => {
+      const sqlProfiles = (state.cloudProfiles || []).filter((p) => p.engine !== "redis");
+      if (!sqlProfiles.length) {
+        toast("Add a Cloud MySQL, MariaDB, PostgreSQL, or MS SQL profile first", "info");
+        openCloudFormModal(null, "cpanel");
+        return;
       }
-      if ($("schedAutoBackupNameLabel")) {
-        $("schedAutoBackupNameLabel").textContent = isBkpFolder
+      $("formAutoSync")?.reset();
+      $("syncSchedEditId").value = existing?.id || "";
+      populateCloudProfileSelect($("syncSchedCloudId"), false);
+
+      if (existing) {
+        $("modalAutoSyncTitle").textContent = `🔄 Edit Daily Auto-Sync — ${existing.name}`;
+        $("syncSchedName").value = existing.name || "";
+        $("syncSchedEnabled").checked = existing.enabled !== false;
+        $("syncSchedCloudId").value = existing.cloudId || sqlProfiles[0].id;
+        $("syncSchedCloudDb").value = existing.cloudDb || "";
+        $("syncSchedDir").value = existing.syncDirection || "pull";
+        $("syncSchedTime").value = existing.syncTime || "02:00";
+        $("syncSchedLocalEngine").value = existing.localEngine || "mssql";
+        $("syncSchedLocalDb").value = existing.localDb || "";
+        if ($("syncSchedFolder")) $("syncSchedFolder").value = existing.syncFolder || "";
+        if ($("syncSchedAutoNameChk")) $("syncSchedAutoNameChk").checked = !!existing.autoNameLocalDb;
+        if ($("syncSchedAutoNameFmt")) $("syncSchedAutoNameFmt").value = existing.autoNameFormat || "date_day_year_ts";
+      } else {
+        $("modalAutoSyncTitle").textContent = "🔄 New Daily Auto-Sync Schedule";
+        const first = sqlProfiles[0];
+        $("syncSchedCloudId").value = first.id;
+        $("syncSchedCloudDb").value = first.database || "";
+        $("syncSchedLocalEngine").value = first.engine || "mssql";
+        $("syncSchedName").value = `${first.name} Auto-Sync`;
+        $("syncSchedEnabled").checked = true;
+        $("syncSchedDir").value = "pull";
+        $("syncSchedTime").value = "02:00";
+        $("syncSchedLocalDb").value = "";
+        if ($("syncSchedFolder")) $("syncSchedFolder").value = "";
+        if ($("syncSchedAutoNameChk")) $("syncSchedAutoNameChk").checked = false;
+        if ($("syncSchedAutoNameFmt")) $("syncSchedAutoNameFmt").value = "date_day_year_ts";
+      }
+      updateAutoSyncModalUI();
+      $("modalAutoSyncForm").hidden = false;
+    };
+
+    const updateAutoBackupModalUI = () => {
+      const src = $("bkpSchedSource")?.value || "cloud";
+      const isFolder = src === "cloud_folder";
+      const needsCloud = src === "cloud" || src === "cloud_folder" || src === "both";
+      const needsLocal = src === "local" || src === "both";
+      if ($("bkpSchedCloudRow")) $("bkpSchedCloudRow").hidden = !needsCloud;
+      if ($("bkpSchedLocalRow")) $("bkpSchedLocalRow").hidden = !needsLocal;
+      if ($("bkpSchedAutoNameLabel")) {
+        $("bkpSchedAutoNameLabel").textContent = isFolder
           ? "✨ Auto-generate dated Folder & .zip name on each daily Backup (Date, Day, Year & Timestamp)"
           : "✨ Auto-generate new Backup .zip filename on each daily Backup (Date, Day, Year & Timestamp)";
       }
-      const bkpAutoOn = !!$("schedAutoNameBackup")?.checked;
-      if ($("schedAutoBackupNameOpts")) $("schedAutoBackupNameOpts").hidden = !bkpAutoOn;
-      if ($("schedAutoBackupNamePreview")) {
+      const autoOn = !!$("bkpSchedAutoNameChk")?.checked;
+      if ($("bkpSchedAutoNameOpts")) $("bkpSchedAutoNameOpts").hidden = !autoOn;
+      if ($("bkpSchedAutoNamePreview")) {
         const base =
-          bkpSrc === "local"
-            ? ($("schedLocalDb")?.value || "").trim() || ($("schedCloudDb")?.value || "").trim() || "alegria"
-            : isBkpFolder
-              ? ($("schedLocalDb")?.value || "").trim() || ($("schedCloudDb")?.value || "").trim() || "alegria"
-              : ($("schedCloudDb")?.value || "").trim() || ($("schedLocalDb")?.value || "").trim() || "alegria";
-        const fmt = $("schedAutoNameBackupFmt")?.value || "date_day_year_ts";
+          src === "local"
+            ? ($("bkpSchedLocalDb")?.value || "").trim() || ($("bkpSchedCloudDb")?.value || "").trim() || "alegria"
+            : isFolder
+              ? ($("bkpSchedLocalDb")?.value || "").trim() || ($("bkpSchedCloudDb")?.value || "").trim() || "alegria"
+              : ($("bkpSchedCloudDb")?.value || "").trim() || ($("bkpSchedLocalDb")?.value || "").trim() || "alegria";
+        const fmt = $("bkpSchedAutoNameFmt")?.value || "date_day_year_ts";
         const previewDate = new Date();
-        const [bhh, bmm] = String($("schedBackupTime")?.value || "02:00").split(":").map(Number);
+        const [bhh, bmm] = String($("bkpSchedTime")?.value || "02:00").split(":").map(Number);
         if (Number.isFinite(bhh) && Number.isFinite(bmm)) previewDate.setHours(bhh, bmm, 0, 0);
-        const suffix = bkpSrc === "both" ? "_cloud" : "";
-        const genBkp = buildAutoPullLocalDbName(base + suffix, fmt, previewDate);
-        if (isBkpFolder) {
-          const bkpFolderPrefix = ($("schedBackupDir")?.value || "").trim();
-          const bkpRootHint = bkpFolderPrefix ? bkpFolderPrefix.replace(/[\\/]+$/, "") : "backups/<schedule>";
-          $("schedAutoBackupNamePreview").textContent = `${bkpRootHint}/${genBkp}/${genBkp}.zip`;
+        const suffix = src === "both" ? "_cloud" : "";
+        const gen = buildAutoPullLocalDbName(base + suffix, fmt, previewDate);
+        if (isFolder) {
+          const folderPrefix = ($("bkpSchedDir")?.value || "").trim();
+          const rootHint = folderPrefix ? folderPrefix.replace(/[\\/]+$/, "") : "backups/<schedule>";
+          $("bkpSchedAutoNamePreview").textContent = `${rootHint}/${gen}/${gen}.zip`;
         } else {
-          $("schedAutoBackupNamePreview").textContent = genBkp + ".zip";
+          $("bkpSchedAutoNamePreview").textContent = gen + ".zip";
         }
       }
 
-      if ($("schedPurgeGuide")) {
-        const autoBkpOn = $("schedAutoBackup") ? !!$("schedAutoBackup").checked : true;
-        $("schedPurgeGuide").hidden = !autoBkpOn;
-        const retDays = Math.max(1, Number($("schedRetentionDays")?.value) || 7);
-        const now = new Date();
-        const bkpDate = new Date(now.getTime());
-        const [phh, pmm] = String($("schedBackupTime")?.value || "02:00").split(":").map(Number);
-        if (Number.isFinite(phh) && Number.isFinite(pmm)) bkpDate.setHours(phh, pmm, 0, 0);
-        const purgeDate = new Date(bkpDate.getTime() + retDays * 86400000);
-        const cutoffNow = new Date(now.getTime() - retDays * 86400000);
-        const daysLabel = retDays === 7 ? "7 days · 1 week" : `${retDays} ${retDays === 1 ? "day" : "days"}`;
-        const bkpText = formatPurgeDateGuide(bkpDate, true);
-        const purgeText = formatPurgeDateGuide(purgeDate, true);
-        if ($("schedPurgeDaysLabel")) $("schedPurgeDaysLabel").textContent = daysLabel;
-        if ($("schedPurgeTargetDate")) $("schedPurgeTargetDate").textContent = purgeText;
-        if ($("schedPurgeBackupDate")) $("schedPurgeBackupDate").textContent = bkpText;
-        if ($("schedPurgeTargetDateSub")) $("schedPurgeTargetDateSub").textContent = purgeText;
-        if ($("schedPurgeStampPreview")) $("schedPurgeStampPreview").textContent = formatPurgeStamp(purgeDate);
-        if ($("schedPurgeCutoffNow")) $("schedPurgeCutoffNow").textContent = formatPurgeDateGuide(cutoffNow, true);
-      }
+      const retDays = Math.max(1, Number($("bkpSchedRetentionDays")?.value) || 7);
+      const now = new Date();
+      const bkpDate = new Date(now.getTime());
+      const [phh, pmm] = String($("bkpSchedTime")?.value || "02:00").split(":").map(Number);
+      if (Number.isFinite(phh) && Number.isFinite(pmm)) bkpDate.setHours(phh, pmm, 0, 0);
+      const purgeDate = new Date(bkpDate.getTime() + retDays * 86400000);
+      const cutoffNow = new Date(now.getTime() - retDays * 86400000);
+      const daysLabel = retDays === 7 ? "7 days · 1 week" : `${retDays} ${retDays === 1 ? "day" : "days"}`;
+      const bkpText = formatPurgeDateGuide(bkpDate, true);
+      const purgeText = formatPurgeDateGuide(purgeDate, true);
+      if ($("bkpSchedPurgeDaysLabel")) $("bkpSchedPurgeDaysLabel").textContent = daysLabel;
+      if ($("bkpSchedPurgeTargetDate")) $("bkpSchedPurgeTargetDate").textContent = purgeText;
+      if ($("bkpSchedPurgeBackupDate")) $("bkpSchedPurgeBackupDate").textContent = bkpText;
+      if ($("bkpSchedPurgeTargetDateSub")) $("bkpSchedPurgeTargetDateSub").textContent = purgeText;
+      if ($("bkpSchedPurgeStampPreview")) $("bkpSchedPurgeStampPreview").textContent = formatPurgeStamp(purgeDate);
+      if ($("bkpSchedPurgeCutoffNow")) $("bkpSchedPurgeCutoffNow").textContent = formatPurgeDateGuide(cutoffNow, true);
     };
-    const closeScheduleModal = () => ($("modalScheduleForm").hidden = true);
-    const openScheduleModal = (existing = null) => {
-      $("formSchedule").reset();
-      $("schedEditId").value = existing?.id || "";
-      const sel = $("schedCloudId");
-      const sqlProfiles = (state.cloudProfiles || []).filter((p) => p.engine !== "redis");
-      sel.innerHTML = `<option value="">-- Local Only (No Cloud Sync) --</option>` + sqlProfiles
-        .map((p) => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.engine)} · ${esc(p.host)})</option>`)
-        .join("");
+
+    const closeAutoBackupModal = () => {
+      if ($("modalAutoBackupForm")) $("modalAutoBackupForm").hidden = true;
+    };
+    const openAutoBackupModal = (existing = null) => {
+      $("formAutoBackup")?.reset();
+      $("bkpSchedEditId").value = existing?.id || "";
+      const sqlProfiles = populateCloudProfileSelect($("bkpSchedCloudId"), true);
 
       if (existing) {
-        $("modalScheduleTitle").textContent = `Edit Schedule — ${existing.name}`;
-        $("schedName").value = existing.name || "";
-        $("schedEnabled").checked = existing.enabled !== false;
-        sel.value = existing.cloudId || "";
-        $("schedCloudDb").value = existing.cloudDb || "";
-        $("schedLocalEngine").value = existing.localEngine || "mssql";
-        $("schedLocalDb").value = existing.localDb || "";
-        $("schedAutoSync").checked = !!existing.autoSync;
-        $("schedSyncDir").value = existing.syncDirection || "pull";
-        if ($("schedSyncFolder")) $("schedSyncFolder").value = existing.syncFolder || "";
-        $("schedSyncTime").value = existing.syncTime || "02:00";
-        if ($("schedAutoNameLocal")) $("schedAutoNameLocal").checked = !!existing.autoNameLocalDb;
-        if ($("schedAutoNameFmt")) $("schedAutoNameFmt").value = existing.autoNameFormat || "date_day_year_ts";
-        $("schedAutoBackup").checked = existing.autoBackup !== false;
-        $("schedBackupSource").value = existing.backupSource || "cloud";
-        if ($("schedBackupDir")) $("schedBackupDir").value = existing.backupDir || "";
-        $("schedBackupTime").value = existing.backupTime || "02:00";
-        $("schedRetentionDays").value = existing.retentionDays || 7;
-        if ($("schedAutoNameBackup")) $("schedAutoNameBackup").checked = !!existing.autoNameBackup;
-        if ($("schedAutoNameBackupFmt")) $("schedAutoNameBackupFmt").value = existing.autoNameBackupFormat || "date_day_year_ts";
+        $("modalAutoBackupTitle").textContent = `📦 Edit Daily Auto-Backup — ${existing.name}`;
+        $("bkpSchedName").value = existing.name || "";
+        $("bkpSchedEnabled").checked = existing.enabled !== false;
+        $("bkpSchedSource").value = existing.backupSource || (existing.cloudId ? "cloud" : "local");
+        $("bkpSchedTime").value = existing.backupTime || "02:00";
+        $("bkpSchedRetentionDays").value = existing.retentionDays || 7;
+        $("bkpSchedCloudId").value = existing.cloudId || "";
+        $("bkpSchedCloudDb").value = existing.cloudDb || "";
+        $("bkpSchedLocalEngine").value = existing.localEngine || "mssql";
+        $("bkpSchedLocalDb").value = existing.localDb || "";
+        if ($("bkpSchedDir")) $("bkpSchedDir").value = existing.backupDir || "";
+        if ($("bkpSchedAutoNameChk")) $("bkpSchedAutoNameChk").checked = !!existing.autoNameBackup;
+        if ($("bkpSchedAutoNameFmt")) $("bkpSchedAutoNameFmt").value = existing.autoNameBackupFormat || "date_day_year_ts";
       } else {
-        $("modalScheduleTitle").textContent = "⏰ New Daily Auto-Sync & 2:00 AM Auto-Backup";
+        $("modalAutoBackupTitle").textContent = "📦 New Daily Auto-Backup & Purge Schedule";
         const first = sqlProfiles[0];
         if (first) {
-          sel.value = first.id;
-          $("schedCloudDb").value = first.database || "";
-          $("schedLocalEngine").value = first.engine || "mssql";
-          $("schedName").value = `${first.name} Daily (2 AM)`;
+          $("bkpSchedCloudId").value = first.id;
+          $("bkpSchedCloudDb").value = first.database || "";
+          $("bkpSchedLocalEngine").value = first.engine || "mssql";
+          $("bkpSchedName").value = `${first.name} Auto-Backup (2 AM)`;
+          $("bkpSchedSource").value = "cloud";
+        } else {
+          $("bkpSchedName").value = "Local Auto-Backup (2 AM)";
+          $("bkpSchedSource").value = "local";
         }
-        $("schedEnabled").checked = true;
-        $("schedAutoSync").checked = true;
-        $("schedSyncDir").value = "pull";
-        if ($("schedSyncFolder")) $("schedSyncFolder").value = "";
-        $("schedSyncTime").value = "02:00";
-        if ($("schedAutoNameLocal")) $("schedAutoNameLocal").checked = false;
-        if ($("schedAutoNameFmt")) $("schedAutoNameFmt").value = "date_day_year_ts";
-        $("schedAutoBackup").checked = true;
-        $("schedBackupSource").value = first ? "cloud" : "local";
-        if ($("schedBackupDir")) $("schedBackupDir").value = "";
-        $("schedBackupTime").value = "02:00";
-        $("schedRetentionDays").value = 7;
-        if ($("schedAutoNameBackup")) $("schedAutoNameBackup").checked = false;
-        if ($("schedAutoNameBackupFmt")) $("schedAutoNameBackupFmt").value = "date_day_year_ts";
+        $("bkpSchedEnabled").checked = true;
+        $("bkpSchedTime").value = "02:00";
+        $("bkpSchedRetentionDays").value = 7;
+        $("bkpSchedLocalDb").value = "";
+        if ($("bkpSchedDir")) $("bkpSchedDir").value = "";
+        if ($("bkpSchedAutoNameChk")) $("bkpSchedAutoNameChk").checked = false;
+        if ($("bkpSchedAutoNameFmt")) $("bkpSchedAutoNameFmt").value = "date_day_year_ts";
       }
-      updateSchedAutoNameUI();
-      $("modalScheduleForm").hidden = false;
+      updateAutoBackupModalUI();
+      $("modalAutoBackupForm").hidden = false;
     };
 
-    $("schedCloudId")?.addEventListener("change", () => {
-      const c = (state.cloudProfiles || []).find((p) => p.id === $("schedCloudId").value);
+    // Wire Auto-Sync Modal events
+    $("syncSchedCloudId")?.addEventListener("change", () => {
+      const c = (state.cloudProfiles || []).find((p) => p.id === $("syncSchedCloudId").value);
       if (c) {
-        if (c.database) $("schedCloudDb").value = c.database;
-        if ($("schedLocalEngine").querySelector(`option[value="${c.engine}"]`)) {
-          $("schedLocalEngine").value = c.engine;
+        if (c.database) $("syncSchedCloudDb").value = c.database;
+        if ($("syncSchedLocalEngine").querySelector(`option[value="${c.engine}"]`)) {
+          $("syncSchedLocalEngine").value = c.engine;
         }
       }
-      updateSchedAutoNameUI();
+      updateAutoSyncModalUI();
     });
-    $("schedSyncDir")?.addEventListener("change", () => {
-      if ($("schedSyncDir").value === "pull_folder" && $("schedAutoNameLocal") && !$("schedAutoNameLocal").checked) {
-        $("schedAutoNameLocal").checked = true;
+    $("syncSchedDir")?.addEventListener("change", () => {
+      if ($("syncSchedDir").value === "pull_folder" && $("syncSchedAutoNameChk") && !$("syncSchedAutoNameChk").checked) {
+        $("syncSchedAutoNameChk").checked = true;
       }
-      updateSchedAutoNameUI();
+      updateAutoSyncModalUI();
     });
-    $("schedSyncFolder")?.addEventListener("input", updateSchedAutoNameUI);
-    if ($("btnBrowseSyncFolder")) {
-      $("btnBrowseSyncFolder").onclick = async () => {
+    $("syncSchedFolder")?.addEventListener("input", updateAutoSyncModalUI);
+    if ($("btnBrowseSyncSchedFolder")) {
+      $("btnBrowseSyncSchedFolder").onclick = async () => {
         try {
           const picked = await api().BrowseFolderDialog(
-            "Select Destination Folder for Pulled Cloud Exports",
-            ($("schedSyncFolder")?.value || "").trim()
+            "Select Destination Folder for Daily Auto-Sync Exports",
+            ($("syncSchedFolder")?.value || "").trim()
           );
           if (picked) {
-            $("schedSyncFolder").value = picked;
-            updateSchedAutoNameUI();
+            $("syncSchedFolder").value = picked;
+            updateAutoSyncModalUI();
           }
         } catch (err) {
           toast(errMsg(err), "err");
         }
       };
     }
-    $("schedAutoNameLocal")?.addEventListener("change", updateSchedAutoNameUI);
-    $("schedAutoNameFmt")?.addEventListener("change", updateSchedAutoNameUI);
-    $("schedAutoBackup")?.addEventListener("change", updateSchedAutoNameUI);
-    $("schedAutoNameBackup")?.addEventListener("change", updateSchedAutoNameUI);
-    $("schedAutoNameBackupFmt")?.addEventListener("change", updateSchedAutoNameUI);
-    $("schedBackupSource")?.addEventListener("change", () => {
-      if ($("schedBackupSource").value === "cloud_folder" && $("schedAutoNameBackup") && !$("schedAutoNameBackup").checked) {
-        $("schedAutoNameBackup").checked = true;
-      }
-      updateSchedAutoNameUI();
-    });
-    $("schedBackupDir")?.addEventListener("input", updateSchedAutoNameUI);
-    if ($("btnBrowseBackupDir")) {
-      $("btnBrowseBackupDir").onclick = async () => {
-        try {
-          const picked = await api().BrowseFolderDialog(
-            "Select Destination & Purge Folder for Auto-Backup",
-            ($("schedBackupDir")?.value || "").trim()
-          );
-          if (picked) {
-            $("schedBackupDir").value = picked;
-            updateSchedAutoNameUI();
-          }
-        } catch (err) {
-          toast(errMsg(err), "err");
-        }
-      };
-    }
-    $("schedBackupTime")?.addEventListener("change", updateSchedAutoNameUI);
-    $("schedRetentionDays")?.addEventListener("input", updateSchedAutoNameUI);
-    $("schedRetentionDays")?.addEventListener("change", updateSchedAutoNameUI);
-    $("schedLocalDb")?.addEventListener("input", updateSchedAutoNameUI);
-    $("schedCloudDb")?.addEventListener("input", updateSchedAutoNameUI);
-    $("schedSyncTime")?.addEventListener("change", updateSchedAutoNameUI);
-    if ($("btnNewSchedule")) $("btnNewSchedule").onclick = () => openScheduleModal(null);
-    if ($("btnAddSchedule")) $("btnAddSchedule").onclick = () => openScheduleModal(null);
-    if ($("btnCloseScheduleForm")) $("btnCloseScheduleForm").onclick = closeScheduleModal;
-    if ($("btnCancelScheduleForm")) $("btnCancelScheduleForm").onclick = closeScheduleModal;
+    $("syncSchedAutoNameChk")?.addEventListener("change", updateAutoSyncModalUI);
+    $("syncSchedAutoNameFmt")?.addEventListener("change", updateAutoSyncModalUI);
+    $("syncSchedLocalDb")?.addEventListener("input", updateAutoSyncModalUI);
+    $("syncSchedCloudDb")?.addEventListener("input", updateAutoSyncModalUI);
+    $("syncSchedTime")?.addEventListener("change", updateAutoSyncModalUI);
+    if ($("btnNewSchedule")) $("btnNewSchedule").onclick = () => openAutoSyncModal(null);
+    if ($("btnAddAutoSync")) $("btnAddAutoSync").onclick = () => openAutoSyncModal(null);
+    if ($("btnCloseAutoSyncForm")) $("btnCloseAutoSyncForm").onclick = closeAutoSyncModal;
+    if ($("btnCancelAutoSyncForm")) $("btnCancelAutoSyncForm").onclick = closeAutoSyncModal;
 
-    if ($("formSchedule")) {
-      $("formSchedule").onsubmit = async (e) => {
+    if ($("formAutoSync")) {
+      $("formAutoSync").onsubmit = async (e) => {
         e.preventDefault();
-        const existing = (state.schedules || []).find((x) => x.id === $("schedEditId").value);
-        const dir = $("schedSyncDir").value || "pull";
-        const autoName = (dir === "pull" || dir === "pull_folder") && !!$("schedAutoNameLocal")?.checked;
-        const autoFmt = $("schedAutoNameFmt")?.value || "date_day_year_ts";
-        const autoBkpName = !!$("schedAutoNameBackup")?.checked;
-        const autoBkpFmt = $("schedAutoNameBackupFmt")?.value || "date_day_year_ts";
-        const payload = {
-          id: $("schedEditId").value.trim(),
-          name: $("schedName").value.trim(),
-          enabled: $("schedEnabled").checked,
-          cloudId: $("schedCloudId").value,
-          cloudDb: $("schedCloudDb").value.trim(),
-          localEngine: $("schedLocalEngine").value,
-          localDb: $("schedLocalDb").value.trim(),
-          autoNameLocalDb: autoName,
-          autoNameFormat: autoName ? autoFmt : "",
-          autoSync: $("schedAutoSync").checked,
-          syncDirection: dir,
-          syncFolder: dir === "pull_folder" ? ($("schedSyncFolder")?.value || "").trim() : "",
-          syncTime: $("schedSyncTime").value || "02:00",
-          autoBackup: $("schedAutoBackup").checked,
-          autoNameBackup: autoBkpName,
-          autoNameBackupFormat: autoBkpName ? autoBkpFmt : "",
-          backupSource: $("schedBackupSource").value || "cloud",
-          backupDir: ($("schedBackupDir")?.value || "").trim(),
-          backupTime: $("schedBackupTime").value || "02:00",
-          retentionDays: Math.max(1, Number($("schedRetentionDays").value) || 7),
-          createdAt: existing?.createdAt || "",
-        };
+        const editId = $("syncSchedEditId").value.trim();
+        const existing = (state.schedules || []).find((x) => x.id === editId);
+        const dir = $("syncSchedDir").value || "pull";
+        const autoName = (dir === "pull" || dir === "pull_folder") && !!$("syncSchedAutoNameChk")?.checked;
+        const autoFmt = $("syncSchedAutoNameFmt")?.value || "date_day_year_ts";
+        const cloudId = $("syncSchedCloudId").value;
+        const cloudDb = $("syncSchedCloudDb").value.trim();
+        const localDb = dir === "pull_folder" ? "" : $("syncSchedLocalDb").value.trim();
+        if (!cloudId || !cloudDb) {
+          toast("Select a Cloud Profile and enter Cloud Database", "err");
+          return;
+        }
+        if (dir !== "pull_folder" && !autoName && !localDb) {
+          toast("Enter a Local Database name or turn on Auto-generate", "err");
+          return;
+        }
         try {
+          if (existing && existing.autoBackup) {
+            // Preserve the legacy schedule's Auto-Backup on its original ID/folder and save Auto-Sync independently
+            await api().SaveSchedule({ ...existing, autoSync: false });
+          }
+          const payload = {
+            id: existing && !existing.autoBackup ? existing.id : "",
+            name: $("syncSchedName").value.trim(),
+            enabled: $("syncSchedEnabled").checked,
+            cloudId,
+            cloudDb,
+            localEngine: $("syncSchedLocalEngine").value,
+            localDb,
+            autoNameLocalDb: autoName,
+            autoNameFormat: autoName ? autoFmt : "",
+            autoSync: true,
+            syncDirection: dir,
+            syncFolder: dir === "pull_folder" ? ($("syncSchedFolder")?.value || "").trim() : "",
+            syncTime: $("syncSchedTime").value || "02:00",
+            autoBackup: false,
+            retentionDays: existing?.retentionDays || 7,
+            createdAt: existing && !existing.autoBackup ? (existing.createdAt || "") : "",
+            lastSyncAt: existing?.lastSyncAt || "",
+            lastSyncDate: existing?.lastSyncDate || "",
+            lastSyncStatus: existing?.lastSyncStatus || "",
+          };
           state.schedules = (await api().SaveSchedule(payload)) || [];
-          closeScheduleModal();
+          closeAutoSyncModal();
           renderCloudView();
-          toast("Saved daily Auto-Sync / Auto-Backup schedule!", "ok");
+          toast("Saved Daily Auto-Sync schedule!", "ok");
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      };
+    }
+
+    // Wire Auto-Backup Modal events
+    $("bkpSchedCloudId")?.addEventListener("change", () => {
+      const c = (state.cloudProfiles || []).find((p) => p.id === $("bkpSchedCloudId").value);
+      if (c) {
+        if (c.database) $("bkpSchedCloudDb").value = c.database;
+        if ($("bkpSchedLocalEngine").querySelector(`option[value="${c.engine}"]`)) {
+          $("bkpSchedLocalEngine").value = c.engine;
+        }
+      }
+      updateAutoBackupModalUI();
+    });
+    $("bkpSchedSource")?.addEventListener("change", () => {
+      if ($("bkpSchedSource").value === "cloud_folder" && $("bkpSchedAutoNameChk") && !$("bkpSchedAutoNameChk").checked) {
+        $("bkpSchedAutoNameChk").checked = true;
+      }
+      updateAutoBackupModalUI();
+    });
+    $("bkpSchedDir")?.addEventListener("input", updateAutoBackupModalUI);
+    if ($("btnBrowseBkpSchedDir")) {
+      $("btnBrowseBkpSchedDir").onclick = async () => {
+        try {
+          const picked = await api().BrowseFolderDialog(
+            "Select Destination & Purge Folder for Daily Auto-Backup",
+            ($("bkpSchedDir")?.value || "").trim()
+          );
+          if (picked) {
+            $("bkpSchedDir").value = picked;
+            updateAutoBackupModalUI();
+          }
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      };
+    }
+    $("bkpSchedAutoNameChk")?.addEventListener("change", updateAutoBackupModalUI);
+    $("bkpSchedAutoNameFmt")?.addEventListener("change", updateAutoBackupModalUI);
+    $("bkpSchedTime")?.addEventListener("change", updateAutoBackupModalUI);
+    $("bkpSchedRetentionDays")?.addEventListener("input", updateAutoBackupModalUI);
+    $("bkpSchedRetentionDays")?.addEventListener("change", updateAutoBackupModalUI);
+    $("bkpSchedCloudDb")?.addEventListener("input", updateAutoBackupModalUI);
+    $("bkpSchedLocalDb")?.addEventListener("input", updateAutoBackupModalUI);
+    if ($("btnNewAutoBackup")) $("btnNewAutoBackup").onclick = () => openAutoBackupModal(null);
+    if ($("btnAddAutoBackup")) $("btnAddAutoBackup").onclick = () => openAutoBackupModal(null);
+    if ($("btnCloseAutoBackupForm")) $("btnCloseAutoBackupForm").onclick = closeAutoBackupModal;
+    if ($("btnCancelAutoBackupForm")) $("btnCancelAutoBackupForm").onclick = closeAutoBackupModal;
+
+    if ($("formAutoBackup")) {
+      $("formAutoBackup").onsubmit = async (e) => {
+        e.preventDefault();
+        const editId = $("bkpSchedEditId").value.trim();
+        const existing = (state.schedules || []).find((x) => x.id === editId);
+        const src = $("bkpSchedSource").value || "cloud";
+        const needsCloud = src === "cloud" || src === "cloud_folder" || src === "both";
+        const needsLocal = src === "local" || src === "both";
+        const cloudId = needsCloud ? $("bkpSchedCloudId").value : "";
+        const cloudDb = needsCloud ? $("bkpSchedCloudDb").value.trim() : "";
+        const localDb = needsLocal ? $("bkpSchedLocalDb").value.trim() : "";
+        if (needsCloud && (!cloudId || !cloudDb)) {
+          toast("Select a Cloud Profile and enter Cloud Database for Auto-Backup", "err");
+          return;
+        }
+        if (needsLocal && !localDb) {
+          toast("Enter the Local Database to back up", "err");
+          return;
+        }
+        const autoBkpName = !!$("bkpSchedAutoNameChk")?.checked;
+        const autoBkpFmt = $("bkpSchedAutoNameFmt")?.value || "date_day_year_ts";
+        try {
+          if (existing && existing.autoSync) {
+            // Detach Sync side onto its own standalone schedule before keeping Backup on existing ID
+            await api().SaveSchedule({
+              ...existing,
+              id: "",
+              name: `${existing.name} (Sync)`,
+              autoBackup: false,
+              lastBackupAt: "",
+              lastBackupDate: "",
+              lastBackupStatus: "",
+              lastPurgedCount: 0,
+            });
+          }
+          const payload = {
+            id: existing ? existing.id : "",
+            name: $("bkpSchedName").value.trim(),
+            enabled: $("bkpSchedEnabled").checked,
+            cloudId,
+            cloudDb,
+            localEngine: $("bkpSchedLocalEngine").value,
+            localDb,
+            autoSync: false,
+            autoBackup: true,
+            autoNameBackup: autoBkpName,
+            autoNameBackupFormat: autoBkpName ? autoBkpFmt : "",
+            backupSource: src,
+            backupDir: ($("bkpSchedDir")?.value || "").trim(),
+            backupTime: $("bkpSchedTime").value || "02:00",
+            retentionDays: Math.max(1, Number($("bkpSchedRetentionDays").value) || 7),
+            createdAt: existing?.createdAt || "",
+          };
+          state.schedules = (await api().SaveSchedule(payload)) || [];
+          closeAutoBackupModal();
+          renderCloudView();
+          toast("Saved Daily Auto-Backup & Purge schedule!", "ok");
         } catch (err) {
           toast(errMsg(err), "err");
         }
@@ -5935,15 +6085,17 @@ try {
         btn: btn || null,
       };
       if (mode === "backup") {
-        updateSchedRunProgressUI(2, "running", "⏳ Starting snapshot backup...", `Preparing .zip backup for ${sched?.name || "schedule"}...`);
+        updateSchedRunProgressUI(2, "running", "⏳ Starting snapshot backup...", `Preparing backup for ${sched?.name || "schedule"}...`);
       } else {
         if ($("schedRunModalTitle")) {
-          $("schedRunModalTitle").textContent = `⏳ Running — ${sched?.name || "Schedule"}`;
+          $("schedRunModalTitle").textContent = mode === "sync"
+            ? `🔄 Running Auto-Sync — ${sched?.name || "Schedule"}`
+            : `⏳ Running — ${sched?.name || "Schedule"}`;
         }
         if ($("schedRunPhaseSync")) $("schedRunPhaseSync").hidden = !sched?.autoSync;
-        if ($("schedRunPhaseBackup")) $("schedRunPhaseBackup").hidden = !sched?.autoBackup;
+        if ($("schedRunPhaseBackup")) $("schedRunPhaseBackup").hidden = mode === "sync" || !sched?.autoBackup;
         if ($("modalScheduleRun")) $("modalScheduleRun").hidden = false;
-        updateSchedRunProgressUI(2, "running", "⏳ Starting schedule...", `Preparing ${sched?.name || "schedule"}...`);
+        updateSchedRunProgressUI(2, "running", mode === "sync" ? "⏳ Starting Auto-Sync..." : "⏳ Starting schedule...", `Preparing ${sched?.name || "schedule"}...`);
       }
       schedRunState.timer = setInterval(() => {
         if (!schedRunState.running) return;
@@ -6174,7 +6326,7 @@ try {
     };
     if ($("btnCloseSnapModal")) $("btnCloseSnapModal").onclick = closeSnapModal;
     if ($("btnDoneSnapModal")) $("btnDoneSnapModal").onclick = closeSnapModal;
-    if ($("btnSnapOpenFolder")) $("btnSnapOpenFolder").onclick = () => api().OpenScheduleFolder(activeSnapSchedId).catch((e) => toast(errMsg(e), "err"));
+    if ($("btnSnapOpenFolder")) $("btnSnapOpenFolder").onclick = () => api().OpenScheduleTargetFolder(activeSnapSchedId, "backup").catch((e) => toast(errMsg(e), "err"));
     if ($("btnSnapPurgeNow")) {
       $("btnSnapPurgeNow").onclick = async () => {
         try {
@@ -6249,80 +6401,122 @@ try {
       };
     }
 
-    if ($("cloudScheduleGrid")) {
-      $("cloudScheduleGrid").addEventListener("click", async (e) => {
-        const btn = e.target.closest("[data-sact]");
-        if (!btn) return;
-        const card = btn.closest("[data-sid]");
-        const id = card?.dataset.sid;
-        const s = (state.schedules || []).find((x) => x.id === id);
-        if (!s) return;
-        const act = btn.dataset.sact;
-        if (act === "run") {
-          const prev = btn.textContent;
-          btn.disabled = true;
-          btn.textContent = "⏳ 2%";
-          startSchedRunTracking(s, "both", btn);
-          try {
-            const msg = await api().RunScheduleNow(s.id, "both");
-            schedRunState.running = false;
-            stopSchedRunTimer();
-            if ($("schedRunModalTitle")) $("schedRunModalTitle").textContent = `✅ Completed — ${s.name}`;
-            updateSchedRunProgressUI(100, "done", "✅ Schedule run complete!", msg || "Schedule run complete!");
-            toast(msg || "Schedule run complete!", "ok");
-            state.schedules = (await api().Schedules()) || state.schedules;
-            renderCloudView();
-            invalidateSqlCache();
-            if (state.tab === "database") await loadSqlDatabases(true);
-          } catch (err) {
-            schedRunState.running = false;
-            stopSchedRunTimer();
-            if ($("schedRunModalTitle")) $("schedRunModalTitle").textContent = `⚠️ Failed — ${s.name}`;
-            updateSchedRunProgressUI(100, "error", "⚠️ Schedule run failed", errMsg(err));
-            toast(errMsg(err), "err");
-          } finally {
-            schedRunState.running = false;
-            stopSchedRunTimer();
-            btn.disabled = false;
-            btn.textContent = prev;
-          }
-        } else if (act === "logs") {
-          await openSyncLogsModal(s.id);
-        } else if (act === "snaps") {
-          await loadSnapshotsModal(s.id);
-        } else if (act === "purge") {
-          try {
-            const retDays = Math.max(1, Number(s.retentionDays) || 7);
-            const cutoffStr = formatPurgeDateGuide(new Date(Date.now() - retDays * 86400000), false);
-            const n = await api().PurgeScheduleSnapshots(s.id);
-            toast(
-              n > 0
-                ? `Purged ${n} snapshot(s) on/before ${cutoffStr} (≥${retDays}d).`
-                : `No snapshots on/before ${cutoffStr} (≥${retDays}d) to purge.`,
-              n > 0 ? "ok" : "info"
-            );
-          } catch (err) {
-            toast(errMsg(err), "err");
-          }
-        } else if (act === "folder") {
-          await api().OpenScheduleFolder(s.id);
-        } else if (act === "toggle") {
-          try {
-            state.schedules = (await api().SaveSchedule({ ...s, enabled: !s.enabled })) || [];
-            renderCloudView();
-          } catch (err) {
-            toast(errMsg(err), "err");
-          }
-        } else if (act === "edit") {
-          openScheduleModal(s);
-        } else if (act === "del") {
-          if (!(await askConfirm("Delete Schedule?", `Remove daily schedule "${s.name}"? (Existing backup snapshots on disk will be kept.)`, "Delete"))) return;
-          state.schedules = (await api().DeleteSchedule(s.id)) || [];
-          renderCloudView();
-          toast(`Deleted schedule "${s.name}"`, "ok");
+    const handleScheduleCardClick = async (e) => {
+      const btn = e.target.closest("[data-sact]");
+      if (!btn) return;
+      const card = btn.closest("[data-sid]");
+      const id = card?.dataset.sid;
+      const s = (state.schedules || []).find((x) => x.id === id);
+      if (!s) return;
+      const act = btn.dataset.sact;
+
+      if (act === "run-sync" || act === "run-backup" || act === "run") {
+        const mode = act === "run-sync" ? "sync" : act === "run-backup" ? "backup" : "both";
+        const prev = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "⏳ 2%";
+        if (mode === "backup") {
+          await loadSnapshotsModal(s.id, true);
         }
-      });
-    }
+        startSchedRunTracking(s, mode, btn);
+        try {
+          const msg = await api().RunScheduleNow(s.id, mode);
+          schedRunState.running = false;
+          stopSchedRunTimer();
+          if (mode === "backup") {
+            updateSchedRunProgressUI(100, "done", "✅ Backup complete!", msg || "Backup snapshot created!");
+            await loadSnapshotsModal(s.id, true);
+          } else {
+            if ($("schedRunModalTitle")) $("schedRunModalTitle").textContent = `✅ Completed — ${s.name}`;
+            updateSchedRunProgressUI(100, "done", "✅ Sync complete!", msg || "Sync complete!");
+          }
+          toast(msg || "Complete!", "ok");
+          state.schedules = (await api().Schedules()) || state.schedules;
+          renderCloudView();
+          invalidateSqlCache();
+          if (state.tab === "database") await loadSqlDatabases(true);
+        } catch (err) {
+          schedRunState.running = false;
+          stopSchedRunTimer();
+          if (mode === "backup") {
+            updateSchedRunProgressUI(100, "error", "⚠️ Backup failed", errMsg(err));
+          } else {
+            if ($("schedRunModalTitle")) $("schedRunModalTitle").textContent = `⚠️ Failed — ${s.name}`;
+            updateSchedRunProgressUI(100, "error", "⚠️ Sync failed", errMsg(err));
+          }
+          toast(errMsg(err), "err");
+        } finally {
+          schedRunState.running = false;
+          stopSchedRunTimer();
+          btn.disabled = false;
+          btn.textContent = prev;
+        }
+      } else if (act === "logs") {
+        await openSyncLogsModal(s.id);
+      } else if (act === "snaps") {
+        await loadSnapshotsModal(s.id);
+      } else if (act === "purge") {
+        try {
+          const retDays = Math.max(1, Number(s.retentionDays) || 7);
+          const cutoffStr = formatPurgeDateGuide(new Date(Date.now() - retDays * 86400000), false);
+          const n = await api().PurgeScheduleSnapshots(s.id);
+          toast(
+            n > 0
+              ? `Purged ${n} snapshot(s) on/before ${cutoffStr} (≥${retDays}d).`
+              : `No snapshots on/before ${cutoffStr} (≥${retDays}d) to purge.`,
+            n > 0 ? "ok" : "info"
+          );
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      } else if (act === "folder-sync") {
+        await api().OpenScheduleTargetFolder(s.id, "sync");
+      } else if (act === "folder-backup" || act === "folder") {
+        await api().OpenScheduleTargetFolder(s.id, "backup");
+      } else if (act === "toggle-sync" || act === "toggle-backup" || act === "toggle") {
+        try {
+          if (act === "toggle-sync" && s.autoBackup) {
+            await api().SaveSchedule({ ...s, autoSync: false });
+            await api().SaveSchedule({ ...s, id: "", name: `${s.name} (Sync)`, enabled: !s.enabled, autoBackup: false, lastBackupAt: "", lastBackupDate: "", lastBackupStatus: "", lastPurgedCount: 0 });
+            state.schedules = (await api().Schedules()) || [];
+          } else if (act === "toggle-backup" && s.autoSync) {
+            await api().SaveSchedule({ ...s, id: "", name: `${s.name} (Sync)`, autoBackup: false, lastBackupAt: "", lastBackupDate: "", lastBackupStatus: "", lastPurgedCount: 0 });
+            state.schedules = (await api().SaveSchedule({ ...s, autoSync: false, enabled: !s.enabled })) || [];
+          } else {
+            state.schedules = (await api().SaveSchedule({ ...s, enabled: !s.enabled })) || [];
+          }
+          renderCloudView();
+        } catch (err) {
+          toast(errMsg(err), "err");
+        }
+      } else if (act === "edit-sync") {
+        openAutoSyncModal(s);
+      } else if (act === "edit-backup" || act === "edit") {
+        openAutoBackupModal(s);
+      } else if (act === "del-sync") {
+        if (s.autoBackup) {
+          if (!(await askConfirm("Remove Daily Auto-Sync?", `Remove Daily Auto-Sync for "${s.name}"? (Your Daily Auto-Backup & snapshots on disk will be kept.)`, "Remove Sync"))) return;
+          state.schedules = (await api().SaveSchedule({ ...s, autoSync: false })) || [];
+        } else {
+          if (!(await askConfirm("Delete Auto-Sync Schedule?", `Delete Daily Auto-Sync "${s.name}"?`, "Delete"))) return;
+          state.schedules = (await api().DeleteSchedule(s.id)) || [];
+        }
+        renderCloudView();
+        toast(`Removed Auto-Sync "${s.name}"`, "ok");
+      } else if (act === "del-backup" || act === "del") {
+        if (s.autoSync && act === "del-backup") {
+          if (!(await askConfirm("Remove Daily Auto-Backup?", `Remove Daily Auto-Backup for "${s.name}"? (Your Daily Auto-Sync and existing files on disk will be kept.)`, "Remove Backup"))) return;
+          state.schedules = (await api().SaveSchedule({ ...s, autoBackup: false })) || [];
+        } else {
+          if (!(await askConfirm("Delete Auto-Backup Schedule?", `Remove Daily Auto-Backup "${s.name}"? (Existing backup snapshots on disk will be kept.)`, "Delete"))) return;
+          state.schedules = (await api().DeleteSchedule(s.id)) || [];
+        }
+        renderCloudView();
+        toast(`Removed Auto-Backup "${s.name}"`, "ok");
+      }
+    };
+    $("cloudAutoSyncGrid")?.addEventListener("click", handleScheduleCardClick);
+    $("cloudAutoBackupGrid")?.addEventListener("click", handleScheduleCardClick);
 
     $("cloudProfileGrid").addEventListener("click", async (e) => {
       const btn = e.target.closest("[data-cact]");

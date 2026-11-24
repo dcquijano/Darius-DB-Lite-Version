@@ -108,8 +108,8 @@
       scopeLabel: "Cloud Tab",
       items: [
         { id: "cloud-add", keys: [["Alt", "N"]], label: "Add Cloud Database profile", action: (h) => h.clickBtn("btnAddCloud") },
-        { id: "cloud-sync", keys: [["Alt", "S"]], label: "Open Local ↔ Cloud Sync dialog", action: (h) => h.clickBtn("btnOpenCloudSync") },
-        { id: "cloud-sched", keys: [["Alt", "B"]], label: "New Daily 2:00 AM Auto-Sync & Backup Schedule", action: (h) => h.clickBtn("btnNewSchedule") },
+        { id: "cloud-sync", keys: [["Alt", "S"]], label: "Open Manual Local ↔ Cloud Sync dialog", action: (h) => h.clickBtn("btnOpenCloudSync") },
+        { id: "cloud-sched", keys: [["Alt", "B"]], label: "New Daily Auto-Sync Schedule", action: (h) => h.clickBtn("btnNewSchedule") },
       ],
     },
     {
@@ -189,8 +189,8 @@
     btnPagePrev: "Previous page (Alt+Left)",
     btnPageNext: "Next page (Alt+Right)",
     btnAddCloud: "Add Cloud Database profile (Alt+N)",
-    btnOpenCloudSync: "Local ↔ Cloud Sync (Alt+S)",
-    btnNewSchedule: "Daily 2:00 AM Auto-Sync & Backup (Alt+B)",
+    btnOpenCloudSync: "One-time Manual Local ↔ Cloud Sync (Alt+S)",
+    btnNewSchedule: "New Daily Auto-Sync schedule (Alt+B)",
     btnRefreshCatalog: "Check newest official versions online (Alt+R or F5)",
     btnInstallZip: "Import portable .zip archive (Alt+I)",
     btnManualModal: "Manual download or custom version URL (Alt+M)",
@@ -350,8 +350,8 @@
         "Paste a full connection URI (<code>mysql://...</code>, <code>postgresql://...</code>) or ADO.NET string (<code>Server=...;Database=...;</code>) into the Quick Auto-Fill box and click <strong>Parse</strong>.",
         "Click <strong>🔌 Test Connection</strong> to verify connectivity with live progress stages, then click <strong>Save Profile</strong>.",
         "Click <strong>Browse</strong> on any saved Cloud card to inspect live cloud tables, run SQL, edit rows, and export backups inside the Database tab.",
-        "<strong>Local ↔ Cloud Sync (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">S</kbd>):</strong> Push a local database up to Cloud or pull Cloud down to Local. When pulling <strong>Cloud → Local</strong>, optionally turn on <strong>✨ Auto-generate Local DB name</strong> (or click <strong>✨ Auto</strong>) to name the pulled DB with its base name + date, day, year &amp; timestamp (e.g. <code>alegria_2026_11_22_Sun_132136</code>), or keep it unchecked to enter any manual name.",
-        "<strong>Daily 2:00 AM Auto-Sync &amp; Auto-Backup (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">B</kbd>):</strong> Create a daily schedule to pull Cloud → Local and save <code>.zip</code> snapshots into <code>backups/</code> at 2:00 AM, automatically purging snapshots older than 7 days. Toggle <strong>🪟 Win 2 AM Task</strong> to register a Windows Task Scheduler wake-up job.",
+        "<strong>Manual Local ↔ Cloud Sync (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">S</kbd>):</strong> One-time Push or Pull between Local and Cloud. When pulling <strong>Cloud → Local</strong>, optionally turn on <strong>✨ Auto-generate Local DB name</strong> (or click <strong>✨ Auto</strong>) to name the pulled DB with date, day, year &amp; timestamp (e.g. <code>alegria_2026_11_22_Sun_132136</code>).",
+        "<strong>Separate Daily Auto-Sync (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">B</kbd>) &amp; Daily Auto-Backup Modals:</strong> Manage <strong>Daily Auto-Sync</strong> (Local DB or Generated Folder) independently from <strong>Daily 2:00 AM Auto-Backup</strong> (.zip snapshots, Generated Folder &amp; automatic 7-day purge) in their own dedicated sections &amp; modals. Toggle <strong>🪟 Win 2 AM Task</strong> to register a Windows Task Scheduler wake-up job.",
       ],
       tip: "For cPanel Remote MySQL, whitelist your current public IP under cPanel → Remote MySQL® before testing the connection.",
       actions: [

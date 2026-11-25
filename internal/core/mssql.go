@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -581,7 +582,13 @@ func mssqlAuthArgs(target string, s EngineSettings) []string {
 	if s.User != "" || s.Password != "" {
 		args := []string{"-U", s.User, "-P", s.Password}
 		if isRemoteMSSQLHost(s) {
-			args = append(args, "-C") // TrustServerCertificate for MonsterASP / SmarterASP / Azure / Cloud SQL
+			ssl := strings.ToLower(strings.TrimSpace(s.SSLMode))
+			if ssl == "require" || ssl == "verify-full" {
+				args = append(args, "-N")
+			}
+			if ssl != "verify-full" && ssl != "disable" && ssl != "none" && ssl != "false" {
+				args = append(args, "-C") // TrustServerCertificate for MonsterASP / SmarterASP / Azure / Cloud SQL
+			}
 		}
 		return args
 	}
@@ -638,7 +645,7 @@ func mssqlRunQueryWithLimitCtx(ctx context.Context, s EngineSettings, dbName, q 
 	tmpFile.Close()
 
 	const sep = "\t"
-	runWithTarget := func(target string) ([]byte, error, []string) {
+	runWithTargetArgs := func(target string, authArgs []string) ([]byte, error, []string) {
 		baseArgs := []string{
 			"-S", target,
 			"-d", dbName,
@@ -648,11 +655,11 @@ func mssqlRunQueryWithLimitCtx(ctx context.Context, s EngineSettings, dbName, q 
 			"-b",
 			"-i", tmpPath,
 		}
-		authArgs := mssqlAuthArgs(target, s)
 		args := append(append([]string{}, baseArgs...), authArgs...)
 		qCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(qCtx, sqlcmd, args...)
+		cmd.WaitDelay = 2 * time.Second
 		hideWindow(cmd)
 		out, err := cmd.CombinedOutput()
 		if ctx.Err() != nil {
@@ -661,6 +668,7 @@ func mssqlRunQueryWithLimitCtx(ctx context.Context, s EngineSettings, dbName, q 
 		// Automatic fallback to Windows Auth (-E) only on local instances
 		if !isRemoteMSSQLHost(s) && err != nil && len(authArgs) > 1 && strings.Contains(strings.ToLower(string(out)), "login failed") {
 			retryCmd := exec.CommandContext(qCtx, sqlcmd, append(append([]string{}, baseArgs...), "-E")...)
+			retryCmd.WaitDelay = 2 * time.Second
 			hideWindow(retryCmd)
 			out, err = retryCmd.CombinedOutput()
 		}
@@ -669,7 +677,8 @@ func mssqlRunQueryWithLimitCtx(ctx context.Context, s EngineSettings, dbName, q 
 
 	start := time.Now()
 	target := mssqlServerTarget(s)
-	out, err, _ := runWithTarget(target)
+	authArgs := mssqlAuthArgs(target, s)
+	out, err, usedArgs := runWithTargetArgs(target, authArgs)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -678,17 +687,50 @@ func mssqlRunQueryWithLimitCtx(ctx context.Context, s EngineSettings, dbName, q 
 		if strings.Contains(lowOut, "named pipes") || strings.Contains(lowOut, "could not open a connection") || strings.Contains(lowOut, "server was not found") || strings.Contains(lowOut, "login timeout") {
 			InvalidateMSSQLTargetCache()
 			if freshTarget := mssqlServerTarget(s); freshTarget != "" && freshTarget != target {
-				out, err, _ = runWithTarget(freshTarget)
+				out, err, _ = runWithTargetArgs(freshTarget, mssqlAuthArgs(freshTarget, s))
 				if ctx.Err() != nil {
 					return nil, ctx.Err()
 				}
 			}
 		}
 	}
+	var extraHint string
+	if isRemoteMSSQLHost(s) && err != nil && isMSSQLPreloginOrProtocolErr(string(out)) {
+		// Check quickly whether host:port is actually MySQL/HTTP instead of MS SQL TDS.
+		extraHint = probeRemoteNonTDS(ctx, s)
+		if extraHint == "" && (s.User != "" || s.Password != "") && ctx.Err() == nil {
+			// Retry once with toggled -N encryption flag for strict Azure/proxy vs plain prelogin hosts.
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(250 * time.Millisecond):
+			}
+			altArgs := []string{"-U", s.User, "-P", s.Password, "-C"}
+			hasN := false
+			for _, a := range usedArgs {
+				if a == "-N" {
+					hasN = true
+					break
+				}
+			}
+			if !hasN {
+				altArgs = append(altArgs, "-N")
+			}
+			if rOut, rErr, _ := runWithTargetArgs(target, altArgs); rErr == nil {
+				out, err = rOut, nil
+			} else if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+		}
+	}
 	dur := float64(time.Since(start).Microseconds()) / 1000.0
 
 	if err != nil {
-		return nil, errors.New(formatMSSQLError(strings.ReplaceAll(string(out), "\r\n", "\n"), err, dbName, s))
+		msg := formatMSSQLError(strings.ReplaceAll(string(out), "\r\n", "\n"), err, dbName, s)
+		if extraHint != "" && !strings.Contains(msg, extraHint) {
+			msg = msg + " " + extraHint
+		}
+		return nil, errors.New(msg)
 	}
 
 	return parseMSSQLOutput(out, limit, dur), nil
@@ -809,6 +851,101 @@ func mssqlBracket(ident string) string {
 	return "[" + strings.ReplaceAll(ident, "]", "]]") + "]"
 }
 
+func isMSSQLPreloginOrProtocolErr(raw string) bool {
+	low := strings.ToLower(raw)
+	return strings.Contains(low, "prelogin failure") ||
+		strings.Contains(low, "protocol error in tds stream") ||
+		strings.Contains(low, "invalid packet size")
+}
+
+// detectNonTDSBanner inspects initial server bytes received on TCP accept to identify
+// services that speak first (e.g. MySQL/MariaDB handshake or HTTP/SSH) when an MS SQL profile
+// is accidentally aimed at the wrong port or engine.
+func detectNonTDSBanner(banner []byte) (engineLabel, version string) {
+	if len(banner) == 0 {
+		return "", ""
+	}
+	// MySQL/MariaDB Initial Handshake packet: 3-byte len + 1-byte seq(0x00) + protocol 0x0a + NUL-terminated server version
+	if len(banner) >= 8 && banner[3] == 0x00 && banner[4] == 0x0a {
+		end := bytes.IndexByte(banner[5:], 0x00)
+		if end > 0 && end < 80 {
+			ver := strings.TrimSpace(string(banner[5 : 5+end]))
+			printable := true
+			for _, r := range ver {
+				if r < 0x20 || r > 0x7e {
+					printable = false
+					break
+				}
+			}
+			if printable && ver != "" {
+				return "MySQL/MariaDB", ver
+			}
+		}
+	}
+	low := strings.ToLower(string(banner))
+	if strings.Contains(low, "mariadb") || strings.Contains(low, "mysql_native_password") || strings.Contains(low, "caching_sha2_password") {
+		return "MySQL/MariaDB", ""
+	}
+	if strings.HasPrefix(low, "http/") || strings.Contains(low, "<html") || strings.Contains(low, "<!doctype html") {
+		return "HTTP/Web", ""
+	}
+	if strings.HasPrefix(low, "ssh-") {
+		return "SSH", ""
+	}
+	return "", ""
+}
+
+func probeRemoteNonTDS(ctx context.Context, s EngineSettings) string {
+	if !isRemoteMSSQLHost(s) || (ctx != nil && ctx.Err() != nil) {
+		return ""
+	}
+	host := strings.TrimSpace(s.Host)
+	port := s.Port
+	if idx := strings.IndexByte(host, ','); idx >= 0 {
+		if p, perr := strconv.Atoi(strings.TrimSpace(host[idx+1:])); perr == nil && p > 0 {
+			port = p
+		}
+		host = strings.TrimSpace(host[:idx])
+	}
+	if port <= 0 {
+		port = 1433
+	}
+	if host == "" {
+		return ""
+	}
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	dialCtx := ctx
+	if dialCtx == nil {
+		dialCtx = context.Background()
+	}
+	conn, err := dialer.DialContext(dialCtx, "tcp", addr)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(1200 * time.Millisecond))
+	buf := make([]byte, 256)
+	n, _ := conn.Read(buf)
+	if n <= 0 {
+		return ""
+	}
+	eng, ver := detectNonTDSBanner(buf[:n])
+	switch eng {
+	case "MySQL/MariaDB":
+		verNote := ""
+		if ver != "" {
+			verNote = fmt.Sprintf(" (%s)", ver)
+		}
+		return fmt.Sprintf("Protocol mismatch: %s is running MySQL/MariaDB%s, not MS SQL Server! Open Cloud Profiles -> Edit and change Engine from MS SQL Server to MySQL.", addr, verNote)
+	case "HTTP/Web":
+		return fmt.Sprintf("Protocol mismatch: %s returned HTTP web data instead of MS SQL Server TDS. Verify your Cloud Profile Engine and Port (MS SQL uses 1433).", addr)
+	case "SSH":
+		return fmt.Sprintf("Protocol mismatch: %s is an SSH port, not an MS SQL Server port (1433).", addr)
+	}
+	return ""
+}
+
 func formatMSSQLError(raw string, err error, dbName string, s EngineSettings) string {
 	msg := strings.TrimSpace(raw)
 	if msg == "" && err != nil {
@@ -825,16 +962,27 @@ func formatMSSQLError(raw string, err error, dbName string, s EngineSettings) st
 		}
 		return fmt.Sprintf("Cannot open remote MS SQL database %q on %s — verify the database name and SQL login credentials. (%s)", targetLabel, fallbackStr(strings.TrimSpace(s.Host), "server"), msg)
 	}
-	if strings.Contains(low, "invalid packet size") {
+	if isMSSQLPreloginOrProtocolErr(msg) {
 		portHint := ""
-		if s.Port == 2082 || s.Port == 2083 || s.Port == 2086 || s.Port == 2087 {
+		if s.Port == 3306 {
+			portHint = " Port 3306 is MySQL/MariaDB's default port, not MS SQL Server (1433). Edit the Cloud Profile and change Engine to MySQL (or set Port to 1433 for MS SQL)."
+		} else if s.Port == 5432 {
+			portHint = " Port 5432 is PostgreSQL's default port, not MS SQL Server (1433). Edit the Cloud Profile and change Engine to PostgreSQL (or set Port to 1433 for MS SQL)."
+		} else if s.Port == 2082 || s.Port == 2083 || s.Port == 2086 || s.Port == 2087 {
 			portHint = fmt.Sprintf(" Port %d is a cPanel web login port (HTTP/HTTPS), not an MS SQL Server port. MS SQL Server uses port 1433 — edit the Cloud Profile and change Port to 1433.", s.Port)
 		} else if isRemoteMSSQLHost(s) {
-			portHint = " The remote server returned non-TDS (non-SQL) data — verify that your host/port actually exposes an MS SQL Server endpoint and that port 1433 is open."
+			portHint = fmt.Sprintf(" Could not complete MS SQL TDS prelogin/TLS handshake on port %d — check that: (1) this server actually hosts MS SQL Server rather than MySQL/cPanel, (2) TLS 1.2 is enabled on the remote SQL Server (ODBC Driver 17 rejects TLS 1.0), and (3) try switching SSL Mode between skip-verify and require in the Cloud Profile.", fallbackPort(s.Port, 1433))
 		}
 		return fmt.Sprintf("%s%s", msg, portHint)
 	}
 	return msg
+}
+
+func fallbackPort(p, def int) int {
+	if p > 0 {
+		return p
+	}
+	return def
 }
 
 func mssqlListDatabases(s EngineSettings) ([]string, error) {

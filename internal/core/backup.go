@@ -255,6 +255,7 @@ func mssqlImportSQLCtx(ctx context.Context, s EngineSettings, sqlPath, targetDB 
 	impCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(impCtx, sqlcmd, args...)
+	cmd.WaitDelay = 2 * time.Second
 	hideWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {

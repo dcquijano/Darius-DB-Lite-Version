@@ -596,8 +596,8 @@ func CloudSyncDatabaseWithContext(ctx context.Context, p *Paths, srcEngine strin
 	}
 	if err != nil {
 		errMsg := err.Error()
-		// Enrich "invalid packet size" errors with a human-readable explanation
-		if strings.Contains(strings.ToLower(errMsg), "invalid packet size") {
+		// Enrich "invalid packet size" errors if not already enriched by formatMSSQLError
+		if strings.Contains(strings.ToLower(errMsg), "invalid packet size") && !strings.Contains(errMsg, "MS SQL") {
 			errMsg = fmt.Sprintf("%s — This usually means the port on your MS SQL Cloud Profile is not an actual MS SQL Server port (MS SQL uses port 1433). If using cPanel, check that port 1433 is open and your host supports remote SQL Server connections. Edit the Cloud Profile and verify the Port.", errMsg)
 		}
 		outErr := fmt.Errorf("failed reading source tables: %s", errMsg)

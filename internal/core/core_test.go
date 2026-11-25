@@ -1543,6 +1543,38 @@ func TestCancelScheduleRunModeAndPromptContextAbort(t *testing.T) {
 	}
 }
 
+func TestMSSQLPreloginAndBannerDetection(t *testing.T) {
+	// Realistic MySQL / MariaDB Initial Handshake greeting packet
+	mysqlPkt := []byte{0x4a, 0x00, 0x00, 0x00, 0x0a}
+	mysqlPkt = append(mysqlPkt, []byte("10.6.18-MariaDB\x00extra-payload-mysql_native_password")...)
+	eng, ver := detectNonTDSBanner(mysqlPkt)
+	if eng != "MySQL/MariaDB" || ver != "10.6.18-MariaDB" {
+		t.Fatalf("expected MySQL/MariaDB 10.6.18-MariaDB, got eng=%q ver=%q", eng, ver)
+	}
+
+	httpPkt := []byte("HTTP/1.1 400 Bad Request\r\nContent-Type: text/html\r\n")
+	if e, _ := detectNonTDSBanner(httpPkt); e != "HTTP/Web" {
+		t.Fatalf("expected HTTP/Web, got %q", e)
+	}
+
+	// SSLMode mappings for remote sqlcmd auth args
+	reqArgs := mssqlAuthArgs("db.example.com,1433", EngineSettings{Host: "db.example.com", User: "u", Password: "p", SSLMode: "require"})
+	joinedReq := strings.Join(reqArgs, " ")
+	if !strings.Contains(joinedReq, "-N") || !strings.Contains(joinedReq, "-C") {
+		t.Fatalf("expected -N and -C for SSLMode=require, got %v", reqArgs)
+	}
+	disArgs := mssqlAuthArgs("db.example.com,1433", EngineSettings{Host: "db.example.com", User: "u", Password: "p", SSLMode: "disable"})
+	joinedDis := strings.Join(disArgs, " ")
+	if strings.Contains(joinedDis, "-N") || strings.Contains(joinedDis, "-C") {
+		t.Fatalf("expected no TLS flags for SSLMode=disable, got %v", disArgs)
+	}
+
+	msg := formatMSSQLError("Sqlcmd: Error: Microsoft ODBC Driver 17 for SQL Server : Protocol error in TDS stream. Client unable to establish connection due to prelogin failure.", nil, "appdb", EngineSettings{Host: "64.251.1.2", Port: 3306})
+	if !strings.Contains(msg, "3306") || !strings.Contains(msg, "MySQL") {
+		t.Fatalf("expected port 3306 MySQL hint in prelogin error, got: %s", msg)
+	}
+}
+
 
 
 

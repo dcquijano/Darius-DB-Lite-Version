@@ -1,19 +1,20 @@
 {
   "name": "Darius DB (Lite Version 0.1.5)",
   "version": "0.1.5",
-  "build": "202611261347",
+  "build": "202611261402",
   "channel": "Lite Version",
   "releasedAt": "2026-11-26",
   "author": "Darius Cumpio",
-  "latestCommit": "f88eada",
+  "latestCommit": "e989c9e",
   "generatedFromGit": true,
   "installerUrl": "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing",
   "directSetupUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-Setup-0.1.5.exe",
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-0.1.5-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.5.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Add Close All SQL query tabs button and workspace AGENTS.md; Add Chrome-style detachable/re-dockable SQL query tabs with Tab autocomplete; Handle MS SQL prelogin failures, SSL mode flags, and non-TDS protocol diagnostics.",
+  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Add SSMS-style right-click context menu and interactive ER database diagram; Add Close All SQL query tabs button and workspace AGENTS.md; Add Chrome-style detachable/re-dockable SQL query tabs with Tab autocomplete.",
   "changelog": [
+    "[e989c9e] Add SSMS-style right-click context menu and interactive ER database diagram (2026-11-26)",
     "[f88eada] Add Close All SQL query tabs button and workspace AGENTS.md (2026-11-26)",
     "[ad6f78c] Add Chrome-style detachable/re-dockable SQL query tabs with Tab autocomplete (2026-11-26)",
     "[3496ebf] Handle MS SQL prelogin failures, SSL mode flags, and non-TDS protocol diagnostics (build 202611251038) (2026-11-25)",
@@ -57,7 +58,6 @@
     "[72f61ac] Remove hidden PowerShell shortcut dropper and use clean go:embed PE installer (2026-11-21)",
     "[7efa46a] Display latest 10 GitHub pushes in Release Announcement (2026-11-21)",
     "[74e9110] Fix MS SQL Server toggle turning back OFF after start (2026-11-21)",
-    "[6c19f94] Add real-time Sync Cancel and Minimize floating bar while synchronizing (2026-11-21)",
-    "[92feacd] Fix MSSQL Msg 245 multiline and tab text encoding in sync/export (2026-11-20)"
+    "[6c19f94] Add real-time Sync Cancel and Minimize floating bar while synchronizing (2026-11-21)"
   ]
 }

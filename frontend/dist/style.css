@@ -456,6 +456,8 @@ code, pre, textarea.code-area { font-family: var(--font-mono); }
 }
 
 .service-grid {
+  flex: 1;
+  min-height: 0;
   padding: 14px 20px 24px;
   display: flex;
   flex-direction: column;
@@ -464,6 +466,7 @@ code, pre, textarea.code-area { font-family: var(--font-mono); }
 }
 
 .svc-list-panel {
+  flex-shrink: 0;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -548,6 +551,7 @@ code, pre, textarea.code-area { font-family: var(--font-mono); }
 
 /* Dashboard Auto-Run Bar & Per-Row Toggle Pill */
 .auto-run-bar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -709,6 +713,7 @@ code, pre, textarea.code-area { font-family: var(--font-mono); }
 
 /* Full-Stack Architecture Flow Diagram */
 .stack-guide-card {
+  flex-shrink: 0;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;

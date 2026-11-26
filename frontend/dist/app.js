@@ -176,6 +176,10 @@
     return state.sqlTabs.filter((t) => t.engine === engine);
   }
 
+  function dockedEngineTabs(engine = state.dbEngine) {
+    return state.sqlTabs.filter((t) => t.engine === engine && !t.detached);
+  }
+
   function getSqlTab(tabId) {
     return state.sqlTabs.find((t) => t.id === tabId) || null;
   }
@@ -215,12 +219,15 @@
       metaError: false,
       loading: false,
       reqSeq: 0,
+      detached: false,
+      _autoBlank: false,
+      floatPos: null,
     };
   }
 
   function syncActiveTabFromDom() {
     const tab = getActiveSqlTab();
-    if (!tab) return;
+    if (!tab || tab.detached) return;
     tab.table = state.sqlTable;
     tab.columns = state.sqlColumns;
     tab.result = state.sqlLastResult;
@@ -239,17 +246,18 @@
   function renderSqlTabs() {
     const el = $("sqlTabList");
     if (!el) return;
-    const tabs = engineTabs(state.dbEngine);
+    const tabs = dockedEngineTabs(state.dbEngine);
     const multiDb = new Set(tabs.map((t) => t.db).filter(Boolean)).size > 1;
     el.innerHTML = tabs
       .map((t) => {
         const active = t.id === state.activeSqlTabId;
         const label = t.title || t.table || "Query";
         const dbHint = multiDb && t.db ? ` (${t.db})` : "";
-        const tip = `${label}${t.db ? ` — ${t.db}` : ""}`;
+        const tip = `${label}${t.db ? ` — ${t.db}` : ""} (Drag outside to pop out · Drag sideways to reorder)`;
         return `<div class="sql-tab ${active ? "active" : ""}" data-sqltab-id="${esc(t.id)}" role="tab" aria-selected="${active ? "true" : "false"}" title="${esc(tip)}">
           ${t.loading ? `<span class="sql-tab-dot" title="Running query..."></span>` : ""}
           <span class="sql-tab-title">${esc(label)}${dbHint ? `<span class="sql-tab-db">${esc(dbHint)}</span>` : ""}</span>
+          <button type="button" class="sql-tab-pop" data-pop-sqltab="${esc(t.id)}" title="Pop out query tab">↗</button>
           <button type="button" class="sql-tab-close" data-close-sqltab="${esc(t.id)}" title="Close tab">✕</button>
         </div>`;
       })
@@ -262,6 +270,10 @@
 
   function applyTabToDom(tab, { syncSidebar = false } = {}) {
     if (!tab) return;
+    if (tab.detached) {
+      updateFloatingSqlWin(tab);
+      return;
+    }
     state.activeSqlTabId = tab.id;
     activeSqlTabByEngine.set(tab.engine, tab.id);
     state.sqlTable = tab.table || "";
@@ -304,9 +316,10 @@
 
   function ensureActiveSqlTab() {
     let tab = getActiveSqlTab();
-    if (tab && tab.engine === state.dbEngine) return tab;
+    if (tab && tab.engine === state.dbEngine && !tab.detached) return tab;
     const savedId = activeSqlTabByEngine.get(state.dbEngine);
-    tab = (savedId && getSqlTab(savedId)) || engineTabs(state.dbEngine)[0] || null;
+    const savedTab = savedId ? getSqlTab(savedId) : null;
+    tab = (savedTab && !savedTab.detached ? savedTab : null) || dockedEngineTabs(state.dbEngine)[0] || null;
     if (!tab) {
       tab = createSqlTabObj({ engine: state.dbEngine, db: state.sqlDb });
       state.sqlTabs.push(tab);
@@ -328,23 +341,27 @@
     const idx = state.sqlTabs.findIndex((t) => t.id === tabId);
     if (idx < 0) return;
     const closing = state.sqlTabs[idx];
-    const siblingsBefore = engineTabs(closing.engine);
+    const siblingsBefore = dockedEngineTabs(closing.engine);
     const sibIdx = siblingsBefore.findIndex((t) => t.id === tabId);
     state.sqlTabs.splice(idx, 1);
+    if (closing.detached) {
+      removeFloatingSqlWin(tabId);
+      return;
+    }
 
     if (closing.engine !== state.dbEngine) {
       if (activeSqlTabByEngine.get(closing.engine) === tabId) {
-        const rem = engineTabs(closing.engine);
-        if (rem.length) activeSqlTabByEngine.set(closing.engine, rem[Math.min(sibIdx, rem.length - 1)].id);
+        const rem = dockedEngineTabs(closing.engine);
+        if (rem.length) activeSqlTabByEngine.set(closing.engine, rem[Math.min(Math.max(0, sibIdx), rem.length - 1)].id);
         else activeSqlTabByEngine.delete(closing.engine);
       }
       return;
     }
 
     if (state.activeSqlTabId === tabId) {
-      const remaining = engineTabs(state.dbEngine);
+      const remaining = dockedEngineTabs(state.dbEngine);
       if (remaining.length > 0) {
-        applyTabToDom(remaining[Math.min(sibIdx, remaining.length - 1)], { syncSidebar: true });
+        applyTabToDom(remaining[Math.min(Math.max(0, sibIdx), remaining.length - 1)], { syncSidebar: true });
       } else {
         const fresh = createSqlTabObj({ engine: state.dbEngine, db: state.sqlDb });
         state.sqlTabs.push(fresh);
@@ -357,7 +374,7 @@
 
   function resetSqlBrowserState(nextDb = "") {
     const prevTab = getActiveSqlTab();
-    if (prevTab) {
+    if (prevTab && !prevTab.detached) {
       syncActiveTabFromDom();
       activeSqlTabByEngine.set(prevTab.engine, prevTab.id);
     }
@@ -366,7 +383,8 @@
     state.sqlTables = [];
     state.activeSqlTabId = "";
     const restoredId = activeSqlTabByEngine.get(state.dbEngine);
-    let nextTab = (restoredId && getSqlTab(restoredId)) || engineTabs(state.dbEngine)[0] || null;
+    const restoredTab = restoredId ? getSqlTab(restoredId) : null;
+    let nextTab = (restoredTab && !restoredTab.detached ? restoredTab : null) || dockedEngineTabs(state.dbEngine)[0] || null;
     if (!nextTab) {
       nextTab = createSqlTabObj({ engine: state.dbEngine, db: nextDb });
       state.sqlTabs.push(nextTab);
@@ -381,6 +399,860 @@
       $("sqlTablesTitle").title = state.sqlDb ? `Tables in ${state.sqlDb}` : "Tables";
     }
     if ($("sqlTablesCount")) $("sqlTablesCount").hidden = true;
+  }
+
+  // ---- Chrome-Style Tear-Off / Floating & Re-Dockable Query Windows ----
+  const floatingSqlWins = new Map();
+  let floatSqlZSeq = 1;
+  let suppressNextSqlTabClick = false;
+
+  function focusFloatingSqlWin(winEl) {
+    if (!winEl) return;
+    document.querySelectorAll(".sql-float-win.is-focused").forEach((el) => el.classList.remove("is-focused"));
+    winEl.classList.add("is-focused");
+    winEl.style.zIndex = String(++floatSqlZSeq);
+  }
+
+  function removeFloatingSqlWin(tabId) {
+    const winEl = floatingSqlWins.get(tabId);
+    if (winEl) {
+      winEl.remove();
+      floatingSqlWins.delete(tabId);
+    }
+  }
+
+  function clearTabBarDropPreview() {
+    const bar = $("sqlTabBar");
+    if (bar) bar.classList.remove("is-drop-target");
+    if ($("sqlTabDropHint")) $("sqlTabDropHint").hidden = true;
+    $("sqlTabList")?.querySelectorAll(".sql-tab.is-drop-before").forEach((el) => el.classList.remove("is-drop-before"));
+  }
+
+  function findTabBarInsertBeforeId(clientX) {
+    const list = $("sqlTabList");
+    if (!list) return null;
+    const els = Array.from(list.querySelectorAll(".sql-tab"));
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      if (clientX < r.left + r.width / 2) {
+        return el.dataset.sqltabId || null;
+      }
+    }
+    return null;
+  }
+
+  function isPointerOverSqlTabBar(clientX, clientY) {
+    const bar = $("sqlTabBar");
+    if (!bar || $("tab-database")?.hidden || !bar.offsetParent) return false;
+    const r = bar.getBoundingClientRect();
+    return clientX >= r.left - 12 && clientX <= r.right + 12 && clientY >= r.top - 20 && clientY <= r.bottom + 24;
+  }
+
+  function syncFloatingWinToTab(tab, winEl) {
+    if (!tab || !winEl) return;
+    const ed = winEl.querySelector(".sql-float-editor");
+    const filt = winEl.querySelector(".sql-float-filter");
+    if (ed) tab.sql = ed.value;
+    if (filt) tab.filter = filt.value;
+    if (!winEl.classList.contains("is-maximized")) {
+      const r = winEl.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        tab.floatPos = { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
+      }
+    }
+  }
+
+  function updateFloatingSqlWin(tab) {
+    const winEl = floatingSqlWins.get(tab?.id);
+    if (!winEl) return;
+    const dot = winEl.querySelector(".sql-float-dot");
+    if (dot) dot.hidden = !tab.loading;
+    const labelEl = winEl.querySelector(".sql-float-title");
+    if (labelEl) labelEl.textContent = tab.title || tab.table || "Query";
+    const dbEl = winEl.querySelector(".sql-float-db");
+    if (dbEl) dbEl.textContent = tab.db ? `${tab.engine} / ${tab.db}` : tab.engine;
+
+    const ed = winEl.querySelector(".sql-float-editor");
+    if (ed && document.activeElement !== ed) ed.value = tab.sql || "";
+    const filt = winEl.querySelector(".sql-float-filter");
+    if (filt) {
+      filt.hidden = !(tab.result && tab.result.isQuery);
+      if (document.activeElement !== filt) filt.value = tab.filter || "";
+    }
+
+    const meta = winEl.querySelector(".sql-float-meta");
+    if (meta) {
+      meta.textContent = tab.metaText || "Ready";
+      meta.parentElement.className = tab.metaError ? "result-meta-bar error" : "result-meta-bar";
+    }
+
+    const resWrap = winEl.querySelector(".sql-float-results");
+    const pagerBar = winEl.querySelector(".sql-float-pager");
+    if (tab.result && tab.result.isQuery && resWrap) {
+      const stats = renderSqlTableInto(resWrap, tab.result, {
+        filterText: tab.filter || "",
+        page: tab.page || 1,
+        pageSize: tab.pageSize !== undefined ? tab.pageSize : 50,
+        dbName: tab.db || "",
+        tableName: "",
+        colWidths: null,
+      });
+      tab.page = stats.page;
+      if (pagerBar) {
+        if (stats.total > 0 || tab.result.rows.length > 0) {
+          pagerBar.hidden = false;
+          pagerBar.querySelector(".sql-float-pinfo").textContent =
+            stats.total === 0 ? "0 match" : `${stats.startIdx + 1}–${stats.endIdx} of ${stats.total} · Page ${stats.page}/${stats.totalPages}`;
+          pagerBar.querySelector("[data-f-prev]").disabled = stats.page <= 1;
+          pagerBar.querySelector("[data-f-next]").disabled = stats.page >= stats.totalPages;
+        } else {
+          pagerBar.hidden = true;
+        }
+      }
+    } else {
+      if (resWrap) resWrap.innerHTML = "";
+      if (pagerBar) pagerBar.hidden = true;
+    }
+  }
+
+  function startFloatingWinDrag(winEl, tab, startClientX, startClientY) {
+    focusFloatingSqlWin(winEl);
+    if (winEl.classList.contains("is-maximized")) return;
+    const rect = winEl.getBoundingClientRect();
+    const offsetX = Math.max(16, Math.min(rect.width - 60, startClientX - rect.left));
+    const offsetY = Math.max(8, Math.min(36, startClientY - rect.top));
+    let pendingInsertBeforeId = null;
+    let overTabBar = false;
+
+    const onMove = (ev) => {
+      const maxL = Math.max(8, window.innerWidth - rect.width - 8);
+      const maxT = Math.max(8, window.innerHeight - rect.height - 8);
+      const left = Math.max(8, Math.min(maxL, ev.clientX - offsetX));
+      const top = Math.max(8, Math.min(maxT, ev.clientY - offsetY));
+      winEl.style.left = `${left}px`;
+      winEl.style.top = `${top}px`;
+
+      overTabBar = isPointerOverSqlTabBar(ev.clientX, ev.clientY);
+      clearTabBarDropPreview();
+      if (overTabBar) {
+        winEl.classList.add("is-over-tabbar");
+        $("sqlTabBar")?.classList.add("is-drop-target");
+        if ($("sqlTabDropHint")) $("sqlTabDropHint").hidden = false;
+        pendingInsertBeforeId = findTabBarInsertBeforeId(ev.clientX);
+        if (pendingInsertBeforeId) {
+          const targetEl = $("sqlTabList")?.querySelector(`[data-sqltab-id="${pendingInsertBeforeId}"]`);
+          targetEl?.classList.add("is-drop-before");
+        }
+      } else {
+        winEl.classList.remove("is-over-tabbar");
+        pendingInsertBeforeId = null;
+      }
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      winEl.classList.remove("is-over-tabbar");
+      clearTabBarDropPreview();
+      if (overTabBar) {
+        dockSqlTab(tab.id, pendingInsertBeforeId);
+      } else {
+        syncFloatingWinToTab(tab, winEl);
+      }
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }
+
+  function getCaretCoordsInTextarea(ta, pos) {
+    const div = document.createElement("div");
+    const cs = getComputedStyle(ta);
+    const copyProps = [
+      "boxSizing", "width", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+      "borderTopWidth", "borderLeftWidth", "fontStyle", "fontVariant", "fontWeight",
+      "fontStretch", "fontSize", "lineHeight", "fontFamily", "letterSpacing", "tabSize",
+    ];
+    div.style.position = "absolute";
+    div.style.visibility = "hidden";
+    div.style.whiteSpace = "pre-wrap";
+    div.style.wordWrap = "break-word";
+    copyProps.forEach((p) => { div.style[p] = cs[p]; });
+    div.textContent = ta.value.slice(0, pos);
+    const marker = document.createElement("span");
+    marker.textContent = ta.value.slice(pos) || ".";
+    div.appendChild(marker);
+    document.body.appendChild(div);
+    const top = marker.offsetTop - ta.scrollTop;
+    const left = marker.offsetLeft - ta.scrollLeft;
+    document.body.removeChild(div);
+    return { top, left };
+  }
+
+  function getSqlSuggestContext(text, cursorPos) {
+    const before = text.slice(0, cursorPos);
+    const tokMatch = before.match(/([A-Za-z0-9_`".*]*)$/);
+    const rawTok = tokMatch ? tokMatch[1] : "";
+    const replaceStart = cursorPos - rawTok.length;
+    const beforeTok = before.slice(0, replaceStart);
+    const prefix = rawTok.replace(/^[`"]+/, "");
+    const dotIdx = prefix.lastIndexOf(".");
+    const tableQualifier = dotIdx >= 0 ? prefix.slice(0, dotIdx).replace(/[`"]/g, "") : "";
+    const colPrefix = dotIdx >= 0 ? prefix.slice(dotIdx + 1) : prefix;
+    const lastSemi = before.lastIndexOf(";");
+    const stmtRaw = before.slice(lastSemi + 1);
+    const stmtTrimLeft = stmtRaw.replace(/^\s+/, "");
+    const stmtStartPos = (lastSemi + 1) + (stmtRaw.length - stmtTrimLeft.length);
+    const isLeadCommandPhrase = /^(create|show|alter|drop|insert|update|delete|describe|explain|truncate)\s+[A-Za-z0-9_]*$/i.test(stmtTrimLeft);
+
+    const prevStmtChunk = beforeTok.split(";").pop() || "";
+    const prevTrim = prevStmtChunk.trimEnd();
+    const prevUpper = prevTrim.toUpperCase();
+    const atStatementStart = prevTrim === "" || /;\s*$/.test(prevStmtChunk);
+    const expectTable = /\b(FROM|JOIN|INTO|UPDATE|TABLE|DESCRIBE|DESC|TRUNCATE|SHOW\s+CREATE\s+TABLE|SHOW\s+COLUMNS\s+FROM|SHOW\s+INDEX\s+FROM)\s*$/i.test(prevTrim);
+    const expectDb = /\b(USE|DATABASE|SCHEMA)\s*$/i.test(prevTrim);
+    const expectColumn = /\b(SELECT|WHERE|AND|OR|SET|ORDER\s+BY|GROUP\s+BY|HAVING|ON)\s*$/i.test(prevTrim) || /,\s*$/.test(prevTrim) || dotIdx >= 0;
+    const effectivePrefix = isLeadCommandPhrase ? stmtTrimLeft : colPrefix;
+    const effectiveStart = isLeadCommandPhrase ? stmtStartPos : (dotIdx >= 0 ? replaceStart + dotIdx + 1 : replaceStart);
+    return {
+      rawTok,
+      prefix,
+      colPrefix: effectivePrefix,
+      tableQualifier,
+      replaceStart: effectiveStart,
+      replaceEnd: cursorPos,
+      atStatementStart: atStatementStart || isLeadCommandPhrase,
+      isLeadCommandPhrase,
+      expectTable: isLeadCommandPhrase ? false : expectTable,
+      expectDb: isLeadCommandPhrase ? false : expectDb,
+      expectColumn: isLeadCommandPhrase ? false : expectColumn,
+      prevUpper,
+    };
+  }
+
+  function buildSqlSuggestions(ctx, tab = null) {
+    const rawEng = tab?.engine || state.dbEngine || "mysql";
+    const engine = rawEng.startsWith("cloud:")
+      ? ((state.cloudProfiles || []).find((p) => "cloud:" + p.id === rawEng)?.engine || "mysql")
+      : rawEng;
+    const tabDb = tab?.db || state.sqlDb || "";
+    const cachedTbls = (tabDb && sqlTablesCache.get(`${rawEng}|${tabDb}`)?.tables) || (tabDb === state.sqlDb ? state.sqlTables : []) || [];
+    const tabCols = (tab?.columns?.length ? tab.columns : state.sqlColumns) || [];
+    const sampleTbl = tab?.table || state.sqlTable || cachedTbls[0]?.name || "table_name";
+    const sampleDb = tabDb || "my_database";
+    const qTbl = engine === "mysql" || engine === "mariadb" ? "`" + sampleTbl + "`" : sampleTbl;
+    const autoIncCol = engine === "postgresql"
+      ? "id SERIAL PRIMARY KEY"
+      : engine === "mssql"
+        ? "id INT IDENTITY(1,1) PRIMARY KEY"
+        : "id INT AUTO_INCREMENT PRIMARY KEY";
+
+    const templates = [
+      {
+        kind: "tmpl",
+        label: "CREATE TABLE ...",
+        meta: "Template",
+        insert: `CREATE TABLE new_table (\n  ${autoIncCol},\n  name VARCHAR(120) NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);`,
+        cursorToken: "new_table",
+      },
+      { kind: "tmpl", label: "CREATE DATABASE ...", meta: "Template", insert: `CREATE DATABASE ${sampleDb}_new;`, cursorToken: `${sampleDb}_new` },
+      { kind: "tmpl", label: "CREATE INDEX ...", meta: "Template", insert: `CREATE INDEX idx_${sampleTbl}_col ON ${qTbl} (column_name);`, cursorToken: "column_name" },
+      { kind: "tmpl", label: "CREATE VIEW ...", meta: "Template", insert: `CREATE VIEW v_${sampleTbl} AS\nSELECT * FROM ${qTbl};`, cursorToken: `v_${sampleTbl}` },
+      {
+        kind: "tmpl",
+        label: "SHOW TABLES;",
+        meta: "Template",
+        insert: engine === "postgresql"
+          ? "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_name;"
+          : engine === "mssql"
+            ? "SELECT s.name AS schema_name, o.name AS table_name FROM sys.objects o JOIN sys.schemas s ON o.schema_id = s.schema_id WHERE o.type = 'U' ORDER BY s.name, o.name;"
+            : "SHOW TABLES;",
+      },
+      {
+        kind: "tmpl",
+        label: "SHOW DATABASES;",
+        meta: "Template",
+        insert: engine === "postgresql"
+          ? "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY datname;"
+          : engine === "mssql"
+            ? "SELECT name FROM sys.databases ORDER BY name;"
+            : "SHOW DATABASES;",
+      },
+      {
+        kind: "tmpl",
+        label: `SHOW CREATE TABLE ${sampleTbl};`,
+        meta: "Template",
+        insert: engine === "mysql" || engine === "mariadb"
+          ? `SHOW CREATE TABLE ${qTbl};`
+          : `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '${sampleTbl}';`,
+      },
+      {
+        kind: "tmpl",
+        label: `SHOW COLUMNS FROM ${sampleTbl};`,
+        meta: "Template",
+        insert: engine === "mysql" || engine === "mariadb"
+          ? `SHOW COLUMNS FROM ${qTbl};`
+          : `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '${sampleTbl}';`,
+      },
+      { kind: "tmpl", label: "SHOW STATUS / VARIABLES;", meta: "Template", insert: "SHOW VARIABLES LIKE '%timeout%';", cursorToken: "%timeout%" },
+      {
+        kind: "tmpl",
+        label: `SELECT * FROM ${sampleTbl}`,
+        meta: "Template",
+        insert: engine === "mssql" ? `SELECT TOP 100 * FROM ${qTbl};` : `SELECT * FROM ${qTbl} LIMIT 100;`,
+      },
+      { kind: "tmpl", label: `SELECT COUNT(*) FROM ${sampleTbl};`, meta: "Template", insert: `SELECT COUNT(*) AS total FROM ${qTbl};` },
+      { kind: "tmpl", label: `INSERT INTO ${sampleTbl} ...`, meta: "Template", insert: `INSERT INTO ${qTbl} (col1, col2) VALUES ('val1', 'val2');`, cursorToken: "col1" },
+      { kind: "tmpl", label: `UPDATE ${sampleTbl} SET ...`, meta: "Template", insert: `UPDATE ${qTbl} SET col1 = 'value' WHERE id = 1;`, cursorToken: "col1" },
+      { kind: "tmpl", label: `DELETE FROM ${sampleTbl} WHERE ...`, meta: "Template", insert: `DELETE FROM ${qTbl} WHERE id = 1;`, cursorToken: "id = 1" },
+      { kind: "tmpl", label: `ALTER TABLE ${sampleTbl} ADD ...`, meta: "Template", insert: `ALTER TABLE ${qTbl} ADD COLUMN new_col VARCHAR(120);`, cursorToken: "new_col" },
+      { kind: "tmpl", label: `DESCRIBE ${sampleTbl};`, meta: "Template", insert: `DESCRIBE ${qTbl};` },
+      { kind: "tmpl", label: `EXPLAIN SELECT ...`, meta: "Template", insert: `EXPLAIN SELECT * FROM ${qTbl} LIMIT 100;` },
+      { kind: "tmpl", label: `DROP TABLE IF EXISTS ${sampleTbl};`, meta: "Template", insert: `DROP TABLE IF EXISTS ${qTbl};` },
+      { kind: "tmpl", label: `TRUNCATE TABLE ${sampleTbl};`, meta: "Template", insert: `TRUNCATE TABLE ${qTbl};` },
+    ];
+
+    const tables = cachedTbls.map((t) => ({
+      kind: "tbl",
+      label: t.name,
+      meta: /view/i.test(t.kind || "") ? "View" : "Table",
+      insert: t.name,
+    }));
+
+    const cols = tabCols.map((c) => ({
+      kind: "col",
+      label: c.name,
+      meta: c.dataType || "Column",
+      insert: c.name,
+    }));
+
+    const dbs = ((sqlDbsCache.get(rawEng)?.dbs) || state.sqlDbs || []).map((d) => ({
+      kind: "tbl",
+      label: d,
+      meta: "Database",
+      insert: d,
+    }));
+
+    const keywords = [
+      "SELECT", "CREATE", "SHOW", "INSERT", "UPDATE", "DELETE", "ALTER", "DROP", "DESCRIBE", "EXPLAIN",
+      "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN", "IS NULL", "IS NOT NULL",
+      "ORDER BY", "GROUP BY", "HAVING", "LIMIT", "OFFSET", "JOIN", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN",
+      "ON", "AS", "DISTINCT", "VALUES", "SET", "INTO", "TABLE", "DATABASE", "INDEX", "VIEW", "COLUMN",
+      "PRIMARY KEY", "FOREIGN KEY", "REFERENCES", "AUTO_INCREMENT", "NOT NULL", "DEFAULT",
+      "COUNT(*)", "SUM()", "AVG()", "MIN()", "MAX()", "COALESCE()", "NOW()", "CURRENT_TIMESTAMP",
+      "VARCHAR(255)", "INT", "BIGINT", "TEXT", "BOOLEAN", "DECIMAL(10,2)", "DATETIME", "TIMESTAMP",
+    ].map((kw) => ({ kind: "kw", label: kw, meta: "SQL", insert: kw }));
+
+    const q = (ctx.colPrefix || "").toLowerCase();
+    let pool = [];
+    if (ctx.tableQualifier && cols.length) {
+      pool = [...cols];
+    } else if (ctx.expectTable) {
+      pool = [...tables, ...dbs];
+    } else if (ctx.expectDb) {
+      pool = [...dbs];
+    } else if (ctx.expectColumn) {
+      pool = [...cols, ...tables, ...keywords];
+    } else if (ctx.atStatementStart) {
+      pool = [...templates, ...keywords, ...tables];
+    } else {
+      pool = [...keywords, ...tables, ...cols, ...templates];
+    }
+
+    const scored = [];
+    const seen = new Set();
+    for (const item of pool) {
+      const key = item.kind + ":" + item.label.toLowerCase();
+      if (seen.has(key)) continue;
+      const lblLower = item.label.toLowerCase();
+      let score = 0;
+      if (!q) {
+        score = item.kind === "tmpl" ? 90 : item.kind === "tbl" ? 85 : item.kind === "col" ? 80 : 60;
+      } else if (lblLower === q) {
+        score = 200;
+      } else if (lblLower.startsWith(q)) {
+        score = 150 + (item.kind === "tmpl" && ctx.atStatementStart ? 20 : item.kind === "tbl" && ctx.expectTable ? 25 : 0);
+      } else if (lblLower.includes(q)) {
+        score = 80;
+      } else {
+        continue;
+      }
+      seen.add(key);
+      scored.push({ ...item, score });
+    }
+    scored.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label));
+    return scored.slice(0, 12);
+  }
+
+  // Wires IDE-style Tab autocomplete & snippet suggestions to any SQL editor textarea/menu pair.
+  function attachSqlAutocomplete({ textarea, menu, stage, boundsEl = null, getTab = () => null, onRun = null }) {
+    const st = { open: false, items: [], activeIdx: 0, replaceStart: 0, replaceEnd: 0, prefix: "" };
+
+    const close = () => {
+      st.open = false;
+      st.items = [];
+      st.activeIdx = 0;
+      if (menu) menu.hidden = true;
+    };
+
+    const renderMenu = () => {
+      if (!menu || !textarea) return;
+      if (!st.open || !st.items.length) {
+        menu.hidden = true;
+        return;
+      }
+      const coords = getCaretCoordsInTextarea(textarea, st.replaceEnd);
+      const stageW = stage?.clientWidth || textarea.clientWidth || 500;
+      const boxH = boundsEl?.clientHeight || stage?.clientHeight || textarea.clientHeight || 200;
+      const maxLeft = Math.max(8, stageW - 320);
+      const leftPx = Math.max(8, Math.min(maxLeft, coords.left + 8));
+      let topPx = coords.top + 22;
+      if (topPx + 190 > boxH && coords.top > 140) {
+        topPx = Math.max(6, coords.top - 185);
+      }
+      menu.style.left = `${leftPx}px`;
+      menu.style.top = `${Math.max(6, topPx)}px`;
+
+      const q = (st.prefix || "").toLowerCase();
+      const highlightMatch = (lbl) => {
+        if (!q) return esc(lbl);
+        const idx = lbl.toLowerCase().indexOf(q);
+        if (idx < 0) return esc(lbl);
+        return esc(lbl.slice(0, idx)) + `<mark>${esc(lbl.slice(idx, idx + q.length))}</mark>` + esc(lbl.slice(idx + q.length));
+      };
+
+      menu.innerHTML =
+        `<div class="sql-suggest-list">` +
+        st.items
+          .map((item, idx) => {
+            const active = idx === st.activeIdx;
+            const kindLabel = item.kind === "tmpl" ? "Snippet" : item.kind === "tbl" ? "Table" : item.kind === "col" ? "Col" : "SQL";
+            return `<button type="button" class="sql-suggest-item${active ? " active" : ""}" role="option" aria-selected="${active}" data-sg-idx="${idx}">
+              <span class="sql-suggest-left">
+                <span class="sql-suggest-kind ${esc(item.kind)}">${kindLabel}</span>
+                <span class="sql-suggest-label">${highlightMatch(item.label)}</span>
+              </span>
+              <span class="sql-suggest-meta">${active ? `<span class="sql-suggest-tab-key">Tab ⇥</span>` : esc(item.meta || "")}</span>
+            </button>`;
+          })
+          .join("") +
+        `</div>` +
+        `<div class="sql-suggest-foot"><span>↑↓ choose · <strong>Tab</strong> or click to insert</span><span>Esc close</span></div>`;
+      menu.hidden = false;
+      const activeEl = menu.querySelector(".sql-suggest-item.active");
+      if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
+    };
+
+    const open = (forceShow = false) => {
+      if (!textarea) return;
+      const pos = textarea.selectionStart ?? 0;
+      const ctx = getSqlSuggestContext(textarea.value, pos);
+      if (!forceShow && !ctx.colPrefix && !ctx.expectTable && !ctx.expectDb && !ctx.tableQualifier) {
+        close();
+        return;
+      }
+      const items = buildSqlSuggestions(ctx, getTab());
+      if (!items.length) {
+        close();
+        return;
+      }
+      st.open = true;
+      st.items = items;
+      st.activeIdx = 0;
+      st.replaceStart = ctx.replaceStart;
+      st.replaceEnd = ctx.replaceEnd;
+      st.prefix = ctx.colPrefix;
+      renderMenu();
+    };
+
+    const apply = (idx = st.activeIdx) => {
+      const item = st.items[idx];
+      if (!textarea || !item) return false;
+      const val = textarea.value;
+      const start = st.replaceStart;
+      const end = st.replaceEnd;
+      let insertText = item.insert || item.label;
+      const needTrailingSpace = item.kind === "kw" && !insertText.endsWith(")") && !insertText.endsWith(";");
+      if (needTrailingSpace && (val[end] === undefined || !/\s/.test(val[end]))) {
+        insertText += " ";
+      }
+      textarea.value = val.slice(0, start) + insertText + val.slice(end);
+      let nextPos = start + insertText.length;
+      if (item.cursorToken) {
+        const tokIdx = insertText.indexOf(item.cursorToken);
+        if (tokIdx >= 0) {
+          textarea.focus();
+          textarea.setSelectionRange(start + tokIdx, start + tokIdx + item.cursorToken.length);
+          const tab = getTab();
+          if (tab) tab.sql = textarea.value;
+          close();
+          return true;
+        }
+      }
+      if (insertText.endsWith("()")) nextPos -= 1;
+      textarea.focus();
+      textarea.setSelectionRange(nextPos, nextPos);
+      const tab = getTab();
+      if (tab) tab.sql = textarea.value;
+      close();
+      return true;
+    };
+
+    if (menu) {
+      menu.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        const btn = e.target.closest("[data-sg-idx]");
+        if (btn) apply(Number(btn.dataset.sgIdx));
+      });
+    }
+    if (textarea) {
+      textarea.addEventListener("input", () => open(false));
+      textarea.addEventListener("blur", () => setTimeout(() => close(), 120));
+      textarea.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+          e.preventDefault();
+          close();
+          if (onRun) onRun();
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.code === "Space") {
+          e.preventDefault();
+          open(true);
+          return;
+        }
+        if (e.key === "Escape" && st.open) {
+          e.preventDefault();
+          close();
+          return;
+        }
+        if (st.open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+          e.preventDefault();
+          const len = st.items.length;
+          if (len > 0) {
+            st.activeIdx = e.key === "ArrowDown" ? (st.activeIdx + 1) % len : (st.activeIdx - 1 + len) % len;
+            renderMenu();
+          }
+          return;
+        }
+        if (e.key === "Tab" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          if (st.open && st.items.length) {
+            e.preventDefault();
+            apply(st.activeIdx);
+            return;
+          }
+          if (!e.shiftKey && textarea.selectionStart === textarea.selectionEnd) {
+            const ctx = getSqlSuggestContext(textarea.value, textarea.selectionStart);
+            if (ctx.colPrefix) {
+              const items = buildSqlSuggestions(ctx, getTab());
+              if (items.length === 1) {
+                e.preventDefault();
+                st.items = items;
+                st.replaceStart = ctx.replaceStart;
+                st.replaceEnd = ctx.replaceEnd;
+                st.prefix = ctx.colPrefix;
+                apply(0);
+                return;
+              }
+              if (items.length > 1) {
+                e.preventDefault();
+                open(true);
+                return;
+              }
+            }
+            e.preventDefault();
+            const pos = textarea.selectionStart;
+            textarea.value = textarea.value.slice(0, pos) + "  " + textarea.value.slice(pos);
+            textarea.setSelectionRange(pos + 2, pos + 2);
+            const tab = getTab();
+            if (tab) tab.sql = textarea.value;
+          }
+        }
+      });
+    }
+    return { close, open };
+  }
+
+  function mountFloatingSqlWin(tab) {
+    const layer = $("sqlFloatingWindows");
+    if (!layer || !tab) return null;
+    removeFloatingSqlWin(tab.id);
+
+    const pos = tab.floatPos || {};
+    const w = pos.width || Math.min(640, Math.max(400, Math.round(window.innerWidth * 0.54)));
+    const h = pos.height || Math.min(460, Math.max(320, Math.round(window.innerHeight * 0.6)));
+    const cascade = floatingSqlWins.size * 24;
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, pos.left ?? Math.round((window.innerWidth - w) * 0.65 + cascade)));
+    const top = Math.max(8, Math.min(window.innerHeight - h - 8, pos.top ?? Math.round(84 + cascade)));
+
+    const winEl = document.createElement("div");
+    winEl.className = "sql-float-win";
+    winEl.dataset.floatTabId = tab.id;
+    winEl.style.left = `${left}px`;
+    winEl.style.top = `${top}px`;
+    winEl.style.width = `${w}px`;
+    winEl.style.height = `${h}px`;
+    winEl.innerHTML = `
+      <div class="sql-float-head" title="Drag back onto the SQL tab bar above to put this tab back">
+        <span class="sql-float-tabpill">
+          <span class="sql-tab-dot sql-float-dot" ${tab.loading ? "" : "hidden"}></span>
+          <span class="sql-float-title">${esc(tab.title || tab.table || "Query")}</span>
+        </span>
+        <span class="chip sql-float-db">${esc(tab.db ? `${tab.engine} / ${tab.db}` : tab.engine)}</span>
+        <div class="spacer"></div>
+        <div class="sql-float-head-acts">
+          <button type="button" class="btn xs accent" data-f-dock title="Put this query tab back into the main tab bar">↩ Put Back</button>
+          <button type="button" class="icon-btn" data-f-max title="Maximize / Restore">⬜</button>
+          <button type="button" class="icon-btn" data-f-close title="Close tab">✕</button>
+        </div>
+      </div>
+      <div class="sql-float-bar">
+        <span class="hint">Tab to suggest · Ctrl+Enter to run · Drag titlebar back to dock</span>
+        <div class="spacer"></div>
+        <button type="button" class="btn xs" data-f-all title="Run without SQL LIMIT">Show All</button>
+        <button type="button" class="btn xs" data-f-clear>Clear</button>
+        <button type="button" class="btn xs primary" data-f-run>Run Query</button>
+      </div>
+      <div class="sql-float-body">
+        <div class="sql-float-editor-wrap">
+          <textarea class="sql-float-editor" spellcheck="false" placeholder="SELECT 1; -- Write SQL here (press Tab for CREATE, SHOW, SELECT suggestions)..."></textarea>
+          <div class="sql-suggest-menu" role="listbox" aria-label="SQL autocomplete suggestions" hidden></div>
+        </div>
+        <div class="sql-float-split" title="Drag to resize editor / results"></div>
+        <div class="sql-float-result-wrap">
+          <div class="result-meta-bar">
+            <div class="result-meta-text sql-float-meta">Ready</div>
+            <div class="spacer"></div>
+            <input type="search" class="input xs sql-float-filter" placeholder="Filter rows..." style="width:150px" hidden />
+          </div>
+          <div class="table-wrap sql-float-results"></div>
+          <div class="result-pager-bar sql-float-pager" hidden>
+            <span class="pager-info sql-float-pinfo">0</span>
+            <div class="spacer"></div>
+            <button type="button" class="btn xs pager-btn" data-f-prev>‹ Prev</button>
+            <button type="button" class="btn xs pager-btn" data-f-next>Next ›</button>
+          </div>
+        </div>
+      </div>
+      <div class="sql-float-resize-se" title="Drag to resize window"></div>
+    `;
+
+    const ed = winEl.querySelector(".sql-float-editor");
+    const edWrap = winEl.querySelector(".sql-float-editor-wrap");
+    ed.value = tab.sql || "";
+    ed.addEventListener("input", () => {
+      tab.sql = ed.value;
+    });
+    const floatSuggest = attachSqlAutocomplete({
+      textarea: ed,
+      menu: winEl.querySelector(".sql-suggest-menu"),
+      stage: edWrap,
+      boundsEl: winEl.querySelector(".sql-float-body"),
+      getTab: () => tab,
+      onRun: () => {
+        tab.sql = ed.value;
+        runSqlQuery(false, false, tab.id);
+      },
+    });
+
+    const filt = winEl.querySelector(".sql-float-filter");
+    let filtTimer = null;
+    filt.addEventListener("input", () => {
+      clearTimeout(filtTimer);
+      filtTimer = setTimeout(() => {
+        tab.filter = filt.value;
+        tab.page = 1;
+        updateFloatingSqlWin(tab);
+      }, 120);
+    });
+
+    winEl.addEventListener("pointerdown", () => focusFloatingSqlWin(winEl));
+
+    const head = winEl.querySelector(".sql-float-head");
+    head.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || e.target.closest("button")) return;
+      e.preventDefault();
+      floatSuggest.close();
+      startFloatingWinDrag(winEl, tab, e.clientX, e.clientY);
+    });
+    head.addEventListener("dblclick", (e) => {
+      if (e.target.closest("button")) return;
+      winEl.classList.toggle("is-maximized");
+    });
+
+    winEl.querySelector("[data-f-dock]").onclick = () => {
+      floatSuggest.close();
+      dockSqlTab(tab.id, null);
+    };
+    winEl.querySelector("[data-f-max]").onclick = () => winEl.classList.toggle("is-maximized");
+    winEl.querySelector("[data-f-close]").onclick = () => closeSqlTab(tab.id);
+    winEl.querySelector("[data-f-run]").onclick = () => {
+      floatSuggest.close();
+      tab.sql = ed.value;
+      runSqlQuery(false, false, tab.id);
+    };
+    winEl.querySelector("[data-f-all]").onclick = () => {
+      floatSuggest.close();
+      tab.sql = applySqlQueryLimit(ed.value, 0);
+      ed.value = tab.sql;
+      runSqlQuery(true, false, tab.id);
+    };
+    winEl.querySelector("[data-f-clear]").onclick = () => {
+      floatSuggest.close();
+      ed.value = "";
+      tab.sql = "";
+      ed.focus();
+    };
+    winEl.querySelector("[data-f-prev]").onclick = () => {
+      tab.page = Math.max(1, (tab.page || 1) - 1);
+      updateFloatingSqlWin(tab);
+    };
+    winEl.querySelector("[data-f-next]").onclick = () => {
+      tab.page = (tab.page || 1) + 1;
+      updateFloatingSqlWin(tab);
+    };
+
+    // Horizontal splitter inside floating window
+    const splitEl = winEl.querySelector(".sql-float-split");
+    splitEl.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = edWrap.getBoundingClientRect().height;
+      const maxH = Math.max(90, winEl.getBoundingClientRect().height - 165);
+      const onMv = (ev) => {
+        const nextH = Math.max(64, Math.min(maxH, startH + (ev.clientY - startY)));
+        edWrap.style.height = `${nextH}px`;
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMv);
+        window.removeEventListener("pointerup", onUp);
+      };
+      window.addEventListener("pointermove", onMv);
+      window.addEventListener("pointerup", onUp);
+    });
+
+    // Corner resize handle
+    const resizer = winEl.querySelector(".sql-float-resize-se");
+    resizer.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || winEl.classList.contains("is-maximized")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const r = winEl.getBoundingClientRect();
+      const sx = e.clientX;
+      const sy = e.clientY;
+      const onMv = (ev) => {
+        const nw = Math.max(340, Math.min(window.innerWidth - r.left - 8, r.width + (ev.clientX - sx)));
+        const nh = Math.max(260, Math.min(window.innerHeight - r.top - 8, r.height + (ev.clientY - sy)));
+        winEl.style.width = `${nw}px`;
+        winEl.style.height = `${nh}px`;
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMv);
+        window.removeEventListener("pointerup", onUp);
+        syncFloatingWinToTab(tab, winEl);
+      };
+      window.addEventListener("pointermove", onMv);
+      window.addEventListener("pointerup", onUp);
+    });
+
+    layer.appendChild(winEl);
+    floatingSqlWins.set(tab.id, winEl);
+    focusFloatingSqlWin(winEl);
+    updateFloatingSqlWin(tab);
+    return winEl;
+  }
+
+  function detachSqlTab(tabId, opts = {}) {
+    const tab = getSqlTab(tabId);
+    if (!tab) return null;
+    if (tab.id === state.activeSqlTabId) {
+      syncActiveTabFromDom();
+    }
+    if (tab.detached && floatingSqlWins.has(tab.id)) {
+      const existingWin = floatingSqlWins.get(tab.id);
+      focusFloatingSqlWin(existingWin);
+      return existingWin;
+    }
+
+    const w = Math.min(640, Math.max(400, Math.round(window.innerWidth * 0.54)));
+    const h = Math.min(460, Math.max(320, Math.round(window.innerHeight * 0.6)));
+    if (opts.clientX !== undefined && opts.clientY !== undefined) {
+      tab.floatPos = {
+        left: Math.max(8, Math.min(window.innerWidth - w - 8, Math.round(opts.clientX - Math.min(130, w * 0.25)))),
+        top: Math.max(8, Math.min(window.innerHeight - h - 8, Math.round(opts.clientY - 18))),
+        width: w,
+        height: h,
+      };
+    }
+
+    tab.detached = true;
+    tab._autoBlank = false;
+
+    const remaining = dockedEngineTabs(tab.engine);
+    if (tab.engine === state.dbEngine && state.activeSqlTabId === tab.id) {
+      if (remaining.length > 0) {
+        applyTabToDom(remaining[0], { syncSidebar: true });
+      } else {
+        const fresh = createSqlTabObj({ engine: tab.engine, db: state.sqlDb });
+        fresh._autoBlank = true;
+        state.sqlTabs.push(fresh);
+        applyTabToDom(fresh);
+      }
+    } else {
+      if (remaining.length === 0) {
+        const fresh = createSqlTabObj({ engine: tab.engine, db: tab.db });
+        fresh._autoBlank = true;
+        state.sqlTabs.push(fresh);
+      }
+      renderSqlTabs();
+    }
+
+    return mountFloatingSqlWin(tab);
+  }
+
+  function dockSqlTab(tabId, insertBeforeId = null) {
+    const tab = getSqlTab(tabId);
+    if (!tab) return;
+    const winEl = floatingSqlWins.get(tab.id);
+    if (winEl) syncFloatingWinToTab(tab, winEl);
+
+    // Drop any untouched auto-created placeholder tab if the user simply puts the detached tab back
+    const autoBlanks = state.sqlTabs.filter(
+      (t) => t.id !== tab.id && t.engine === tab.engine && !t.detached && t._autoBlank && isBlankSqlTab(t)
+    );
+    if (autoBlanks.length > 0) {
+      const rmIds = new Set(autoBlanks.map((t) => t.id));
+      state.sqlTabs = state.sqlTabs.filter((t) => !rmIds.has(t.id));
+      if (rmIds.has(state.activeSqlTabId)) state.activeSqlTabId = "";
+    }
+
+    tab.detached = false;
+    tab._autoBlank = false;
+
+    if (insertBeforeId && insertBeforeId !== tab.id) {
+      const fromIdx = state.sqlTabs.findIndex((t) => t.id === tab.id);
+      if (fromIdx >= 0) {
+        state.sqlTabs.splice(fromIdx, 1);
+        const toIdx = state.sqlTabs.findIndex((t) => t.id === insertBeforeId);
+        if (toIdx >= 0) state.sqlTabs.splice(toIdx, 0, tab);
+        else state.sqlTabs.push(tab);
+      }
+    }
+
+    removeFloatingSqlWin(tab.id);
+    if (state.tab !== "database") switchTab("database");
+
+    if (tab.engine !== state.dbEngine) {
+      activeSqlTabByEngine.set(tab.engine, tab.id);
+      state.dbEngine = tab.engine;
+      resetSqlBrowserState(tab.db || "");
+      renderDbEngineTabs();
+      loadDbView();
+    } else {
+      applyTabToDom(tab, { syncSidebar: true });
+    }
   }
 
   function pickBestDbEngine() {
@@ -1116,6 +1988,7 @@
       const wasActive = existing.id === state.activeSqlTabId;
       if (!wasActive) {
         applyTabToDom(existing);
+        if (existing.detached) focusFloatingSqlWin(floatingSqlWins.get(existing.id));
         if (!showAll && (existing.result || existing.loading)) {
           return;
         }
@@ -1186,8 +2059,10 @@
     tab.metaText = showAll ? "Loading all rows..." : "Running query...";
     tab.metaError = false;
 
-    const isStillActive = () => state.activeSqlTabId === tab.id && state.dbEngine === tab.engine;
-    if (isStillActive()) {
+    const isStillActive = () => !tab.detached && state.activeSqlTabId === tab.id && state.dbEngine === tab.engine;
+    if (tab.detached) {
+      updateFloatingSqlWin(tab);
+    } else if (isStillActive()) {
       state.sqlPage = tab.page;
       state.sqlShowingAll = tab.showingAll;
       if (!preservePage && $("sqlRowFilter")) $("sqlRowFilter").value = "";
@@ -1219,7 +2094,9 @@
           loadSqlDatabases(true);
         }
       }
-      if (isStillActive()) {
+      if (tab.detached) {
+        updateFloatingSqlWin(tab);
+      } else if (isStillActive()) {
         applyTabToDom(tab);
       } else {
         renderSqlTabs();
@@ -1230,7 +2107,9 @@
       tab.result = null;
       tab.metaText = errMsg(e);
       tab.metaError = true;
-      if (isStillActive()) {
+      if (tab.detached) {
+        updateFloatingSqlWin(tab);
+      } else if (isStillActive()) {
         applyTabToDom(tab);
       } else {
         renderSqlTabs();
@@ -1306,15 +2185,13 @@
     }
   }
 
-  function renderSqlTable(res) {
-    const wrap = $("sqlResults");
+  function renderSqlTableInto(wrap, res, { filterText = "", page = 1, pageSize = 50, dbName = "", tableName = "", colWidths = null } = {}) {
     if (!res || !res.columns.length) {
       wrap.innerHTML = `<div class="empty-note">Empty result set</div>`;
-      hideSqlPager();
-      return;
+      return { total: 0, page: 1, totalPages: 1, pageSize: pageSize || 50, startIdx: 0, endIdx: 0 };
     }
-    const filter = ($("sqlRowFilter")?.value || "").trim().toLowerCase();
-    const canRowCrud = !!state.sqlTable;
+    const filter = String(filterText || "").trim().toLowerCase();
+    const canRowCrud = !!tableName;
     const indexedRows = [];
     for (let idx = 0; idx < res.rows.length; idx++) {
       const row = res.rows[idx];
@@ -1325,15 +2202,15 @@
     }
 
     const total = indexedRows.length;
-    const pageSize = state.sqlPageSize > 0 ? state.sqlPageSize : Math.max(total, 1);
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    state.sqlPage = Math.min(Math.max(1, state.sqlPage || 1), totalPages);
+    const ps = pageSize > 0 ? pageSize : Math.max(total, 1);
+    const totalPages = Math.max(1, Math.ceil(total / ps));
+    const safePage = Math.min(Math.max(1, page || 1), totalPages);
 
-    const startIdx = (state.sqlPage - 1) * pageSize;
-    const endIdx = Math.min(startIdx + pageSize, total);
+    const startIdx = (safePage - 1) * ps;
+    const endIdx = Math.min(startIdx + ps, total);
     const visible = indexedRows.slice(startIdx, endIdx);
 
-    const colsKey = `${state.sqlDb || ""}|${state.sqlTable || ""}|${canRowCrud ? "1:" : "0:"}${res.columns.join("\x00")}`;
+    const colsKey = `${dbName || ""}|${tableName || ""}|${canRowCrud ? "1:" : "0:"}${res.columns.join("\x00")}`;
     const colOffset = canRowCrud ? 1 : 0;
     const actHead = canRowCrud ? `<th class="row-acts-col">Actions</th>` : "";
     const thead = `<thead><tr>${actHead}${res.columns
@@ -1366,11 +2243,30 @@
     }
     wrap.innerHTML = `<table class="data-table" data-cols-key="${esc(colsKey)}">${thead}<tbody>${rowHtml.join("")}</tbody></table>`;
     const tableEl = wrap.querySelector("table.data-table");
-    if (tableEl && state.sqlColWidths && state.sqlColWidths.colsKey === colsKey) {
-      applyTableColWidths(tableEl, state.sqlColWidths.widths);
+    if (tableEl && colWidths && colWidths.colsKey === colsKey) {
+      applyTableColWidths(tableEl, colWidths.widths);
     }
     wrap.scrollTop = 0;
-    renderSqlPager(res, total, res.rows.length, pageSize, totalPages, total === 0 ? 0 : startIdx + 1, endIdx);
+    return { total, page: safePage, totalPages, pageSize: ps, startIdx, endIdx };
+  }
+
+  function renderSqlTable(res) {
+    const wrap = $("sqlResults");
+    if (!res || !res.columns.length) {
+      wrap.innerHTML = `<div class="empty-note">Empty result set</div>`;
+      hideSqlPager();
+      return;
+    }
+    const stats = renderSqlTableInto(wrap, res, {
+      filterText: $("sqlRowFilter")?.value || "",
+      page: state.sqlPage,
+      pageSize: state.sqlPageSize,
+      dbName: state.sqlDb,
+      tableName: state.sqlTable,
+      colWidths: state.sqlColWidths,
+    });
+    state.sqlPage = stats.page;
+    renderSqlPager(res, stats.total, res.rows.length, stats.pageSize, stats.totalPages, stats.total === 0 ? 0 : stats.startIdx + 1, stats.endIdx);
   }
 
   function applyTableColWidths(table, widths) {
@@ -3595,6 +4491,9 @@ try {
         try {
           await api().DropDatabase(state.dbEngine, name);
           toast(`Dropped ${name}`, "ok");
+          state.sqlTabs
+            .filter((t) => t.engine === state.dbEngine && t.db === name)
+            .forEach((t) => removeFloatingSqlWin(t.id));
           state.sqlTabs = state.sqlTabs.filter((t) => !(t.engine === state.dbEngine && t.db === name));
           if (state.sqlDb === name) state.sqlDb = "";
           invalidateSqlCache(state.dbEngine);
@@ -3650,6 +4549,16 @@ try {
     }
     if ($("sqlTabList")) {
       $("sqlTabList").addEventListener("click", (e) => {
+        if (suppressNextSqlTabClick) {
+          suppressNextSqlTabClick = false;
+          return;
+        }
+        const popBtn = e.target.closest("[data-pop-sqltab]");
+        if (popBtn) {
+          e.stopPropagation();
+          detachSqlTab(popBtn.dataset.popSqltab);
+          return;
+        }
         const closeBtn = e.target.closest("[data-close-sqltab]");
         if (closeBtn) {
           e.stopPropagation();
@@ -3662,6 +4571,75 @@ try {
         syncActiveTabFromDom();
         const tab = getSqlTab(tabEl.dataset.sqltabId);
         if (tab) applyTabToDom(tab, { syncSidebar: true });
+      });
+      $("sqlTabList").addEventListener("pointerdown", (e) => {
+        if (e.button !== 0 || e.target.closest("[data-close-sqltab], [data-pop-sqltab]")) return;
+        const tabEl = e.target.closest("[data-sqltab-id]");
+        if (!tabEl) return;
+        const tabId = tabEl.dataset.sqltabId;
+        const startX = e.clientX;
+        const startY = e.clientY;
+        let dragging = false;
+        let tornOut = false;
+
+        const onMove = (ev) => {
+          if (tornOut) return;
+          const dx = ev.clientX - startX;
+          const dy = ev.clientY - startY;
+          if (!dragging && Math.hypot(dx, dy) < 6) return;
+          dragging = true;
+          suppressNextSqlTabClick = true;
+          const liveEl = $("sqlTabList")?.querySelector(`[data-sqltab-id="${tabId}"]`);
+          liveEl?.classList.add("is-dragging");
+
+          const barRect = $("sqlTabBar")?.getBoundingClientRect();
+          if (barRect && (ev.clientY > barRect.bottom + 28 || ev.clientY < barRect.top - 24)) {
+            tornOut = true;
+            cleanup();
+            const winEl = detachSqlTab(tabId, { clientX: ev.clientX, clientY: ev.clientY });
+            const detachedTab = getSqlTab(tabId);
+            if (winEl && detachedTab) {
+              startFloatingWinDrag(winEl, detachedTab, ev.clientX, ev.clientY);
+            }
+            return;
+          }
+
+          // Reorder horizontally inside the tab strip
+          const sibs = Array.from($("sqlTabList")?.querySelectorAll(".sql-tab") || []);
+          for (const sib of sibs) {
+            const sibId = sib.dataset.sqltabId;
+            if (!sibId || sibId === tabId) continue;
+            const r = sib.getBoundingClientRect();
+            const mid = r.left + r.width / 2;
+            const curIdx = state.sqlTabs.findIndex((t) => t.id === tabId);
+            const sibIdx = state.sqlTabs.findIndex((t) => t.id === sibId);
+            if (curIdx < 0 || sibIdx < 0) continue;
+            if ((curIdx < sibIdx && ev.clientX > mid) || (curIdx > sibIdx && ev.clientX < mid)) {
+              const [moved] = state.sqlTabs.splice(curIdx, 1);
+              const nextSibIdx = state.sqlTabs.findIndex((t) => t.id === sibId);
+              state.sqlTabs.splice(curIdx < sibIdx ? nextSibIdx + 1 : nextSibIdx, 0, moved);
+              renderSqlTabs();
+              $("sqlTabList")?.querySelector(`[data-sqltab-id="${tabId}"]`)?.classList.add("is-dragging");
+              break;
+            }
+          }
+        };
+
+        const cleanup = () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          window.removeEventListener("pointercancel", onUp);
+          $("sqlTabList")?.querySelectorAll(".sql-tab.is-dragging").forEach((el) => el.classList.remove("is-dragging"));
+        };
+
+        const onUp = () => {
+          cleanup();
+          if (dragging) setTimeout(() => { suppressNextSqlTabClick = false; }, 30);
+        };
+
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onUp);
       });
       $("sqlTabList").addEventListener("auxclick", (e) => {
         if (e.button !== 1) return;
@@ -3864,430 +4842,14 @@ try {
     };
 
     // SQL Editor IDE-style Tab Autocomplete & Snippet Suggestions (CREATE, SHOW, SELECT, Tables, Columns)
-    const sqlSuggestState = {
-      open: false,
-      items: [],
-      activeIdx: 0,
-      replaceStart: 0,
-      replaceEnd: 0,
-      prefix: "",
-    };
-
-    function closeSqlSuggest() {
-      sqlSuggestState.open = false;
-      sqlSuggestState.items = [];
-      sqlSuggestState.activeIdx = 0;
-      const menu = $("sqlSuggestMenu");
-      if (menu) menu.hidden = true;
-    }
-
-    function getCaretCoordsInTextarea(ta, pos) {
-      const div = document.createElement("div");
-      const cs = getComputedStyle(ta);
-      const copyProps = [
-        "boxSizing", "width", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
-        "borderTopWidth", "borderLeftWidth", "fontStyle", "fontVariant", "fontWeight",
-        "fontStretch", "fontSize", "lineHeight", "fontFamily", "letterSpacing", "tabSize",
-      ];
-      div.style.position = "absolute";
-      div.style.visibility = "hidden";
-      div.style.whiteSpace = "pre-wrap";
-      div.style.wordWrap = "break-word";
-      copyProps.forEach((p) => { div.style[p] = cs[p]; });
-      div.textContent = ta.value.slice(0, pos);
-      const marker = document.createElement("span");
-      marker.textContent = ta.value.slice(pos) || ".";
-      div.appendChild(marker);
-      document.body.appendChild(div);
-      const top = marker.offsetTop - ta.scrollTop;
-      const left = marker.offsetLeft - ta.scrollLeft;
-      document.body.removeChild(div);
-      return { top, left };
-    }
-
-    function getSqlSuggestContext(text, cursorPos) {
-      const before = text.slice(0, cursorPos);
-      // Extract identifier/keyword token right before cursor (supports table.col too)
-      const tokMatch = before.match(/([A-Za-z0-9_`".*]*)$/);
-      const rawTok = tokMatch ? tokMatch[1] : "";
-      const replaceStart = cursorPos - rawTok.length;
-      const beforeTok = before.slice(0, replaceStart);
-      const prefix = rawTok.replace(/^[`"]+/, "");
-      const dotIdx = prefix.lastIndexOf(".");
-      const tableQualifier = dotIdx >= 0 ? prefix.slice(0, dotIdx).replace(/[`"]/g, "") : "";
-      const colPrefix = dotIdx >= 0 ? prefix.slice(dotIdx + 1) : prefix;
-      const lastSemi = before.lastIndexOf(";");
-      const stmtRaw = before.slice(lastSemi + 1);
-      const stmtTrimLeft = stmtRaw.replace(/^\s+/, "");
-      const stmtStartPos = (lastSemi + 1) + (stmtRaw.length - stmtTrimLeft.length);
-      const isLeadCommandPhrase = /^(create|show|alter|drop|insert|update|delete|describe|explain|truncate)\s+[A-Za-z0-9_]*$/i.test(stmtTrimLeft);
-
-      const prevStmtChunk = beforeTok.split(";").pop() || "";
-      const prevTrim = prevStmtChunk.trimEnd();
-      const prevUpper = prevTrim.toUpperCase();
-      const atStatementStart = prevTrim === "" || /;\s*$/.test(prevStmtChunk);
-      const expectTable = /\b(FROM|JOIN|INTO|UPDATE|TABLE|DESCRIBE|DESC|TRUNCATE|SHOW\s+CREATE\s+TABLE|SHOW\s+COLUMNS\s+FROM|SHOW\s+INDEX\s+FROM)\s*$/i.test(prevTrim);
-      const expectDb = /\b(USE|DATABASE|SCHEMA)\s*$/i.test(prevTrim);
-      const expectColumn = /\b(SELECT|WHERE|AND|OR|SET|ORDER\s+BY|GROUP\s+BY|HAVING|ON)\s*$/i.test(prevTrim) || /,\s*$/.test(prevTrim) || dotIdx >= 0;
-      const effectivePrefix = isLeadCommandPhrase ? stmtTrimLeft : colPrefix;
-      const effectiveStart = isLeadCommandPhrase ? stmtStartPos : (dotIdx >= 0 ? replaceStart + dotIdx + 1 : replaceStart);
-      return {
-        rawTok,
-        prefix,
-        colPrefix: effectivePrefix,
-        tableQualifier,
-        replaceStart: effectiveStart,
-        replaceEnd: cursorPos,
-        atStatementStart: atStatementStart || isLeadCommandPhrase,
-        isLeadCommandPhrase,
-        expectTable: isLeadCommandPhrase ? false : expectTable,
-        expectDb: isLeadCommandPhrase ? false : expectDb,
-        expectColumn: isLeadCommandPhrase ? false : expectColumn,
-        prevUpper,
-      };
-    }
-
-    function buildSqlSuggestions(ctx) {
-      const engine = (state.dbEngine || "mysql").startsWith("cloud:")
-        ? ((state.cloudProfiles || []).find((p) => "cloud:" + p.id === state.dbEngine)?.engine || "mysql")
-        : (state.dbEngine || "mysql");
-      const sampleTbl = state.sqlTable || (state.sqlTables && state.sqlTables[0]?.name) || "table_name";
-      const sampleDb = state.sqlDb || "my_database";
-      const qTbl = engine === "mysql" || engine === "mariadb" ? "`" + sampleTbl + "`" : sampleTbl;
-      const autoIncCol = engine === "postgresql"
-        ? "id SERIAL PRIMARY KEY"
-        : engine === "mssql"
-          ? "id INT IDENTITY(1,1) PRIMARY KEY"
-          : "id INT AUTO_INCREMENT PRIMARY KEY";
-
-      const templates = [
-        {
-          kind: "tmpl",
-          label: "CREATE TABLE ...",
-          meta: "Template",
-          insert: `CREATE TABLE new_table (\n  ${autoIncCol},\n  name VARCHAR(120) NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);`,
-          cursorToken: "new_table",
-        },
-        { kind: "tmpl", label: "CREATE DATABASE ...", meta: "Template", insert: `CREATE DATABASE ${sampleDb}_new;`, cursorToken: `${sampleDb}_new` },
-        { kind: "tmpl", label: "CREATE INDEX ...", meta: "Template", insert: `CREATE INDEX idx_${sampleTbl}_col ON ${qTbl} (column_name);`, cursorToken: "column_name" },
-        { kind: "tmpl", label: "CREATE VIEW ...", meta: "Template", insert: `CREATE VIEW v_${sampleTbl} AS\nSELECT * FROM ${qTbl};`, cursorToken: `v_${sampleTbl}` },
-        {
-          kind: "tmpl",
-          label: "SHOW TABLES;",
-          meta: "Template",
-          insert: engine === "postgresql"
-            ? "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_name;"
-            : engine === "mssql"
-              ? "SELECT s.name AS schema_name, o.name AS table_name FROM sys.objects o JOIN sys.schemas s ON o.schema_id = s.schema_id WHERE o.type = 'U' ORDER BY s.name, o.name;"
-              : "SHOW TABLES;",
-        },
-        {
-          kind: "tmpl",
-          label: "SHOW DATABASES;",
-          meta: "Template",
-          insert: engine === "postgresql"
-            ? "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY datname;"
-            : engine === "mssql"
-              ? "SELECT name FROM sys.databases ORDER BY name;"
-              : "SHOW DATABASES;",
-        },
-        {
-          kind: "tmpl",
-          label: `SHOW CREATE TABLE ${sampleTbl};`,
-          meta: "Template",
-          insert: engine === "mysql" || engine === "mariadb"
-            ? `SHOW CREATE TABLE ${qTbl};`
-            : `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '${sampleTbl}';`,
-        },
-        {
-          kind: "tmpl",
-          label: `SHOW COLUMNS FROM ${sampleTbl};`,
-          meta: "Template",
-          insert: engine === "mysql" || engine === "mariadb"
-            ? `SHOW COLUMNS FROM ${qTbl};`
-            : `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '${sampleTbl}';`,
-        },
-        { kind: "tmpl", label: "SHOW STATUS / VARIABLES;", meta: "Template", insert: "SHOW VARIABLES LIKE '%timeout%';", cursorToken: "%timeout%" },
-        {
-          kind: "tmpl",
-          label: `SELECT * FROM ${sampleTbl}`,
-          meta: "Template",
-          insert: engine === "mssql" ? `SELECT TOP 100 * FROM ${qTbl};` : `SELECT * FROM ${qTbl} LIMIT 100;`,
-        },
-        { kind: "tmpl", label: `SELECT COUNT(*) FROM ${sampleTbl};`, meta: "Template", insert: `SELECT COUNT(*) AS total FROM ${qTbl};` },
-        { kind: "tmpl", label: `INSERT INTO ${sampleTbl} ...`, meta: "Template", insert: `INSERT INTO ${qTbl} (col1, col2) VALUES ('val1', 'val2');`, cursorToken: "col1" },
-        { kind: "tmpl", label: `UPDATE ${sampleTbl} SET ...`, meta: "Template", insert: `UPDATE ${qTbl} SET col1 = 'value' WHERE id = 1;`, cursorToken: "col1" },
-        { kind: "tmpl", label: `DELETE FROM ${sampleTbl} WHERE ...`, meta: "Template", insert: `DELETE FROM ${qTbl} WHERE id = 1;`, cursorToken: "id = 1" },
-        { kind: "tmpl", label: `ALTER TABLE ${sampleTbl} ADD ...`, meta: "Template", insert: `ALTER TABLE ${qTbl} ADD COLUMN new_col VARCHAR(120);`, cursorToken: "new_col" },
-        { kind: "tmpl", label: `DESCRIBE ${sampleTbl};`, meta: "Template", insert: `DESCRIBE ${qTbl};` },
-        { kind: "tmpl", label: `EXPLAIN SELECT ...`, meta: "Template", insert: `EXPLAIN SELECT * FROM ${qTbl} LIMIT 100;` },
-        { kind: "tmpl", label: `DROP TABLE IF EXISTS ${sampleTbl};`, meta: "Template", insert: `DROP TABLE IF EXISTS ${qTbl};` },
-        { kind: "tmpl", label: `TRUNCATE TABLE ${sampleTbl};`, meta: "Template", insert: `TRUNCATE TABLE ${qTbl};` },
-      ];
-
-      const tables = (state.sqlTables || []).map((t) => ({
-        kind: "tbl",
-        label: t.name,
-        meta: /view/i.test(t.kind || "") ? "View" : "Table",
-        insert: t.name,
-      }));
-
-      const cols = (state.sqlColumns || []).map((c) => ({
-        kind: "col",
-        label: c.name,
-        meta: c.dataType || "Column",
-        insert: c.name,
-      }));
-
-      const dbs = (state.sqlDbs || []).map((d) => ({
-        kind: "tbl",
-        label: d,
-        meta: "Database",
-        insert: d,
-      }));
-
-      const keywords = [
-        "SELECT", "CREATE", "SHOW", "INSERT", "UPDATE", "DELETE", "ALTER", "DROP", "DESCRIBE", "EXPLAIN",
-        "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN", "IS NULL", "IS NOT NULL",
-        "ORDER BY", "GROUP BY", "HAVING", "LIMIT", "OFFSET", "JOIN", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN",
-        "ON", "AS", "DISTINCT", "VALUES", "SET", "INTO", "TABLE", "DATABASE", "INDEX", "VIEW", "COLUMN",
-        "PRIMARY KEY", "FOREIGN KEY", "REFERENCES", "AUTO_INCREMENT", "NOT NULL", "DEFAULT",
-        "COUNT(*)", "SUM()", "AVG()", "MIN()", "MAX()", "COALESCE()", "NOW()", "CURRENT_TIMESTAMP",
-        "VARCHAR(255)", "INT", "BIGINT", "TEXT", "BOOLEAN", "DECIMAL(10,2)", "DATETIME", "TIMESTAMP",
-      ].map((kw) => ({ kind: "kw", label: kw, meta: "SQL", insert: kw }));
-
-      const q = (ctx.colPrefix || "").toLowerCase();
-      let pool = [];
-      if (ctx.tableQualifier && cols.length) {
-        pool = [...cols];
-      } else if (ctx.expectTable) {
-        pool = [...tables, ...dbs];
-      } else if (ctx.expectDb) {
-        pool = [...dbs];
-      } else if (ctx.expectColumn) {
-        pool = [...cols, ...tables, ...keywords];
-      } else if (ctx.atStatementStart) {
-        pool = [...templates, ...keywords, ...tables];
-      } else {
-        pool = [...keywords, ...tables, ...cols, ...templates];
-      }
-
-      const scored = [];
-      const seen = new Set();
-      for (const item of pool) {
-        const key = item.kind + ":" + item.label.toLowerCase();
-        if (seen.has(key)) continue;
-        const lblLower = item.label.toLowerCase();
-        let score = 0;
-        if (!q) {
-          score = item.kind === "tmpl" ? 90 : item.kind === "tbl" ? 85 : item.kind === "col" ? 80 : 60;
-        } else if (lblLower === q) {
-          score = 200;
-        } else if (lblLower.startsWith(q)) {
-          score = 150 + (item.kind === "tmpl" && ctx.atStatementStart ? 20 : item.kind === "tbl" && ctx.expectTable ? 25 : 0);
-        } else if (lblLower.includes(q)) {
-          score = 80;
-        } else {
-          continue;
-        }
-        seen.add(key);
-        scored.push({ ...item, score });
-      }
-      scored.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label));
-      return scored.slice(0, 12);
-    }
-
-    function renderSqlSuggestMenu() {
-      const menu = $("sqlSuggestMenu");
-      const ta = $("sqlEditor");
-      if (!menu || !ta) return;
-      if (!sqlSuggestState.open || !sqlSuggestState.items.length) {
-        menu.hidden = true;
-        return;
-      }
-      const coords = getCaretCoordsInTextarea(ta, sqlSuggestState.replaceEnd);
-      const stageW = $("sqlEditorStage")?.clientWidth || ta.clientWidth || 500;
-      const stageH = $("sqlEditorStage")?.clientHeight || ta.clientHeight || 200;
-      const maxLeft = Math.max(8, stageW - 320);
-      const leftPx = Math.max(8, Math.min(maxLeft, coords.left + 8));
-      let topPx = coords.top + 22;
-      if (topPx + 190 > stageH && coords.top > 140) {
-        topPx = Math.max(6, coords.top - 185);
-      }
-      menu.style.left = `${leftPx}px`;
-      menu.style.top = `${Math.max(6, topPx)}px`;
-
-      const q = (sqlSuggestState.prefix || "").toLowerCase();
-      const highlightMatch = (lbl) => {
-        if (!q) return esc(lbl);
-        const idx = lbl.toLowerCase().indexOf(q);
-        if (idx < 0) return esc(lbl);
-        return esc(lbl.slice(0, idx)) + `<mark>${esc(lbl.slice(idx, idx + q.length))}</mark>` + esc(lbl.slice(idx + q.length));
-      };
-
-      menu.innerHTML =
-        `<div class="sql-suggest-list">` +
-        sqlSuggestState.items
-          .map((item, idx) => {
-            const active = idx === sqlSuggestState.activeIdx;
-            const kindLabel = item.kind === "tmpl" ? "Snippet" : item.kind === "tbl" ? "Table" : item.kind === "col" ? "Col" : "SQL";
-            return `<button type="button" class="sql-suggest-item${active ? " active" : ""}" role="option" aria-selected="${active}" data-sg-idx="${idx}">
-              <span class="sql-suggest-left">
-                <span class="sql-suggest-kind ${esc(item.kind)}">${kindLabel}</span>
-                <span class="sql-suggest-label">${highlightMatch(item.label)}</span>
-              </span>
-              <span class="sql-suggest-meta">${active ? `<span class="sql-suggest-tab-key">Tab ⇥</span>` : esc(item.meta || "")}</span>
-            </button>`;
-          })
-          .join("") +
-        `</div>` +
-        `<div class="sql-suggest-foot"><span>↑↓ choose · <strong>Tab</strong> or click to insert</span><span>Esc close</span></div>`;
-      menu.hidden = false;
-      const activeEl = menu.querySelector(".sql-suggest-item.active");
-      if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
-    }
-
-    function openSqlSuggest(forceShow = false) {
-      const ta = $("sqlEditor");
-      if (!ta) return;
-      const pos = ta.selectionStart ?? 0;
-      const ctx = getSqlSuggestContext(ta.value, pos);
-      if (!forceShow && !ctx.colPrefix && !ctx.expectTable && !ctx.expectDb && !ctx.tableQualifier) {
-        closeSqlSuggest();
-        return;
-      }
-      const items = buildSqlSuggestions(ctx);
-      if (!items.length) {
-        closeSqlSuggest();
-        return;
-      }
-      sqlSuggestState.open = true;
-      sqlSuggestState.items = items;
-      sqlSuggestState.activeIdx = 0;
-      sqlSuggestState.replaceStart = ctx.replaceStart;
-      sqlSuggestState.replaceEnd = ctx.replaceEnd;
-      sqlSuggestState.prefix = ctx.colPrefix;
-      renderSqlSuggestMenu();
-    }
-
-    function applySqlSuggestion(idx = sqlSuggestState.activeIdx) {
-      const ta = $("sqlEditor");
-      const item = sqlSuggestState.items[idx];
-      if (!ta || !item) return false;
-      const val = ta.value;
-      const start = sqlSuggestState.replaceStart;
-      const end = sqlSuggestState.replaceEnd;
-      let insertText = item.insert || item.label;
-      const needTrailingSpace = item.kind === "kw" && !insertText.endsWith(")") && !insertText.endsWith(";");
-      if (needTrailingSpace && (val[end] === undefined || !/\s/.test(val[end]))) {
-        insertText += " ";
-      }
-      ta.value = val.slice(0, start) + insertText + val.slice(end);
-      let nextPos = start + insertText.length;
-      if (item.cursorToken) {
-        const tokIdx = insertText.indexOf(item.cursorToken);
-        if (tokIdx >= 0) {
-          ta.focus();
-          ta.setSelectionRange(start + tokIdx, start + tokIdx + item.cursorToken.length);
-          const tab = getActiveSqlTab();
-          if (tab) tab.sql = ta.value;
-          closeSqlSuggest();
-          return true;
-        }
-      }
-      if (insertText.endsWith("()")) {
-        nextPos -= 1;
-      }
-      ta.focus();
-      ta.setSelectionRange(nextPos, nextPos);
-      const tab = getActiveSqlTab();
-      if (tab) tab.sql = ta.value;
-      closeSqlSuggest();
-      return true;
-    }
-
-    if ($("sqlSuggestMenu")) {
-      $("sqlSuggestMenu").addEventListener("mousedown", (e) => {
-        // Prevent textarea blur before click completes
-        e.preventDefault();
-        const btn = e.target.closest("[data-sg-idx]");
-        if (!btn) return;
-        applySqlSuggestion(Number(btn.dataset.sgIdx));
-      });
-    }
-
-    $("sqlEditor").addEventListener("input", () => {
-      openSqlSuggest(false);
+    const mainSqlSuggest = attachSqlAutocomplete({
+      textarea: $("sqlEditor"),
+      menu: $("sqlSuggestMenu"),
+      stage: $("sqlEditorStage"),
+      getTab: getActiveSqlTab,
+      onRun: () => runSqlQuery(false),
     });
-    $("sqlEditor").addEventListener("blur", () => {
-      setTimeout(() => closeSqlSuggest(), 120);
-    });
-    $("sqlEditor").addEventListener("keydown", (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-        e.preventDefault();
-        closeSqlSuggest();
-        runSqlQuery(false);
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.code === "Space") {
-        e.preventDefault();
-        openSqlSuggest(true);
-        return;
-      }
-      if (e.key === "Escape" && sqlSuggestState.open) {
-        e.preventDefault();
-        closeSqlSuggest();
-        return;
-      }
-      if (sqlSuggestState.open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-        e.preventDefault();
-        const len = sqlSuggestState.items.length;
-        if (len > 0) {
-          sqlSuggestState.activeIdx = e.key === "ArrowDown"
-            ? (sqlSuggestState.activeIdx + 1) % len
-            : (sqlSuggestState.activeIdx - 1 + len) % len;
-          renderSqlSuggestMenu();
-        }
-        return;
-      }
-      if (e.key === "Tab" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const ta = $("sqlEditor");
-        if (sqlSuggestState.open && sqlSuggestState.items.length) {
-          e.preventDefault();
-          applySqlSuggestion(sqlSuggestState.activeIdx);
-          return;
-        }
-        // If user presses Tab right after typing a prefix (e.g. "cre", "sho", "sel"), open/accept inline!
-        if (!e.shiftKey && ta && ta.selectionStart === ta.selectionEnd) {
-          const ctx = getSqlSuggestContext(ta.value, ta.selectionStart);
-          if (ctx.colPrefix) {
-            const items = buildSqlSuggestions(ctx);
-            if (items.length === 1) {
-              e.preventDefault();
-              sqlSuggestState.items = items;
-              sqlSuggestState.replaceStart = ctx.replaceStart;
-              sqlSuggestState.replaceEnd = ctx.replaceEnd;
-              sqlSuggestState.prefix = ctx.colPrefix;
-              applySqlSuggestion(0);
-              return;
-            }
-            if (items.length > 1) {
-              e.preventDefault();
-              openSqlSuggest(true);
-              return;
-            }
-          }
-          // Otherwise indent cleanly with 2 spaces instead of tabbing focus away from SQL editor
-          e.preventDefault();
-          const pos = ta.selectionStart;
-          ta.value = ta.value.slice(0, pos) + "  " + ta.value.slice(pos);
-          ta.setSelectionRange(pos + 2, pos + 2);
-          const tab = getActiveSqlTab();
-          if (tab) tab.sql = ta.value;
-          return;
-        }
-      }
-    });
+    const closeSqlSuggest = () => mainSqlSuggest.close();
 
     // New DB modal
     const closeNewDb = () => ($("modalNewDb").hidden = true);

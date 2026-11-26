@@ -958,7 +958,30 @@ body.is-resizing-row, body.is-resizing-row * { cursor: row-resize !important; us
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   min-height: 31px;
+  position: relative;
+  transition: background 0.14s, box-shadow 0.14s, border-color 0.14s;
 }
+.sql-tabs-bar.is-drop-target {
+  background: rgba(20, 184, 166, 0.12);
+  border-bottom-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(20, 184, 166, 0.55);
+}
+.sql-tab-drop-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  margin-bottom: 3px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: #062522;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 2px 10px rgba(20, 184, 166, 0.35);
+}
+.sql-tab-drop-hint[hidden] { display: none !important; }
 .sql-tab-list {
   display: flex;
   align-items: flex-end;
@@ -972,11 +995,11 @@ body.is-resizing-row, body.is-resizing-row * { cursor: row-resize !important; us
 .sql-tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   max-width: 220px;
   min-width: 72px;
   flex-shrink: 0;
-  padding: 4px 7px 5px 10px;
+  padding: 4px 6px 5px 10px;
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: 7px 7px 0 0;
@@ -985,7 +1008,9 @@ body.is-resizing-row, body.is-resizing-row * { cursor: row-resize !important; us
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  user-select: none;
+  touch-action: none;
+  transition: background 0.12s, color 0.12s, opacity 0.12s, box-shadow 0.12s;
 }
 .sql-tab:hover {
   background: var(--bg-hover);
@@ -997,6 +1022,14 @@ body.is-resizing-row, body.is-resizing-row * { cursor: row-resize !important; us
   font-weight: 600;
   border-color: var(--border);
   box-shadow: inset 0 2px 0 var(--accent);
+}
+.sql-tab.is-dragging {
+  opacity: 0.72;
+  background: var(--bg-card);
+  border-color: var(--accent);
+}
+.sql-tab.is-drop-before {
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .sql-tab-dot {
   width: 6px;
@@ -1018,6 +1051,7 @@ body.is-resizing-row, body.is-resizing-row * { cursor: row-resize !important; us
   color: var(--text-muted);
   font-size: 11px;
 }
+.sql-tab-pop,
 .sql-tab-close {
   border: none;
   background: transparent;
@@ -1032,12 +1066,23 @@ body.is-resizing-row, body.is-resizing-row * { cursor: row-resize !important; us
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  opacity: 0.65;
+  opacity: 0;
   flex-shrink: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
 }
+.sql-tab-close {
+  opacity: 0.65;
+}
+.sql-tab:hover .sql-tab-pop,
+.sql-tab.active .sql-tab-pop,
 .sql-tab:hover .sql-tab-close,
 .sql-tab.active .sql-tab-close {
-  opacity: 0.9;
+  opacity: 0.88;
+}
+.sql-tab-pop:hover {
+  opacity: 1;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .sql-tab-close:hover {
   opacity: 1;
@@ -3275,4 +3320,152 @@ body.has-sync-floating .toasts { bottom: 72px; }
 }
 .snap-purge-line.expired strong {
   color: var(--red);
+}
+
+/* Detached / Floating Chrome-style SQL Query Windows */
+.sql-float-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 80;
+}
+.sql-float-win {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 340px;
+  min-height: 260px;
+  max-width: calc(100vw - 12px);
+  max-height: calc(100vh - 12px);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 20px 52px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  pointer-events: auto;
+  overflow: visible;
+  transition: box-shadow 0.14s, border-color 0.14s, opacity 0.12s;
+}
+.sql-float-win.is-focused {
+  border-color: rgba(20, 184, 166, 0.55);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.68), 0 0 0 1px rgba(20, 184, 166, 0.35);
+}
+.sql-float-win.is-over-tabbar {
+  opacity: 0.85;
+  border-color: var(--accent);
+  box-shadow: 0 12px 32px rgba(20, 184, 166, 0.35), 0 0 0 2px var(--accent);
+}
+.sql-float-win.is-maximized {
+  left: 12px !important;
+  top: 12px !important;
+  width: calc(100vw - 24px) !important;
+  height: calc(100vh - 24px) !important;
+}
+.sql-float-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+  flex-shrink: 0;
+}
+.sql-float-tabpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 2px 0 var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sql-float-head-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.sql-float-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sql-float-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sql-float-editor-wrap {
+  position: relative;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  height: 125px;
+  min-height: 64px;
+  flex-shrink: 0;
+}
+.sql-float-editor {
+  flex: 1;
+  width: 100%;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 8px 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.sql-float-split {
+  height: 6px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  cursor: row-resize;
+  flex-shrink: 0;
+  touch-action: none;
+}
+.sql-float-split:hover {
+  background: rgba(20, 184, 166, 0.22);
+}
+.sql-float-result-wrap {
+  flex: 1;
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+}
+.sql-float-results {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.sql-float-pager {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.sql-float-resize-se {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, rgba(148, 163, 184, 0.45) 50%, rgba(148, 163, 184, 0.45) 65%, transparent 65%, transparent 80%, rgba(148, 163, 184, 0.65) 80%);
 }

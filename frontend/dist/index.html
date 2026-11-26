@@ -309,6 +309,7 @@
           <div class="browser-main" id="sqlBrowserMain">
             <div class="sql-tabs-bar" id="sqlTabBar">
               <div class="sql-tab-list" id="sqlTabList" role="tablist"></div>
+              <span class="sql-tab-drop-hint" id="sqlTabDropHint" hidden>📥 Drop here to put tab back</span>
               <button type="button" class="sql-tab-add" id="btnNewSqlTab" title="Open new SQL query tab">+</button>
             </div>
             <div class="editor-box" id="sqlEditorBox">
@@ -1915,6 +1916,8 @@
       </div>
     </div>
   </div>
+
+  <div id="sqlFloatingWindows" class="sql-float-layer" aria-live="polite"></div>
 
   <div class="toasts" id="toasts"></div>
 

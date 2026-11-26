@@ -1567,21 +1567,27 @@
       }
       const stroke = e.inferred ? "#38bdf8" : "#14b8a6";
       const dash = e.inferred ? ` stroke-dasharray="5 4"` : "";
-      return `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="2"${dash} marker-end="url(#fk-arrow)"/>`;
+      const marker = e.inferred ? "url(#fk-arrow-inf)" : "url(#fk-arrow)";
+      return `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="2"${dash} marker-end="${marker}"/>`;
     }).join("\n");
+
+    const truncTxt = (s, maxLen) => {
+      const str = String(s || "");
+      return str.length > maxLen ? `${str.slice(0, maxLen - 1)}…` : str;
+    };
 
     const cards = nodePos.map((n) => {
       const colRows = (n.t.columns || []).map((c, idx) => {
         const ry = n.y + 48 + idx * 23;
         const badge = c.isPrimaryKey ? "PK" : "";
-        return `<text x="${n.x + 10}" y="${ry}" fill="${c.isPrimaryKey ? "#fbbf24" : "#94a3b8"}" font-size="10" font-family="monospace">${escXml(badge)}</text>
-          <text x="${n.x + 32}" y="${ry}" fill="#e2e8f0" font-size="11.5" font-family="monospace">${escXml(c.name)}</text>
-          <text x="${n.x + n.w - 10}" y="${ry}" text-anchor="end" fill="#94a3b8" font-size="10.5" font-family="monospace">${escXml(c.dataType || "")}</text>`;
+        return `<text x="${n.x + 10}" y="${ry}" fill="${c.isPrimaryKey ? "#fbbf24" : "#94a3b8"}" font-size="10" font-family="Consolas, 'Courier New', monospace">${escXml(badge)}</text>
+          <text x="${n.x + 30}" y="${ry}" fill="#e2e8f0" font-size="11.5" font-family="Consolas, 'Courier New', monospace">${escXml(truncTxt(c.name, 20))}</text>
+          <text x="${n.x + n.w - 10}" y="${ry}" text-anchor="end" fill="#94a3b8" font-size="10.5" font-family="Consolas, 'Courier New', monospace">${escXml(truncTxt(c.dataType || "", 12))}</text>`;
       }).join("\n");
       return `<g>
         <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="8" fill="#131c2e" stroke="#26334d"/>
         <rect x="${n.x}" y="${n.y}" width="${n.w}" height="32" rx="8" fill="#1a263e"/>
-        <text x="${n.x + 10}" y="${n.y + 20}" fill="#f8fafc" font-size="12" font-weight="700" font-family="sans-serif">${escXml(n.t.name)}</text>
+        <text x="${n.x + 10}" y="${n.y + 20}" fill="#f8fafc" font-size="12" font-weight="700" font-family="Segoe UI, system-ui, sans-serif">${escXml(truncTxt(n.t.name, 28))}</text>
         ${colRows}
       </g>`;
     }).join("\n");
@@ -1593,10 +1599,124 @@
     <marker id="fk-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
       <path d="M 0 1 L 10 5 L 0 9 z" fill="#14b8a6"/>
     </marker>
+    <marker id="fk-arrow-inf" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8"/>
+    </marker>
   </defs>
   ${edgePaths}
   ${cards}
 </svg>`;
+  }
+
+  function utf8ToBase64(str) {
+    const bytes = new TextEncoder().encode(String(str || ""));
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) {
+      bin += String.fromCharCode(bytes[i]);
+    }
+    return btoa(bin);
+  }
+
+  function rasterizeSvgToCanvas(svgDoc) {
+    return new Promise((resolve, reject) => {
+      const wMatch = svgDoc.match(/\bwidth="(\d+(?:\.\d+)?)"/);
+      const hMatch = svgDoc.match(/\bheight="(\d+(?:\.\d+)?)"/);
+      const w = Math.max(100, Math.ceil(Number(wMatch?.[1] || 800)));
+      const h = Math.max(100, Math.ceil(Number(hMatch?.[1] || 600)));
+      const maxDim = 7600;
+      const scale = Math.max(1, Math.min(2, Math.floor(Math.min(maxDim / w, maxDim / h) * 10) / 10));
+
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(w * scale);
+          canvas.height = Math.round(h * scale);
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#0b1120";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.scale(scale, scale);
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      img.onerror = () => reject(new Error("Failed to rasterize SVG diagram"));
+      img.src = `data:image/svg+xml;base64,${utf8ToBase64(svgDoc)}`;
+    });
+  }
+
+  function downloadDataUrlFallback(filename, urlOrBlob, isBlob = false) {
+    const url = isBlob ? URL.createObjectURL(urlOrBlob) : urlOrBlob;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    if (isBlob) setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function exportDiagramFormat(tab, diagState, visibleEdges, visibleTables, visSet, format) {
+    const dbSlug = String(tab.db || "database").replace(/[^A-Za-z0-9_.-]+/g, "_");
+    const svgDoc = diagramToSvgDocument(diagState, visibleEdges, visibleTables);
+    const filename = `${dbSlug}-diagram.${format}`;
+
+    try {
+      if (format === "copy-png") {
+        const canvas = await rasterizeSvgToCanvas(svgDoc);
+        const pngBlob = await new Promise((res, rej) =>
+          canvas.toBlob((b) => (b ? res(b) : rej(new Error("PNG encoding failed"))), "image/png")
+        );
+        if (navigator.clipboard && typeof ClipboardItem !== "undefined") {
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": pngBlob })]);
+          toast("Copied diagram PNG image to clipboard!", "ok");
+        } else {
+          const dataUrl = canvas.toDataURL("image/png");
+          if (api()?.SaveDiagramFileDialog) {
+            const p = await api().SaveDiagramFileDialog(`${dbSlug}-diagram.png`, "png", dataUrl);
+            if (p) toast(`Saved diagram PNG: ${p}`, "ok");
+          } else {
+            downloadDataUrlFallback(`${dbSlug}-diagram.png`, pngBlob, true);
+          }
+        }
+        return;
+      }
+
+      let payloadB64 = "";
+      let fallbackBlob = null;
+      if (format === "png" || format === "jpg" || format === "webp") {
+        const mime = format === "jpg" ? "image/jpeg" : `image/${format}`;
+        const canvas = await rasterizeSvgToCanvas(svgDoc);
+        const dataUrl = canvas.toDataURL(mime, format === "png" ? undefined : 0.94);
+        payloadB64 = dataUrl;
+        fallbackBlob = await (await fetch(dataUrl)).blob();
+      } else if (format === "svg") {
+        payloadB64 = utf8ToBase64(svgDoc);
+        fallbackBlob = new Blob([svgDoc], { type: "image/svg+xml;charset=utf-8" });
+      } else if (format === "html") {
+        const htmlDoc = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>${esc(tab.db)} — ER Diagram</title><style>body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,sans-serif;display:flex;flex-direction:column;min-height:100vh}header{padding:10px 16px;background:#131c2e;border-bottom:1px solid #26334d;font-size:13px;font-weight:600}main{flex:1;overflow:auto;padding:20px;display:flex;justify-content:center;align-items:flex-start}svg{max-width:100%;height:auto;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,0.45)}</style></head><body><header>${esc(tab.engine)} / ${esc(tab.db)} — Database ER Diagram</header><main>${svgDoc.replace(/^<\?xml[^>]*\?>\s*/i, "")}</main></body></html>`;
+        payloadB64 = utf8ToBase64(htmlDoc);
+        fallbackBlob = new Blob([htmlDoc], { type: "text/html;charset=utf-8" });
+      } else if (format === "mmd") {
+        const mmd = diagramToMermaid(diagState.data, visibleEdges, visSet);
+        payloadB64 = utf8ToBase64(mmd);
+        fallbackBlob = new Blob([mmd], { type: "text/plain;charset=utf-8" });
+      } else {
+        return;
+      }
+
+      if (api()?.SaveDiagramFileDialog) {
+        const savedPath = await api().SaveDiagramFileDialog(filename, format, payloadB64);
+        if (savedPath) toast(`Saved diagram: ${savedPath}`, "ok");
+      } else if (fallbackBlob) {
+        downloadDataUrlFallback(filename, fallbackBlob, true);
+        toast(`Exported ${filename}`, "ok");
+      }
+    } catch (err) {
+      toast(errMsg(err), "err");
+    }
   }
 
   function refreshDiagramViewForTab(tab) {
@@ -1732,7 +1852,7 @@
           <span class="chip" data-diag-zoom-label>${zoomPct}%</span>
           <button type="button" class="btn xs" data-diag-act="zoom-in" title="Zoom in">+</button>
           <button type="button" class="btn xs" data-diag-act="mermaid" title="Copy Mermaid erDiagram snippet">Mermaid</button>
-          <button type="button" class="btn xs" data-diag-act="svg" title="Download diagram as SVG">SVG</button>
+          <button type="button" class="btn xs" data-diag-act="export" title="Export diagram as PNG, JPEG, WebP, SVG, HTML, or Mermaid">📤 Export ▾</button>
           <button type="button" class="btn xs primary" data-diag-act="refresh" title="Reload schema & foreign keys">↻ Refresh</button>
         </div>
         <div class="diagram-picker-pop" ${d.pickerOpen ? "" : "hidden"}>
@@ -2057,18 +2177,54 @@
         } else if (act === "mermaid") {
           await copyText(diagramToMermaid(d.data, visibleEdges, visSet));
           toast("Copied Mermaid erDiagram to clipboard!", "ok");
-        } else if (act === "svg") {
-          const svgDoc = diagramToSvgDocument(d, visibleEdges, visibleTables);
-          const blob = new Blob([svgDoc], { type: "image/svg+xml;charset=utf-8" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `${tab.db || "database"}-diagram.svg`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-          toast(`Exported ${tab.db}-diagram.svg`, "ok");
+        } else if (act === "export") {
+          const rect = el.getBoundingClientRect();
+          showDbContextMenu(rect.left, rect.bottom + 4, `Export ${tab.db} Diagram`, [
+            {
+              icon: "🖼️",
+              label: "PNG Image (.png)",
+              onClick: () => exportDiagramFormat(tab, d, visibleEdges, visibleTables, visSet, "png"),
+            },
+            {
+              icon: "📷",
+              label: "JPEG Image (.jpg)",
+              onClick: () => exportDiagramFormat(tab, d, visibleEdges, visibleTables, visSet, "jpg"),
+            },
+            {
+              icon: "🌐",
+              label: "WebP Image (.webp)",
+              onClick: () => exportDiagramFormat(tab, d, visibleEdges, visibleTables, visSet, "webp"),
+            },
+            {
+              icon: "📐",
+              label: "SVG Vector (.svg)",
+              onClick: () => exportDiagramFormat(tab, d, visibleEdges, visibleTables, visSet, "svg"),
+            },
+            {
+              icon: "📄",
+              label: "Standalone HTML (.html)",
+              onClick: () => exportDiagramFormat(tab, d, visibleEdges, visibleTables, visSet, "html"),
+            },
+            {
+              icon: "🧩",
+              label: "Mermaid Diagram (.mmd)",
+              onClick: () => exportDiagramFormat(tab, d, visibleEdges, visibleTables, visSet, "mmd"),
+            },
+            { type: "sep" },
+            {
+              icon: "📋",
+              label: "Copy PNG Image to Clipboard",
+              onClick: () => exportDiagramFormat(tab, d, visibleEdges, visibleTables, visSet, "copy-png"),
+            },
+            {
+              icon: "📝",
+              label: "Copy Mermaid Text",
+              onClick: async () => {
+                await copyText(diagramToMermaid(d.data, visibleEdges, visSet));
+                toast("Copied Mermaid erDiagram to clipboard!", "ok");
+              },
+            },
+          ]);
         }
       };
     });

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -985,6 +986,51 @@ func (a *App) ExportDatabaseDialog(engine, dbName string, tables []string, forma
 		}
 	}
 	if err := core.ExportDatabaseSelectionWithProgress(a.paths, realEng, es, dbName, tables, exportFmt, includeSchema, includeData, outPath, emit); err != nil {
+		return "", err
+	}
+	return outPath, nil
+}
+
+// SaveDiagramFileDialog prompts the user with a native Save As dialog for an ER database diagram
+// (PNG, JPEG, WebP, SVG, HTML, or Mermaid) and writes the decoded payload to disk.
+func (a *App) SaveDiagramFileDialog(defaultFilename, format, contentBase64 string) (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("app context not ready")
+	}
+	ext := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(format), "."))
+	filtersByExt := map[string]runtime.FileFilter{
+		"png":  {DisplayName: "PNG Image (*.png)", Pattern: "*.png"},
+		"jpg":  {DisplayName: "JPEG Image (*.jpg;*.jpeg)", Pattern: "*.jpg;*.jpeg"},
+		"jpeg": {DisplayName: "JPEG Image (*.jpeg;*.jpg)", Pattern: "*.jpeg;*.jpg"},
+		"webp": {DisplayName: "WebP Image (*.webp)", Pattern: "*.webp"},
+		"svg":  {DisplayName: "SVG Vector Graphic (*.svg)", Pattern: "*.svg"},
+		"html": {DisplayName: "Standalone HTML Diagram (*.html)", Pattern: "*.html"},
+		"mmd":  {DisplayName: "Mermaid Diagram (*.mmd)", Pattern: "*.mmd"},
+	}
+	var filters []runtime.FileFilter
+	if f, ok := filtersByExt[ext]; ok {
+		filters = append(filters, f)
+	}
+	filters = append(filters, runtime.FileFilter{DisplayName: "All Files (*.*)", Pattern: "*.*"})
+
+	outPath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Export Database Diagram",
+		DefaultFilename: defaultFilename,
+		Filters:         filters,
+	})
+	if err != nil || outPath == "" {
+		return "", err
+	}
+
+	rawB64 := strings.TrimSpace(contentBase64)
+	if _, after, hasPrefix := strings.Cut(rawB64, "base64,"); hasPrefix {
+		rawB64 = after
+	}
+	data, err := base64.StdEncoding.DecodeString(rawB64)
+	if err != nil {
+		return "", fmt.Errorf("invalid diagram payload: %w", err)
+	}
+	if err := os.WriteFile(outPath, data, 0o644); err != nil {
 		return "", err
 	}
 	return outPath, nil

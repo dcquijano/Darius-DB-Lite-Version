@@ -289,6 +289,10 @@
       shortcut: "Alt+2",
       images: [
         { src: "guide-images/database-manager.jpg", caption: "Database Browser — databases, tables, multi-tab SQL editor (Ctrl+Enter) & results" },
+        { src: "guide-images/database-context-menu.jpg", caption: "Right-Click Database Context Menu — New Database Diagram, New Query, Create Table & Refresh" },
+        { src: "guide-images/database-diagram-export.jpg", caption: "Interactive ER Database Diagram & Export Dropdown (PNG, JPEG, WebP, SVG, HTML, Mermaid)" },
+        { src: "guide-images/database-floating-tabs.jpg", caption: "Chrome-Style Tear-Off Floating Query Windows — pop out, drag back (↩ Put Back) & Close All" },
+        { src: "guide-images/database-sql-autocomplete.jpg", caption: "IDE-Style SQL Tab Autocomplete — CREATE, SHOW, SELECT, functions, tables & columns" },
         { src: "guide-images/database-show-row.jpg", caption: "Show Row Details — inspect all columns and copy JSON in one click" },
         { src: "guide-images/database-edit-row.jpg", caption: "Edit Row — update table records visually with NULL toggles" },
         { src: "guide-images/database-create-row.jpg", caption: "Create Row — insert new rows directly into any selected table (Alt+=)" },
@@ -297,7 +301,8 @@
         "Open <strong>Database</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">2</kbd>) or click <strong>Browse</strong> on any running engine card.",
         "<strong>Create DB &amp; User:</strong> Click <strong>+ New</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">D</kbd>) in the Databases pane to create a database and optionally create a dedicated user with full privileges in one step.",
         "<strong>Create &amp; Browse Tables:</strong> Click <strong>+ New</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">T</kbd>) in the Tables pane to build a table visually, or click any existing table to preview its rows.",
-        "<strong>Multi-Tab SQL Editor:</strong> Press <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">N</kbd> to open extra query tabs, <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">[</kbd> / <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">]</kbd> to switch tabs, <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">W</kbd> to close a tab, <kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">Enter</kbd> to run SQL, and <kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">Shift</kbd>+<kbd class=\"kbd\">Enter</kbd> for <strong>Show All</strong>.",
+        "<strong>Interactive ER Database Diagram:</strong> Right-click any database or table → <strong>🗺️ New Database Diagram</strong> (or click <strong>🗺️ Diagram</strong>) for draggable table cards, live FK + dashed inferred <code>*_id</code> links, pan/zoom/Auto-Arrange/Fit, table picker, and <strong>📤 Export ▾</strong> (PNG, JPEG, WebP, SVG, HTML, Mermaid, or Clipboard PNG).",
+        "<strong>Multi-Tab SQL, Autocomplete &amp; Floating Windows:</strong> Press <kbd class=\"kbd\">Tab</kbd> in the SQL editor for smart suggestions; press <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">N</kbd> for extra tabs, <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">[</kbd>/<kbd class=\"kbd\">]</kbd> to switch, or drag any tab out (or click <strong>↗</strong>) into a floating window and click <strong>↩ Put Back</strong> (or <strong>✕ Close All</strong>).",
         "<strong>Visual Row CRUD &amp; Pagination:</strong> Double-click any row to view details, or use <strong>+ Create</strong> (<kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">=</kbd>), <strong>Show</strong>, <strong>Edit</strong>, and <strong>Delete</strong>. Filter rows with <kbd class=\"kbd\">Ctrl</kbd>+<kbd class=\"kbd\">F</kbd> and change pages with <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">←</kbd> / <kbd class=\"kbd\">Alt</kbd>+<kbd class=\"kbd\">→</kbd>.",
         "<strong>Redis Browser:</strong> Select Redis from the top engine tabs, choose <code>db0</code>–<code>db15</code>, filter keys (e.g. <code>session:*</code>), inspect JSON-formatted values &amp; TTL, and run commands in the bottom <code>redis&gt;</code> bar.",
       ],
@@ -339,9 +344,11 @@
       summary: "Connect remote hosts, sync Local ↔ Cloud, and automate daily 2:00 AM .zip backups with 7-day purge.",
       shortcut: "Alt+3",
       images: [
-        { src: "guide-images/cloud-databases.jpg", caption: "Cloud Databases — provider presets, saved connections & daily 2:00 AM schedules" },
+        { src: "guide-images/cloud-databases.jpg", caption: "Cloud Databases — provider presets, saved connections, Daily Auto-Sync & 2:00 AM Auto-Backup" },
         { src: "guide-images/cloud-add-database.jpg", caption: "Add Cloud DB — paste URI or ADO.NET string to auto-fill & Test Connection (Alt+N)" },
-        { src: "guide-images/cloud-auto-sync-schedule.jpg", caption: "Daily 2:00 AM Auto-Sync & Auto-Backup schedule configuration (Alt+B)" },
+        { src: "guide-images/cloud-auto-sync-schedule.jpg", caption: "Daily Auto-Sync Schedule configuration (Alt+B)" },
+        { src: "guide-images/cloud-daily-auto-backup.jpg", caption: "Daily Auto-Backup & Purge Schedule with Purge Date Guide and 7-day retention" },
+        { src: "guide-images/cloud-sync-trace-logs.jpg", caption: "Sync & Auto-Schedule Trace Logs — filterable scheduler.log history" },
         { src: "guide-images/cloud-win-2am-task.jpg", caption: "Windows 2:00 AM Scheduled Task integration & 7-day automatic snapshot purge" },
         { src: "guide-images/cloud-backups-folder.jpg", caption: "backups/ Snapshot Folder — dated .zip archives organized per schedule" },
       ],
@@ -416,6 +423,8 @@
       summary: "Copy ready-made connection snippets and control Darius DB from any IDE terminal.",
       shortcut: "Alt+7 / Alt+C",
       images: [
+        { src: "guide-images/guide-cli-ports.jpg", caption: "Default Engine Ports, Mailpit (:8025/:1025) & One-Click Copy darius CLI Commands" },
+        { src: "guide-images/guide-keyboard-shortcuts.jpg", caption: "Full Searchable Keyboard Shortcuts Reference (F1 / Ctrl+/ / Alt+8)" },
         { src: "guide-images/terminal.jpg", caption: "Use darius CLI & DB tools in Built-in Terminal, Visual Studio, VS Code, or PowerShell" },
       ],
       steps: [
@@ -584,13 +593,13 @@
           </div>
           <div class="sc-list">
             ${matched
-              .map(
-                (it) => `<div class="sc-row">
+          .map(
+            (it) => `<div class="sc-row">
                   <span class="sc-label">${esc(it.label)}${it.altHint ? ` <span class="muted">(${esc(it.altHint)})</span>` : ""}</span>
                   <span class="sc-keys">${renderKeys(it.keys)}</span>
                 </div>`
-              )
-              .join("")}
+          )
+          .join("")}
           </div>
         </section>
       `);
@@ -740,10 +749,10 @@
         </div>
         <div class="guide-strip-chips">
           ${chips
-            .map(
-              (c) => `<div class="guide-key-chip">${renderKeys(c.keys)}<span>${esc(c.label)}</span></div>`
-            )
-            .join("")}
+        .map(
+          (c) => `<div class="guide-key-chip">${renderKeys(c.keys)}<span>${esc(c.label)}</span></div>`
+        )
+        .join("")}
         </div>
       </div>
     `;
@@ -770,15 +779,15 @@
         </div>
         <div class="guide-check-list">
           ${QUICKSTART_CHECKLIST.map((item) => {
-            const checked = !!checklistState[item.id];
-            return `<div class="guide-check-row ${checked ? "is-done" : ""}">
+      const checked = !!checklistState[item.id];
+      return `<div class="guide-check-row ${checked ? "is-done" : ""}">
               <label class="guide-check-label">
                 <input type="checkbox" data-guide-chk="${esc(item.id)}" ${checked ? "checked" : ""} />
                 <span>${esc(item.label)}</span>
               </label>
               <button type="button" class="btn xs" data-guide-act="tab" data-guide-target="${esc(item.goTab)}">${esc(item.goLabel)} →</button>
             </div>`;
-          }).join("")}
+    }).join("")}
         </div>
       </div>
     `;
@@ -790,16 +799,16 @@
     return `
       <div class="guide-media-grid ${imgs.length === 1 ? "single" : ""}">
         ${imgs
-          .map(
-            (img, idx) => `<figure class="guide-figure">
+        .map(
+          (img, idx) => `<figure class="guide-figure">
               <button type="button" class="guide-img-btn" data-guide-lb-step="${esc(step.id)}" data-guide-lb-idx="${idx}" title="Click to zoom screenshot">
                 <img src="${esc(img.src)}" alt="${esc(img.caption)}" loading="lazy" decoding="async" />
                 <span class="guide-zoom-pill" aria-hidden="true">🔍 Zoom</span>
               </button>
               <figcaption class="guide-figcaption">${esc(img.caption)}</figcaption>
             </figure>`
-          )
-          .join("")}
+        )
+        .join("")}
       </div>
     `;
   }
@@ -815,8 +824,8 @@
     const topCards = q ? "" : `${renderQuickShortcutsStrip()}${renderChecklistCard()}`;
     const stepsHtml = filtered.length
       ? filtered
-          .map(
-            (s, idx) => `
+        .map(
+          (s, idx) => `
           <details class="guide-step card" ${q || idx < 2 ? "open" : ""}>
             <summary class="guide-step-summary">
               <span class="guide-step-num">Step ${s.num}</span>
@@ -839,17 +848,17 @@
               ${s.tip ? `<div class="guide-tip"><strong>💡 Tip:</strong> ${esc(s.tip)}</div>` : ""}
               <div class="guide-step-actions">
                 ${s.actions
-                  .map(
-                    (a) =>
-                      `<button type="button" class="btn sm ${a.primary ? "primary" : ""}" data-guide-act="${esc(a.type)}" data-guide-target="${esc(a.target)}">${esc(a.label)}</button>`
-                  )
-                  .join("")}
+              .map(
+                (a) =>
+                  `<button type="button" class="btn sm ${a.primary ? "primary" : ""}" data-guide-act="${esc(a.type)}" data-guide-target="${esc(a.target)}">${esc(a.label)}</button>`
+              )
+              .join("")}
               </div>
             </div>
           </details>
         `
-          )
-          .join("")
+        )
+        .join("")
       : `<div class="card empty-note">No guide steps match "<strong>${esc(guideSearchQuery)}</strong>". Try searching for <em>SQL</em>, <em>Cloud</em>, <em>Backup</em>, <em>Repair</em>, or <em>PHP</em>.</div>`;
 
     const controlsBar = filtered.length
@@ -883,13 +892,13 @@
           </div>
           <div class="sc-list">
             ${items
-              .map(
-                (it) => `<div class="sc-row">
+          .map(
+            (it) => `<div class="sc-row">
                   <span class="sc-label">${esc(it.label)}${it.altHint ? ` <span class="muted">(${esc(it.altHint)})</span>` : ""}</span>
                   <span class="sc-keys">${renderKeys(it.keys)}</span>
                 </div>`
-              )
-              .join("")}
+          )
+          .join("")}
           </div>
         </section>
       `;
@@ -906,10 +915,9 @@
       </div>
     `;
 
-    return `${intro}<div class="guide-sc-grid">${
-      groupsHtml ||
+    return `${intro}<div class="guide-sc-grid">${groupsHtml ||
       `<div class="card empty-note" style="grid-column:1/-1">No shortcuts match "<strong>${esc(guideSearchQuery)}</strong>".</div>`
-    }</div>`;
+      }</div>`;
   }
 
   function renderCliTab(q) {
@@ -926,16 +934,16 @@
           </div>
           <div class="guide-cli-list">
             ${rows
-              .map(
-                (it) => `<div class="guide-cli-row">
+          .map(
+            (it) => `<div class="guide-cli-row">
                   <div class="guide-cli-info">
                     <code>${esc(it.cmd)}</code>
                     <span class="muted">${esc(it.desc)}</span>
                   </div>
                   <button type="button" class="btn xs" data-guide-copy="${esc(it.cmd)}" title="Copy command">Copy</button>
                 </div>`
-              )
-              .join("")}
+          )
+          .join("")}
           </div>
         </div>
       `;
@@ -962,15 +970,15 @@
               </thead>
               <tbody>
                 ${ports
-                  .map(
-                    (p) => `<tr>
+        .map(
+          (p) => `<tr>
                       <td><strong>${esc(p.engine)}</strong></td>
                       <td><code>${esc(p.port)}</code></td>
                       <td>${esc(p.user)}</td>
                       <td class="muted">${esc(p.notes)}</td>
                     </tr>`
-                  )
-                  .join("")}
+        )
+        .join("")}
               </tbody>
             </table>
           </div>
@@ -986,14 +994,14 @@
           </div>
           <div class="folder-list">
             ${folders
-              .map(
-                (f) => `<div class="folder-row">
+        .map(
+          (f) => `<div class="folder-row">
                   <strong>${esc(f.name)}</strong>
                   <span class="muted" style="flex:1;min-width:0">${esc(f.desc)}</span>
                   <button type="button" class="btn xs" data-guide-act="folder" data-guide-target="${esc(f.kind)}">Open</button>
                 </div>`
-              )
-              .join("")}
+        )
+        .join("")}
           </div>
         </div>`
       : "";
@@ -1007,13 +1015,13 @@
           </div>
           <div class="guide-trouble-grid">
             ${troubles
-              .map(
-                (t) => `<div class="guide-trouble-item">
+        .map(
+          (t) => `<div class="guide-trouble-item">
                   <strong>${esc(t.title)}</strong>
                   <p class="muted">${esc(t.fix)}</p>
                 </div>`
-              )
-              .join("")}
+        )
+        .join("")}
           </div>
         </div>`
       : "";

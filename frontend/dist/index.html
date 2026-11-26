@@ -5,7 +5,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Darius DB (Lite Version 0.1.5)</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%230f2942'/%3E%3Cstop offset='1' stop-color='%230d9488'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cellipse cx='16' cy='10' rx='8' ry='3' fill='%23ffffff'/%3E%3Cpath d='M8 12v4.5c0 1.65 3.58 3 8 3s8-1.35 8-3V12c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23d7f6f2'/%3E%3Cpath d='M8 18.2v4.3c0 1.65 3.58 3 8 3s8-1.35 8-3v-4.3c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23bcebe5'/%3E%3Ccircle cx='24.8' cy='24.8' r='2.7' fill='%2334d399' stroke='%230f172a' stroke-width='1.4'/%3E%3C/svg%3E" />
+  <link rel="icon" type="image/svg+xml"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%230f2942'/%3E%3Cstop offset='1' stop-color='%230d9488'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cellipse cx='16' cy='10' rx='8' ry='3' fill='%23ffffff'/%3E%3Cpath d='M8 12v4.5c0 1.65 3.58 3 8 3s8-1.35 8-3V12c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23d7f6f2'/%3E%3Cpath d='M8 18.2v4.3c0 1.65 3.58 3 8 3s8-1.35 8-3v-4.3c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23bcebe5'/%3E%3Ccircle cx='24.8' cy='24.8' r='2.7' fill='%2334d399' stroke='%230f172a' stroke-width='1.4'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="style.css" />
 </head>
 
@@ -102,7 +103,8 @@
       </nav>
 
       <div class="sidebar-footer">
-        <button class="side-action" id="btnSideShortcuts" title="Open Keyboard Shortcuts quick reference (F1 or Ctrl+/)">
+        <button class="side-action" id="btnSideShortcuts"
+          title="Open Keyboard Shortcuts quick reference (F1 or Ctrl+/)">
           <svg viewBox="0 0 24 24">
             <rect x="2" y="5" width="20" height="14" rx="2" />
             <line x1="6" y1="10" x2="6.01" y2="10" />
@@ -155,8 +157,7 @@
               title="Open Step-by-Step Visual Guide with Screenshots (Alt+8)">
               📖 Guides
             </button>
-            <button class="btn sm ghost" id="btnDashShortcuts"
-              title="Open Keyboard Shortcuts Reference (F1 or Ctrl+/)">
+            <button class="btn sm ghost" id="btnDashShortcuts" title="Open Keyboard Shortcuts Reference (F1 or Ctrl+/)">
               ⌨️ Shortcuts
             </button>
             <span class="head-sep" aria-hidden="true"></span>
@@ -193,11 +194,17 @@
           <div style="flex:1">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
               <span class="pill running">📢 Announcement</span>
-              <strong id="announceHeading">Darius DB (Lite Version 0.1.5) — Unified Full-Stack Web, PHP, Mailpit &amp; Database Stack</strong>
+              <strong id="announceHeading">Darius DB (Lite Version 0.1.5) — Unified Full-Stack Web, PHP, Mailpit &amp;
+                Database Stack</strong>
               <span class="muted" style="font-size:11.5px">by Darius Cumpio (MIT)</span>
             </div>
             <p id="announceBodyText" style="margin:2px 0 6px;font-size:12.5px">
-              New in <strong>Lite Version 0.1.5</strong>: <strong>Database CRUD &amp; Import/Export</strong> (Create, Show, Edit, Delete, Show All, <code>.sql</code>/<code>.csv</code>/<code>.bak</code> Import &amp; Single/Selected-Table Export), <strong>1-Click GitHub Updater &amp; Auto-Restart</strong>, Toggle-Switch <strong>Apache 2.4 + PHP 8.x + MariaDB/MySQL (:3306)</strong> Stack, <strong>Mailpit</strong> (<code>:8025</code>), <strong>SQL Server 2025</strong> auto-<code>sqlcmd</code>, and 1-Click <strong>Self-Repair</strong>.
+              New in <strong>Lite Version 0.1.5</strong>: <strong>Database CRUD &amp; Import/Export</strong> (Create,
+              Show, Edit, Delete, Show All, <code>.sql</code>/<code>.csv</code>/<code>.bak</code> Import &amp;
+              Single/Selected-Table Export), <strong>1-Click GitHub Updater &amp; Auto-Restart</strong>, Toggle-Switch
+              <strong>Apache 2.4 + PHP 8.x + MariaDB/MySQL (:3306)</strong> Stack, <strong>Mailpit</strong>
+              (<code>:8025</code>), <strong>SQL Server 2025</strong> auto-<code>sqlcmd</code>, and 1-Click
+              <strong>Self-Repair</strong>.
             </p>
             <div id="announceUpdateInfo" style="font-size:12px;color:var(--accent);font-weight:600">
               Click "Check &amp; Install New Versions" to discover and install the latest PHP, Mailpit, MariaDB, MySQL,
@@ -249,7 +256,8 @@
             <button class="btn sm" id="btnBackupSql"
               title="Export entire database, single table, or selected tables (.sql / .zip / .csv)">📤 Export</button>
             <button class="btn sm" id="btnBackupZip"
-              title="Back up the entire selected database as a full .zip archive (SQL + CSV tables + manifest.json)">📦 Backup .zip</button>
+              title="Back up the entire selected database as a full .zip archive (SQL + CSV tables + manifest.json)">📦
+              Backup .zip</button>
             <span class="head-sep" aria-hidden="true"></span>
             <button class="btn sm ghost" id="btnCopyIDE"
               title="Copy Visual Studio (appsettings.json) &amp; VS Code (.env) config">VS / .env</button>
@@ -288,25 +296,32 @@
               <button class="btn xs primary" id="btnNewDb">+ New</button>
             </div>
             <div class="tree-list sql-db-list" id="sqlDbList"></div>
-            <div class="split-handle split-h" id="sqlPaneSplitH" title="Drag to resize Databases / Tables · Double-click to reset">
+            <div class="split-handle split-h" id="sqlPaneSplitH"
+              title="Drag to resize Databases / Tables · Double-click to reset">
               <div class="split-actions">
-                <button type="button" class="split-btn" data-split-act="collapse-a" title="Collapse Databases (expand Tables)">▲</button>
-                <button type="button" class="split-btn" data-split-act="collapse-b" title="Collapse Tables (expand Databases)">▼</button>
+                <button type="button" class="split-btn" data-split-act="collapse-a"
+                  title="Collapse Databases (expand Tables)">▲</button>
+                <button type="button" class="split-btn" data-split-act="collapse-b"
+                  title="Collapse Tables (expand Databases)">▼</button>
               </div>
             </div>
             <div class="pane-head sub">
               <span class="pane-head-left">
-                <span class="pane-title" id="sqlTablesTitle" title="Right-click a database or click Diagram to open ER Diagram">Tables</span>
+                <span class="pane-title" id="sqlTablesTitle"
+                  title="Right-click a database or click Diagram to open ER Diagram">Tables</span>
                 <span class="pane-count" id="sqlTablesCount" hidden>0</span>
               </span>
               <div style="display:inline-flex;gap:4px;align-items:center">
-                <button class="btn xs" id="btnNewDiagram" title="New Database Diagram (or right-click any database)">🗺️ Diagram</button>
-                <button class="btn xs primary" id="btnNewTable" title="Create a new table in this database">+ New</button>
+                <button class="btn xs" id="btnNewDiagram" title="New Database Diagram (or right-click any database)">🗺️
+                  Diagram</button>
+                <button class="btn xs primary" id="btnNewTable" title="Create a new table in this database">+
+                  New</button>
               </div>
             </div>
             <div class="tree-list sql-table-list" id="sqlTableList"></div>
           </aside>
-          <div class="split-handle split-v" id="sqlBrowserSplitV" title="Drag to resize sidebar · Double-click to widen/reset">
+          <div class="split-handle split-v" id="sqlBrowserSplitV"
+            title="Drag to resize sidebar · Double-click to widen/reset">
             <div class="split-actions vertical">
               <button type="button" class="split-btn" data-split-act="collapse-a" title="Collapse sidebar">‹</button>
               <button type="button" class="split-btn" data-split-act="expand-a" title="Widen sidebar">›</button>
@@ -317,7 +332,8 @@
               <div class="sql-tab-list" id="sqlTabList" role="tablist"></div>
               <span class="sql-tab-drop-hint" id="sqlTabDropHint" hidden>📥 Drop here to put tab back</span>
               <button type="button" class="sql-tab-add" id="btnNewSqlTab" title="Open new SQL query tab">+</button>
-              <button type="button" class="sql-tab-clear-all" id="btnCloseAllSqlTabs" title="Close all query tabs (including popped-out windows)">✕ Close All</button>
+              <button type="button" class="sql-tab-clear-all" id="btnCloseAllSqlTabs"
+                title="Close all query tabs (including popped-out windows)">✕ Close All</button>
             </div>
             <div class="sql-diagram-stage" id="sqlDiagramStage" hidden></div>
             <div class="editor-box" id="sqlEditorBox">
@@ -328,21 +344,25 @@
                 <span class="hint">Tab to suggest · Ctrl+Enter to run</span>
                 <button class="btn xs accent" id="btnRowCreate" title="Create / Insert a new row in the selected table"
                   hidden>+ Create</button>
-                <button class="btn xs" id="btnSqlShowAll"
-                  title="Show all rows in the selected table (no LIMIT)">Show All</button>
+                <button class="btn xs" id="btnSqlShowAll" title="Show all rows in the selected table (no LIMIT)">Show
+                  All</button>
                 <button class="btn xs" id="btnSqlClear">Clear</button>
                 <button class="btn xs primary" id="btnSqlRun">Run Query</button>
               </div>
               <div class="sql-editor-stage" id="sqlEditorStage">
                 <textarea id="sqlEditor" class="code-area" spellcheck="false"
                   placeholder="SELECT 1; -- Click a table on the left or write SQL here (press Tab for CREATE, SHOW, SELECT suggestions)..."></textarea>
-                <div id="sqlSuggestMenu" class="sql-suggest-menu" role="listbox" aria-label="SQL autocomplete suggestions" hidden></div>
+                <div id="sqlSuggestMenu" class="sql-suggest-menu" role="listbox"
+                  aria-label="SQL autocomplete suggestions" hidden></div>
               </div>
             </div>
-            <div class="split-handle split-h" id="sqlMainSplitH" title="Drag to resize SQL editor / results · Double-click to reset">
+            <div class="split-handle split-h" id="sqlMainSplitH"
+              title="Drag to resize SQL editor / results · Double-click to reset">
               <div class="split-actions">
-                <button type="button" class="split-btn" data-split-act="collapse-a" title="Collapse SQL editor (expand results)">▲</button>
-                <button type="button" class="split-btn" data-split-act="collapse-b" title="Collapse results (expand SQL editor)">▼</button>
+                <button type="button" class="split-btn" data-split-act="collapse-a"
+                  title="Collapse SQL editor (expand results)">▲</button>
+                <button type="button" class="split-btn" data-split-act="collapse-b"
+                  title="Collapse results (expand SQL editor)">▼</button>
               </div>
             </div>
             <div class="result-box" id="sqlResultBox">
@@ -379,7 +399,8 @@
                   </label>
                   <div class="pager-nav" role="navigation" aria-label="Query results pagination">
                     <button type="button" class="btn xs pager-btn" id="btnPageFirst" title="First page">«</button>
-                    <button type="button" class="btn xs pager-btn" id="btnPagePrev" title="Previous page">‹ Prev</button>
+                    <button type="button" class="btn xs pager-btn" id="btnPagePrev" title="Previous page">‹
+                      Prev</button>
                     <div class="pager-pages" id="sqlPagerNumbers"></div>
                     <button type="button" class="btn xs pager-btn" id="btnPageNext" title="Next page">Next ›</button>
                     <button type="button" class="btn xs pager-btn" id="btnPageLast" title="Last page">»</button>
@@ -411,7 +432,8 @@
               <button class="btn xs full" id="btnRedisMore">Load more keys</button>
             </div>
           </aside>
-          <div class="split-handle split-v" id="redisBrowserSplitV" title="Drag to resize sidebar · Double-click to widen/reset">
+          <div class="split-handle split-v" id="redisBrowserSplitV"
+            title="Drag to resize sidebar · Double-click to widen/reset">
             <div class="split-actions vertical">
               <button type="button" class="split-btn" data-split-act="collapse-a" title="Collapse sidebar">‹</button>
               <button type="button" class="split-btn" data-split-act="expand-a" title="Widen sidebar">›</button>
@@ -421,10 +443,13 @@
             <div class="redis-inspector" id="redisInspector">
               <div class="empty-note">Select a key on the left to inspect it, or run commands below.</div>
             </div>
-            <div class="split-handle split-h" id="redisMainSplitH" title="Drag to resize Inspector / CLI · Double-click to reset">
+            <div class="split-handle split-h" id="redisMainSplitH"
+              title="Drag to resize Inspector / CLI · Double-click to reset">
               <div class="split-actions">
-                <button type="button" class="split-btn" data-split-act="collapse-a" title="Collapse inspector (expand CLI)">▲</button>
-                <button type="button" class="split-btn" data-split-act="collapse-b" title="Collapse CLI (expand inspector)">▼</button>
+                <button type="button" class="split-btn" data-split-act="collapse-a"
+                  title="Collapse inspector (expand CLI)">▲</button>
+                <button type="button" class="split-btn" data-split-act="collapse-b"
+                  title="Collapse CLI (expand inspector)">▼</button>
               </div>
             </div>
             <div class="redis-cli" id="redisCliBox">
@@ -445,12 +470,16 @@
         <header class="view-head">
           <div>
             <h1>☁️ Cloud Databases</h1>
-            <p class="subtitle">Saved Cloud Connections, one-time Manual Sync, Daily Auto-Sync, and Daily Auto-Backup (1-Week Purge) — each in its own dedicated panel &amp; modal.</p>
+            <p class="subtitle">Saved Cloud Connections, one-time Manual Sync, Daily Auto-Sync, and Daily Auto-Backup
+              (1-Week Purge) — each in its own dedicated panel &amp; modal.</p>
           </div>
           <div class="head-actions">
-            <button type="button" class="btn accent" id="btnOpenCloudSync" title="One-time immediate sync: Push Local → Cloud or Pull Cloud → Local (Alt+S)">🔄 Manual Sync</button>
-            <button type="button" class="btn" id="btnNewSchedule" title="Create a Daily Auto-Sync schedule (Alt+B)">⏰ + Auto-Sync</button>
-            <button type="button" class="btn" id="btnNewAutoBackup" title="Create a Daily Auto-Backup (.zip or Folder) &amp; Purge schedule">📦 + Auto-Backup</button>
+            <button type="button" class="btn accent" id="btnOpenCloudSync"
+              title="One-time immediate sync: Push Local → Cloud or Pull Cloud → Local (Alt+S)">🔄 Manual Sync</button>
+            <button type="button" class="btn" id="btnNewSchedule" title="Create a Daily Auto-Sync schedule (Alt+B)">⏰ +
+              Auto-Sync</button>
+            <button type="button" class="btn" id="btnNewAutoBackup"
+              title="Create a Daily Auto-Backup (.zip or Folder) &amp; Purge schedule">📦 + Auto-Backup</button>
             <button type="button" class="btn primary" id="btnAddCloud">+ Add Cloud DB</button>
           </div>
         </header>
@@ -463,7 +492,8 @@
             </div>
             <div class="cloud-presets" id="cloudPresetStrip">
               <button type="button" class="btn sm" data-preset="cpanel">🏢 cPanel / Plesk / Hostinger (MySQL)</button>
-              <button type="button" class="btn sm" data-preset="monsterasp">🌐 MonsterASP.NET / SmarterASP (MS SQL)</button>
+              <button type="button" class="btn sm" data-preset="monsterasp">🌐 MonsterASP.NET / SmarterASP (MS
+                SQL)</button>
               <button type="button" class="btn sm" data-preset="supabase">⚡ Supabase / Neon (PostgreSQL)</button>
               <button type="button" class="btn sm" data-preset="tidb">☁️ Aiven / TiDB / PlanetScale (MySQL TLS)</button>
               <button type="button" class="btn sm" data-preset="rds">🛡️ AWS RDS / Azure SQL / Cloud SQL</button>
@@ -475,7 +505,8 @@
             <div class="card-head">
               <div>
                 <h2>☁️ Saved Cloud Connections</h2>
-                <span class="muted">Stored locally in <code>settings.json</code> · Connect, test, export, or run a one-time manual sync.</span>
+                <span class="muted">Stored locally in <code>settings.json</code> · Connect, test, export, or run a
+                  one-time manual sync.</span>
               </div>
             </div>
             <div class="cloud-grid" id="cloudProfileGrid"></div>
@@ -485,10 +516,12 @@
             <div class="card-head" style="flex-wrap:wrap;gap:8px">
               <div>
                 <h2>🔄 Daily Auto-Sync Schedules</h2>
-                <span class="muted">Automatically pulls <strong>Cloud → Local DB</strong>, <strong>Cloud → Generated Folder</strong>, or pushes <strong>Local → Cloud</strong> at your scheduled time.</span>
+                <span class="muted">Automatically pulls <strong>Cloud → Local DB</strong>, <strong>Cloud → Generated
+                    Folder</strong>, or pushes <strong>Local → Cloud</strong> at your scheduled time.</span>
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-                <button type="button" class="btn xs accent" id="btnOpenSyncLogs" title="View full Sync &amp; Auto-Schedule trace log">📋 Sync Logs</button>
+                <button type="button" class="btn xs accent" id="btnOpenSyncLogs"
+                  title="View full Sync &amp; Auto-Schedule trace log">📋 Sync Logs</button>
                 <button type="button" class="btn xs primary" id="btnAddAutoSync">+ New Auto-Sync</button>
               </div>
             </div>
@@ -499,12 +532,18 @@
             <div class="card-head" style="flex-wrap:wrap;gap:8px">
               <div>
                 <h2>📦 Daily 2:00 AM Auto-Backup (1-Week Purge)</h2>
-                <span class="muted">Automatically saves dated <strong>.zip snapshots</strong> or <strong>generated folders</strong> and purges backups meeting your retention days (default 7 days).</span>
+                <span class="muted">Automatically saves dated <strong>.zip snapshots</strong> or <strong>generated
+                    folders</strong> and purges backups meeting your retention days (default 7 days).</span>
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-                <button type="button" class="btn xs" id="btnToggleWinTask" title="Register or remove daily Windows Task Scheduler wake-up at 02:00 AM">🪟 Win 2 AM Task: OFF</button>
-                <button type="button" class="btn xs" id="btnPurgeAllSnapshots" title="Delete backup snapshots older than retention days (default 7 days)">🗑 Purge &gt;7d Now</button>
-                <button type="button" class="btn xs accent" id="btnOpenBackupsFolder" title="Open backups/ snapshot folder">📁 backups/</button>
+                <button type="button" class="btn xs" id="btnToggleWinTask"
+                  title="Register or remove daily Windows Task Scheduler wake-up at 02:00 AM">🪟 Win 2 AM Task:
+                  OFF</button>
+                <button type="button" class="btn xs" id="btnPurgeAllSnapshots"
+                  title="Delete backup snapshots older than retention days (default 7 days)">🗑 Purge &gt;7d
+                  Now</button>
+                <button type="button" class="btn xs accent" id="btnOpenBackupsFolder"
+                  title="Open backups/ snapshot folder">📁 backups/</button>
                 <button type="button" class="btn xs primary" id="btnAddAutoBackup">+ New Auto-Backup</button>
               </div>
             </div>
@@ -748,13 +787,15 @@
           <div>
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
               <h1>📖 Guide &amp; Shortcuts</h1>
-              <span class="pill accent" id="guideVersionBadge" style="font-size:12px">Darius DB · Lite Version 0.1.5</span>
+              <span class="pill accent" id="guideVersionBadge" style="font-size:12px">Darius DB · Lite Version
+                0.1.5</span>
             </div>
-            <p class="subtitle">Step-by-step instructions, interactive quick-start checklist, keyboard shortcuts, and CLI quick reference.</p>
+            <p class="subtitle">Step-by-step instructions, interactive quick-start checklist, keyboard shortcuts, and
+              CLI quick reference.</p>
           </div>
           <div class="head-actions">
-            <button type="button" class="btn sm ghost" id="btnGuideBackDash"
-              title="Return to Dashboard (Alt+1)">← Dashboard</button>
+            <button type="button" class="btn sm ghost" id="btnGuideBackDash" title="Return to Dashboard (Alt+1)">←
+              Dashboard</button>
             <label class="sr-only" for="guideSearch">Filter guide topics and shortcuts</label>
             <input type="search" id="guideSearch" class="input sm guide-search-input"
               placeholder="Search guide or shortcuts (Ctrl+F)..." autocomplete="off" />
@@ -769,7 +810,8 @@
             <button type="button" class="seg" data-gmode="shortcuts" role="tab">⌨️ Keyboard Shortcuts</button>
             <button type="button" class="seg" data-gmode="cli" role="tab">💻 CLI, Ports &amp; Troubleshooting</button>
           </div>
-          <span class="muted guide-quick-hint">Tip: Press <kbd class="kbd kbd-xs">F1</kbd> or <kbd class="kbd kbd-xs">Ctrl</kbd>+<kbd class="kbd kbd-xs">/</kbd> anywhere for the shortcut popup.</span>
+          <span class="muted guide-quick-hint">Tip: Press <kbd class="kbd kbd-xs">F1</kbd> or <kbd
+              class="kbd kbd-xs">Ctrl</kbd>+<kbd class="kbd kbd-xs">/</kbd> anywhere for the shortcut popup.</span>
         </div>
 
         <div class="guide-scroll" id="guideContent"></div>
@@ -799,7 +841,8 @@
           <span>Password</span>
           <div class="pass-wrap">
             <input type="password" id="newDbPass" class="input" placeholder="Password for the new user" />
-            <button type="button" class="pass-toggle-btn" id="btnToggleNewDbPass" title="Show password" aria-label="Show password">👁️</button>
+            <button type="button" class="pass-toggle-btn" id="btnToggleNewDbPass" title="Show password"
+              aria-label="Show password">👁️</button>
           </div>
         </label>
         <div class="modal-actions">
@@ -1139,7 +1182,8 @@
           style="padding:10px 14px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;font-size:12px;max-height:280px;overflow:auto">
           <strong>📢 Release Announcement &amp; What's New:</strong>
           <p id="sysUpAnnounceText" style="margin:6px 0"></p>
-          <ul id="sysUpChangelogList" style="margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px"></ul>
+          <ul id="sysUpChangelogList"
+            style="margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px"></ul>
         </div>
 
         <div class="modal-actions">
@@ -1159,7 +1203,8 @@
       <form id="formCloudProfile" class="modal-body">
         <input type="hidden" id="cloudEditId" />
         <div class="cloud-uri-box">
-          <div style="font-size:12.5px;font-weight:600;margin-bottom:7px">✨ Quick Auto-Fill from Connection URI or MonsterASP / Azure ADO.NET String</div>
+          <div style="font-size:12.5px;font-weight:600;margin-bottom:7px">✨ Quick Auto-Fill from Connection URI or
+            MonsterASP / Azure ADO.NET String</div>
           <div class="input-row">
             <input type="text" id="cloudUriInput" class="input"
               placeholder="mysql://user:pass@host:3306/db  or  Server=sql.databaseasp.net,1433;Database=...;User Id=...;Password=...;" />
@@ -1167,12 +1212,15 @@
           </div>
         </div>
 
-        <div id="cloudProviderHint" class="muted" style="font-size:11.5px;padding:6px 10px;border-left:3px solid var(--accent);background:var(--bg-subtle);border-radius:4px" hidden></div>
+        <div id="cloudProviderHint" class="muted"
+          style="font-size:11.5px;padding:6px 10px;border-left:3px solid var(--accent);background:var(--bg-subtle);border-radius:4px"
+          hidden></div>
 
         <div class="modal-grid-2">
           <label class="field">
             <span>Profile Name *</span>
-            <input type="text" id="cloudName" class="input" required placeholder="e.g. cPanel Production / MonsterASP" />
+            <input type="text" id="cloudName" class="input" required
+              placeholder="e.g. cPanel Production / MonsterASP" />
           </label>
           <label class="field">
             <span>Provider</span>
@@ -1238,14 +1286,17 @@
             <span>Password</span>
             <div class="pass-wrap">
               <input type="password" id="cloudPass" class="input" placeholder="Database password" autocomplete="off" />
-              <button type="button" class="pass-toggle-btn" id="btnToggleCloudPass" title="Show password" aria-label="Show password">👁️</button>
+              <button type="button" class="pass-toggle-btn" id="btnToggleCloudPass" title="Show password"
+                aria-label="Show password">👁️</button>
             </div>
           </label>
         </div>
 
         <label class="field">
-          <span>Control Panel URL <small class="muted">(optional — quick open cPanel / MonsterASP / Cloud dashboard)</small></span>
-          <input type="url" id="cloudPanelUrl" class="input" placeholder="https://example.com:2083  or  https://manage.monsterasp.net/" />
+          <span>Control Panel URL <small class="muted">(optional — quick open cPanel / MonsterASP / Cloud
+              dashboard)</small></span>
+          <input type="url" id="cloudPanelUrl" class="input"
+            placeholder="https://example.com:2083  or  https://manage.monsterasp.net/" />
         </label>
 
         <div id="cloudTestStatus" class="sysup-fetch-box" role="status" aria-live="polite" hidden>
@@ -1254,12 +1305,15 @@
               <span id="cloudTestSpinner" class="sysup-spinner"></span>
               <strong id="cloudTestTitle" style="font-size:12.5px">Connecting to remote database server...</strong>
             </div>
-            <span id="cloudTestPct" style="font-family:var(--font-mono);font-size:12px;font-weight:700;flex-shrink:0">0%</span>
+            <span id="cloudTestPct"
+              style="font-family:var(--font-mono);font-size:12px;font-weight:700;flex-shrink:0">0%</span>
           </div>
           <div class="progress-bar" style="margin-top:7px;height:6px">
             <div id="cloudTestBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
           </div>
-          <div id="cloudTestSub" style="font-size:11.5px;margin-top:6px;opacity:0.95;word-break:break-word;max-height:260px;overflow-y:auto;user-select:text"></div>
+          <div id="cloudTestSub"
+            style="font-size:11.5px;margin-top:6px;opacity:0.95;word-break:break-word;max-height:260px;overflow-y:auto;user-select:text">
+          </div>
         </div>
 
         <div class="modal-actions">
@@ -1278,7 +1332,8 @@
       <div class="modal-head">
         <h3>🔄 Manual Sync: Local ↔ Cloud</h3>
         <div class="modal-head-actions">
-          <button type="button" class="icon-btn" id="btnMinimizeCloudSync" title="Minimize while synchronizing" aria-label="Minimize" hidden>─</button>
+          <button type="button" class="icon-btn" id="btnMinimizeCloudSync" title="Minimize while synchronizing"
+            aria-label="Minimize" hidden>─</button>
           <button type="button" class="icon-btn" id="btnCloseCloudSync" title="Close" aria-label="Close">✕</button>
         </div>
       </div>
@@ -1301,8 +1356,10 @@
           <label class="field">
             <span>Local Database</span>
             <div class="sync-localdb-row">
-              <input type="text" id="syncLocalDb" class="input" required list="syncLocalDbOptions" placeholder="e.g. my_app_db" />
-              <button type="button" class="btn sm accent" id="btnQuickGenLocalDb" title="Generate Local DB name with Date, Day, Year &amp; Timestamp" hidden>✨ Auto</button>
+              <input type="text" id="syncLocalDb" class="input" required list="syncLocalDbOptions"
+                placeholder="e.g. my_app_db" />
+              <button type="button" class="btn sm accent" id="btnQuickGenLocalDb"
+                title="Generate Local DB name with Date, Day, Year &amp; Timestamp" hidden>✨ Auto</button>
             </div>
             <datalist id="syncLocalDbOptions"></datalist>
           </label>
@@ -1331,7 +1388,8 @@
             <div class="modal-grid-2">
               <label class="field">
                 <span>Base Name <small class="muted">(blank = Cloud DB)</small></span>
-                <input type="text" id="syncAutoNameBase" class="input sm" placeholder="e.g. alegria" autocomplete="off" />
+                <input type="text" id="syncAutoNameBase" class="input sm" placeholder="e.g. alegria"
+                  autocomplete="off" />
               </label>
               <label class="field">
                 <span>Date &amp; Timestamp Format</span>
@@ -1345,13 +1403,16 @@
             </div>
             <div class="auto-name-preview-row">
               <span class="muted" style="font-size:11.5px">Generated: <code id="syncAutoNamePreview">—</code></span>
-              <button type="button" class="btn xs ghost" id="btnRefreshSyncAutoName" title="Refresh timestamp to current time">↻ Now</button>
+              <button type="button" class="btn xs ghost" id="btnRefreshSyncAutoName"
+                title="Refresh timestamp to current time">↻ Now</button>
             </div>
           </div>
         </div>
 
         <p class="muted" style="font-size:12px;line-height:1.45">
-          Runs an immediate one-time sync (exports base tables cleanly without dropping remote databases). Want scheduled daily automation? Use <strong>⏰ + Auto-Sync</strong> or <strong>📦 + Auto-Backup</strong> on the Cloud tab.
+          Runs an immediate one-time sync (exports base tables cleanly without dropping remote databases). Want
+          scheduled daily automation? Use <strong>⏰ + Auto-Sync</strong> or <strong>📦 + Auto-Backup</strong> on the
+          Cloud tab.
         </p>
 
         <div id="cloudSyncBox" class="sysup-fetch-box" role="status" aria-live="polite" hidden>
@@ -1360,12 +1421,14 @@
               <span id="cloudSyncSpinner" class="sysup-spinner"></span>
               <strong id="cloudSyncTitle" style="font-size:12.5px">⏳ Starting sync...</strong>
             </div>
-            <span id="cloudSyncPct" style="font-family:var(--font-mono);font-size:12px;font-weight:700;flex-shrink:0">0%</span>
+            <span id="cloudSyncPct"
+              style="font-family:var(--font-mono);font-size:12px;font-weight:700;flex-shrink:0">0%</span>
           </div>
           <div class="progress-bar" style="margin-top:7px;height:6px">
             <div id="cloudSyncBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
           </div>
-          <div id="cloudSyncSub" style="font-size:11.5px;margin-top:6px;opacity:0.9;word-break:break-word;max-height:140px;overflow-y:auto;user-select:text">
+          <div id="cloudSyncSub"
+            style="font-size:11.5px;margin-top:6px;opacity:0.9;word-break:break-word;max-height:140px;overflow-y:auto;user-select:text">
             Preparing transfer...
           </div>
         </div>
@@ -1392,12 +1455,14 @@
               <span id="backupProgSpinner" class="sysup-spinner"></span>
               <strong id="backupProgStage" style="font-size:12.5px">⏳ Starting backup...</strong>
             </div>
-            <span id="backupProgPct" style="font-family:var(--font-mono);font-size:12px;font-weight:700;flex-shrink:0">0%</span>
+            <span id="backupProgPct"
+              style="font-family:var(--font-mono);font-size:12px;font-weight:700;flex-shrink:0">0%</span>
           </div>
           <div class="progress-bar" style="margin-top:7px;height:6px">
             <div id="backupProgBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
           </div>
-          <div id="backupProgDetail" style="font-size:11.5px;margin-top:6px;opacity:0.9;word-break:break-word;max-height:140px;overflow-y:auto;user-select:text">
+          <div id="backupProgDetail"
+            style="font-size:11.5px;margin-top:6px;opacity:0.9;word-break:break-word;max-height:140px;overflow-y:auto;user-select:text">
             Preparing export...
           </div>
         </div>
@@ -1409,7 +1474,8 @@
   </div>
 
   <!-- Dedicated Modal 1: Daily Auto-Sync Schedule Modal -->
-  <div class="modal-backdrop" id="modalAutoSyncForm" role="dialog" aria-modal="true" aria-labelledby="modalAutoSyncTitle" hidden>
+  <div class="modal-backdrop" id="modalAutoSyncForm" role="dialog" aria-modal="true"
+    aria-labelledby="modalAutoSyncTitle" hidden>
     <div class="modal modal-schedule-large">
       <div class="modal-head">
         <h3 id="modalAutoSyncTitle">🔄 New Daily Auto-Sync Schedule</h3>
@@ -1420,7 +1486,8 @@
         <div class="modal-grid-2 sched-name-row">
           <label class="field">
             <span>Auto-Sync Name *</span>
-            <input type="text" id="syncSchedName" class="input" required placeholder="e.g. Daily Pull Cloud → Folder (12:30 PM)" />
+            <input type="text" id="syncSchedName" class="input" required
+              placeholder="e.g. Daily Pull Cloud → Folder (12:30 PM)" />
           </label>
           <label class="field sched-enabled-field">
             <span class="check-row sched-enabled-toggle">
@@ -1474,7 +1541,8 @@
           </div>
 
           <div id="syncSchedFolderRow" class="field" hidden>
-            <span>Destination Folder (blank = <code>backups/&lt;schedule&gt;/syncs/</code> · does not touch any Local DB)</span>
+            <span>Destination Folder (blank = <code>backups/&lt;schedule&gt;/syncs/</code> · does not touch any Local
+              DB)</span>
             <div class="sched-folder-picker-row">
               <input type="text" id="syncSchedFolder" class="input" placeholder="Default: backups/<schedule>/syncs/" />
               <button type="button" class="btn sm accent" id="btnBrowseSyncSchedFolder">📂 Browse</button>
@@ -1484,7 +1552,8 @@
           <div id="syncSchedAutoNameWrap" class="auto-name-sched-wrap">
             <label class="check-row sched-autoname-check">
               <input type="checkbox" id="syncSchedAutoNameChk" />
-              <span id="syncSchedAutoNameLabel">✨ Auto-generate new Local DB name on each daily Pull (Date, Day, Year &amp; Timestamp)</span>
+              <span id="syncSchedAutoNameLabel">✨ Auto-generate new Local DB name on each daily Pull (Date, Day, Year
+                &amp; Timestamp)</span>
             </label>
             <div id="syncSchedAutoNameOpts" class="auto-name-sched-opts" hidden>
               <select id="syncSchedAutoNameFmt" class="select sm" aria-label="Auto-generated Sync name format">
@@ -1507,7 +1576,8 @@
   </div>
 
   <!-- Dedicated Modal 2: Daily Auto-Backup & Retention Purge Modal -->
-  <div class="modal-backdrop" id="modalAutoBackupForm" role="dialog" aria-modal="true" aria-labelledby="modalAutoBackupTitle" hidden>
+  <div class="modal-backdrop" id="modalAutoBackupForm" role="dialog" aria-modal="true"
+    aria-labelledby="modalAutoBackupTitle" hidden>
     <div class="modal modal-schedule-large">
       <div class="modal-head">
         <h3 id="modalAutoBackupTitle">📦 New Daily Auto-Backup &amp; Purge Schedule</h3>
@@ -1518,7 +1588,8 @@
         <div class="modal-grid-2 sched-name-row">
           <label class="field">
             <span>Auto-Backup Name *</span>
-            <input type="text" id="bkpSchedName" class="input" required placeholder="e.g. Production Daily 2 AM .zip Backup" />
+            <input type="text" id="bkpSchedName" class="input" required
+              placeholder="e.g. Production Daily 2 AM .zip Backup" />
           </label>
           <label class="field sched-enabled-field">
             <span class="check-row sched-enabled-toggle">
@@ -1545,7 +1616,8 @@
             </label>
             <label class="field">
               <span>Purge Old After (Days)</span>
-              <input type="number" id="bkpSchedRetentionDays" class="input" min="1" max="365" value="7" title="Snapshots &amp; generated folders aged >= N days are automatically purged (7 days = 1 week)" />
+              <input type="number" id="bkpSchedRetentionDays" class="input" min="1" max="365" value="7"
+                title="Snapshots &amp; generated folders aged >= N days are automatically purged (7 days = 1 week)" />
             </label>
           </div>
 
@@ -1577,17 +1649,21 @@
           </div>
 
           <div id="bkpSchedDirRow" class="field">
-            <span>Output &amp; Purge Folder (blank = <code>backups/&lt;schedule&gt;/</code> · auto-purges dated files/folders after retention days)</span>
+            <span>Output &amp; Purge Folder (blank = <code>backups/&lt;schedule&gt;/</code> · auto-purges dated
+              files/folders after retention days)</span>
             <div class="sched-folder-picker-row">
-              <input type="text" id="bkpSchedDir" class="input" placeholder="Default: backups/<schedule>/ (or click Browse)" />
-              <button type="button" class="btn sm accent" id="btnBrowseBkpSchedDir" title="Browse destination &amp; purge folder">📂 Browse</button>
+              <input type="text" id="bkpSchedDir" class="input"
+                placeholder="Default: backups/<schedule>/ (or click Browse)" />
+              <button type="button" class="btn sm accent" id="btnBrowseBkpSchedDir"
+                title="Browse destination &amp; purge folder">📂 Browse</button>
             </div>
           </div>
 
           <div id="bkpSchedAutoNameWrap" class="auto-name-sched-wrap">
             <label class="check-row sched-autoname-check">
               <input type="checkbox" id="bkpSchedAutoNameChk" />
-              <span id="bkpSchedAutoNameLabel">✨ Auto-generate new Backup .zip filename on each daily Backup (Date, Day, Year &amp; Timestamp)</span>
+              <span id="bkpSchedAutoNameLabel">✨ Auto-generate new Backup .zip filename on each daily Backup (Date, Day,
+                Year &amp; Timestamp)</span>
             </label>
             <div id="bkpSchedAutoNameOpts" class="auto-name-sched-opts" hidden>
               <select id="bkpSchedAutoNameFmt" class="select sm" aria-label="Auto-generated Backup filename format">
@@ -1606,8 +1682,10 @@
               <span id="bkpSchedPurgeTargetDate" class="purge-guide-val">—</span>
             </div>
             <div class="purge-guide-sub muted">
-              Backup on <strong id="bkpSchedPurgeBackupDate">—</strong> → auto-purges on <strong id="bkpSchedPurgeTargetDateSub">—</strong> (<code id="bkpSchedPurgeStampPreview">—</code>)<br />
-              Purge cutoff right now: snapshots on/before <strong id="bkpSchedPurgeCutoffNow">—</strong> will be removed.
+              Backup on <strong id="bkpSchedPurgeBackupDate">—</strong> → auto-purges on <strong
+                id="bkpSchedPurgeTargetDateSub">—</strong> (<code id="bkpSchedPurgeStampPreview">—</code>)<br />
+              Purge cutoff right now: snapshots on/before <strong id="bkpSchedPurgeCutoffNow">—</strong> will be
+              removed.
             </div>
           </div>
         </div>
@@ -1650,11 +1728,13 @@
           <div class="progress-bar" style="margin-top:7px;height:7px">
             <div id="snapBackupBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
           </div>
-          <div id="snapBackupDetail" style="font-size:11.5px;margin-top:6px;opacity:0.9;word-break:break-word;max-height:110px;overflow-y:auto;user-select:text">
+          <div id="snapBackupDetail"
+            style="font-size:11.5px;margin-top:6px;opacity:0.9;word-break:break-word;max-height:110px;overflow-y:auto;user-select:text">
             Preparing backup...
           </div>
         </div>
-        <div id="snapListContainer" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
+        <div id="snapListContainer" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
+        </div>
         <div class="modal-actions">
           <button type="button" class="btn" id="btnDoneSnapModal">Close</button>
         </div>
@@ -1663,12 +1743,14 @@
   </div>
 
   <!-- Daily Auto-Sync Run Progress Modal (separate from Manual Sync & Auto-Backup) -->
-  <div class="modal-backdrop" id="modalAutoSyncRun" role="dialog" aria-modal="true" aria-labelledby="autoSyncRunModalTitle" hidden>
+  <div class="modal-backdrop" id="modalAutoSyncRun" role="dialog" aria-modal="true"
+    aria-labelledby="autoSyncRunModalTitle" hidden>
     <div class="modal" style="width:540px;max-width:95vw">
       <div class="modal-head">
         <h3 id="autoSyncRunModalTitle">🔄 Running Daily Auto-Sync...</h3>
         <div class="modal-head-actions">
-          <button type="button" class="icon-btn" id="btnMinimizeAutoSyncRun" title="Minimize while synchronizing" aria-label="Minimize" hidden>─</button>
+          <button type="button" class="icon-btn" id="btnMinimizeAutoSyncRun" title="Minimize while synchronizing"
+            aria-label="Minimize" hidden>─</button>
           <button type="button" class="icon-btn" id="btnCloseAutoSyncRun" aria-label="Close">✕</button>
         </div>
       </div>
@@ -1680,14 +1762,16 @@
               <strong id="autoSyncRunStage" style="font-size:12.5px">⏳ Starting Auto-Sync...</strong>
             </div>
             <div style="display:inline-flex;align-items:center;gap:8px;flex-shrink:0">
-              <span id="autoSyncRunElapsed" class="muted" style="font-family:var(--font-mono);font-size:11px">0.0s</span>
+              <span id="autoSyncRunElapsed" class="muted"
+                style="font-family:var(--font-mono);font-size:11px">0.0s</span>
               <span id="autoSyncRunPct" style="font-family:var(--font-mono);font-size:13px;font-weight:700">0%</span>
             </div>
           </div>
           <div class="progress-bar" style="margin-top:8px;height:8px">
             <div id="autoSyncRunBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
           </div>
-          <div id="autoSyncRunDetail" style="font-size:11.5px;margin-top:7px;opacity:0.92;word-break:break-word;max-height:150px;overflow-y:auto;user-select:text">
+          <div id="autoSyncRunDetail"
+            style="font-size:11.5px;margin-top:7px;opacity:0.92;word-break:break-word;max-height:150px;overflow-y:auto;user-select:text">
             Preparing daily sync...
           </div>
         </div>
@@ -1701,12 +1785,14 @@
   </div>
 
   <!-- Daily Auto-Backup & Purge Run Progress Modal -->
-  <div class="modal-backdrop" id="modalAutoBackupRun" role="dialog" aria-modal="true" aria-labelledby="autoBkpRunModalTitle" hidden>
+  <div class="modal-backdrop" id="modalAutoBackupRun" role="dialog" aria-modal="true"
+    aria-labelledby="autoBkpRunModalTitle" hidden>
     <div class="modal" style="width:540px;max-width:95vw">
       <div class="modal-head">
         <h3 id="autoBkpRunModalTitle">📦 Running Daily Auto-Backup...</h3>
         <div class="modal-head-actions">
-          <button type="button" class="icon-btn" id="btnMinimizeAutoBackupRun" title="Minimize while backing up" aria-label="Minimize" hidden>─</button>
+          <button type="button" class="icon-btn" id="btnMinimizeAutoBackupRun" title="Minimize while backing up"
+            aria-label="Minimize" hidden>─</button>
           <button type="button" class="icon-btn" id="btnCloseAutoBackupRun" aria-label="Close">✕</button>
         </div>
       </div>
@@ -1725,7 +1811,8 @@
           <div class="progress-bar" style="margin-top:8px;height:8px">
             <div id="autoBkpRunBar" class="progress-fill" style="width:0%;transition:width 0.25s ease"></div>
           </div>
-          <div id="autoBkpRunDetail" style="font-size:11.5px;margin-top:7px;opacity:0.92;word-break:break-word;max-height:150px;overflow-y:auto;user-select:text">
+          <div id="autoBkpRunDetail"
+            style="font-size:11.5px;margin-top:7px;opacity:0.92;word-break:break-word;max-height:150px;overflow-y:auto;user-select:text">
             Preparing backup snapshot...
           </div>
         </div>
@@ -1740,7 +1827,8 @@
   </div>
 
   <!-- Sync & Auto-Schedule Trace Log Modal -->
-  <div class="modal-backdrop" id="modalSyncLogs" role="dialog" aria-modal="true" aria-labelledby="syncLogModalTitle" hidden>
+  <div class="modal-backdrop" id="modalSyncLogs" role="dialog" aria-modal="true" aria-labelledby="syncLogModalTitle"
+    hidden>
     <div class="modal modal-sync-logs">
       <div class="modal-head">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -1760,10 +1848,12 @@
             <option value="error">Errors Only</option>
             <option value="started">Started / Running</option>
           </select>
-          <input type="search" id="syncLogSearch" class="input sm" placeholder="Search DB, error, or detail..." autocomplete="off" />
+          <input type="search" id="syncLogSearch" class="input sm" placeholder="Search DB, error, or detail..."
+            autocomplete="off" />
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button type="button" class="btn xs accent" id="btnRefreshSyncLogs">↻ Refresh</button>
-            <button type="button" class="btn xs" id="btnOpenSyncLogFile" title="Open logs/scheduler.log in Notepad">📄 scheduler.log</button>
+            <button type="button" class="btn xs" id="btnOpenSyncLogFile" title="Open logs/scheduler.log in Notepad">📄
+              scheduler.log</button>
             <button type="button" class="btn xs danger-ghost" id="btnClearSyncLogs">🗑 Clear</button>
           </div>
         </div>
@@ -1776,15 +1866,18 @@
   </div>
 
   <!-- Unified Background Progress Modal (Manual Sync, Daily Auto-Sync, Daily Auto-Backup separated inside) -->
-  <div id="floatingProgressStack" class="floating-progress-stack" role="region" aria-label="Background Sync and Backup Jobs" hidden>
+  <div id="floatingProgressStack" class="floating-progress-stack" role="region"
+    aria-label="Background Sync and Backup Jobs" hidden>
     <div id="floatingProgressHeader" class="floating-progress-head">
       <div class="floating-progress-head-left">
         <span class="floating-progress-title">⚡ Background Jobs</span>
         <span id="floatStackSummary" class="pill accent">0 running</span>
       </div>
       <div class="floating-progress-head-actions">
-        <button type="button" class="btn xs ghost" id="btnClearFinishedFloats" hidden title="Dismiss finished or cancelled items">Clear done</button>
-        <button type="button" class="btn xs ghost" id="btnToggleFloatStack" aria-expanded="true" aria-label="Collapse background jobs panel" title="Collapse / Expand panel">▾</button>
+        <button type="button" class="btn xs ghost" id="btnClearFinishedFloats" hidden
+          title="Dismiss finished or cancelled items">Clear done</button>
+        <button type="button" class="btn xs ghost" id="btnToggleFloatStack" aria-expanded="true"
+          aria-label="Collapse background jobs panel" title="Collapse / Expand panel">▾</button>
       </div>
     </div>
 
@@ -1800,9 +1893,12 @@
           </div>
           <div class="sync-floating-meta">
             <span id="syncFloatPct" class="sync-floating-pct">0%</span>
-            <button type="button" class="btn xs accent" id="btnRestoreCloudSync" title="Restore Manual Sync modal">↗ Open</button>
-            <button type="button" class="btn xs danger-ghost" id="btnFloatCancelSync" title="Cancel running manual sync">🛑 Cancel</button>
-            <button type="button" class="btn xs ghost" id="btnFloatCloseSync" hidden aria-label="Dismiss manual sync status" title="Dismiss">✕</button>
+            <button type="button" class="btn xs accent" id="btnRestoreCloudSync" title="Restore Manual Sync modal">↗
+              Open</button>
+            <button type="button" class="btn xs danger-ghost" id="btnFloatCancelSync"
+              title="Cancel running manual sync">🛑 Cancel</button>
+            <button type="button" class="btn xs ghost" id="btnFloatCloseSync" hidden
+              aria-label="Dismiss manual sync status" title="Dismiss">✕</button>
           </div>
         </div>
         <div class="progress-bar" style="height:5px;margin:6px 0 4px">
@@ -1822,9 +1918,12 @@
           </div>
           <div class="sync-floating-meta">
             <span id="autoSyncFloatPct" class="sync-floating-pct">0%</span>
-            <button type="button" class="btn xs accent" id="btnRestoreAutoSyncRun" title="Open Daily Auto-Sync progress modal">↗ Open</button>
-            <button type="button" class="btn xs danger-ghost" id="btnFloatCancelAutoSync" title="Cancel running Daily Auto-Sync">🛑 Cancel</button>
-            <button type="button" class="btn xs ghost" id="btnFloatCloseAutoSync" hidden aria-label="Dismiss auto-sync status" title="Dismiss">✕</button>
+            <button type="button" class="btn xs accent" id="btnRestoreAutoSyncRun"
+              title="Open Daily Auto-Sync progress modal">↗ Open</button>
+            <button type="button" class="btn xs danger-ghost" id="btnFloatCancelAutoSync"
+              title="Cancel running Daily Auto-Sync">🛑 Cancel</button>
+            <button type="button" class="btn xs ghost" id="btnFloatCloseAutoSync" hidden
+              aria-label="Dismiss auto-sync status" title="Dismiss">✕</button>
           </div>
         </div>
         <div class="progress-bar" style="height:5px;margin:6px 0 4px">
@@ -1844,9 +1943,12 @@
           </div>
           <div class="sync-floating-meta">
             <span id="autoBkpFloatPct" class="sync-floating-pct">0%</span>
-            <button type="button" class="btn xs accent" id="btnRestoreAutoBkpRun" title="Open Daily Auto-Backup progress modal">↗ Open</button>
-            <button type="button" class="btn xs danger-ghost" id="btnFloatCancelAutoBkp" title="Cancel running Daily Auto-Backup">🛑 Cancel</button>
-            <button type="button" class="btn xs ghost" id="btnFloatCloseAutoBkp" hidden aria-label="Dismiss auto-backup status" title="Dismiss">✕</button>
+            <button type="button" class="btn xs accent" id="btnRestoreAutoBkpRun"
+              title="Open Daily Auto-Backup progress modal">↗ Open</button>
+            <button type="button" class="btn xs danger-ghost" id="btnFloatCancelAutoBkp"
+              title="Cancel running Daily Auto-Backup">🛑 Cancel</button>
+            <button type="button" class="btn xs ghost" id="btnFloatCloseAutoBkp" hidden
+              aria-label="Dismiss auto-backup status" title="Dismiss">✕</button>
           </div>
         </div>
         <div class="progress-bar" style="height:5px;margin:6px 0 4px">
@@ -1858,7 +1960,8 @@
   </div>
 
   <!-- Keyboard Shortcuts Overlay Modal -->
-  <div class="modal-backdrop" id="modalShortcuts" role="dialog" aria-modal="true" aria-labelledby="modalShortcutsTitle" hidden>
+  <div class="modal-backdrop" id="modalShortcuts" role="dialog" aria-modal="true" aria-labelledby="modalShortcutsTitle"
+    hidden>
     <div class="modal modal-shortcuts">
       <div class="modal-head">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -1875,7 +1978,8 @@
         </div>
         <div class="sc-modal-grid" id="shortcutsModalGrid"></div>
         <div class="modal-actions" style="justify-content:space-between;align-items:center;flex-wrap:wrap">
-          <button type="button" class="btn sm accent" id="btnShortcutsOpenGuide">📖 Open Full Step-by-Step Guide (Alt+8)</button>
+          <button type="button" class="btn sm accent" id="btnShortcutsOpenGuide">📖 Open Full Step-by-Step Guide
+            (Alt+8)</button>
           <button type="button" class="btn sm" id="btnDoneShortcuts">Close (Esc)</button>
         </div>
       </div>
@@ -1883,11 +1987,13 @@
   </div>
 
   <!-- Guide Screenshot Lightbox Modal -->
-  <div class="modal-backdrop" id="modalGuideLightbox" role="dialog" aria-modal="true" aria-labelledby="lightboxTitle" hidden>
+  <div class="modal-backdrop" id="modalGuideLightbox" role="dialog" aria-modal="true" aria-labelledby="lightboxTitle"
+    hidden>
     <div class="modal modal-lightbox">
       <div class="modal-head">
         <div style="display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap">
-          <h3 id="lightboxTitle" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Screenshot Preview</h3>
+          <h3 id="lightboxTitle" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Screenshot Preview
+          </h3>
           <span class="pill accent" id="lightboxCounter">1 / 1</span>
         </div>
         <button type="button" class="icon-btn" id="btnCloseLightbox" aria-label="Close screenshot preview">✕</button>
@@ -1899,8 +2005,10 @@
         <p class="lightbox-caption" id="lightboxCaption"></p>
         <div class="modal-actions" style="justify-content:space-between;align-items:center;flex-wrap:wrap">
           <div style="display:flex;gap:6px">
-            <button type="button" class="btn sm" id="btnLightboxPrev" title="Previous screenshot (Left Arrow)">‹ Prev</button>
-            <button type="button" class="btn sm" id="btnLightboxNext" title="Next screenshot (Right Arrow)">Next ›</button>
+            <button type="button" class="btn sm" id="btnLightboxPrev" title="Previous screenshot (Left Arrow)">‹
+              Prev</button>
+            <button type="button" class="btn sm" id="btnLightboxNext" title="Next screenshot (Right Arrow)">Next
+              ›</button>
           </div>
           <button type="button" class="btn sm primary" id="btnDoneLightbox">Close (Esc)</button>
         </div>
@@ -1909,7 +2017,8 @@
   </div>
 
   <!-- Confirm Modal (always stacks above every other modal) -->
-  <div class="modal-backdrop" id="modalConfirm" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMsg" hidden>
+  <div class="modal-backdrop" id="modalConfirm" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle"
+    aria-describedby="confirmMsg" hidden>
     <div class="modal small">
       <div class="modal-head">
         <h3 id="confirmTitle">Confirm</h3>

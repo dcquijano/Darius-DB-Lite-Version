@@ -1,19 +1,20 @@
 {
   "name": "Darius DB (Lite Version 0.1.5)",
   "version": "0.1.5",
-  "build": "202611261408",
+  "build": "202611261423",
   "channel": "Lite Version",
   "releasedAt": "2026-11-26",
   "author": "Darius Cumpio",
-  "latestCommit": "7f4bd97",
+  "latestCommit": "7ff856d",
   "generatedFromGit": true,
   "installerUrl": "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing",
   "directSetupUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-Setup-0.1.5.exe",
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-0.1.5-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.5.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Fix flexbox clipping so Mailpit row renders cleanly below Redis; Add SSMS-style right-click context menu and interactive ER database diagram; Add Close All SQL query tabs button and workspace AGENTS.md.",
+  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Add Export dropdown to Database Diagram (PNG, JPEG, WebP, SVG, HTML, Mermaid); Fix flexbox clipping so Mailpit row renders cleanly below Redis; Add SSMS-style right-click context menu and interactive ER database diagram.",
   "changelog": [
+    "[7ff856d] Add Export dropdown to Database Diagram (PNG, JPEG, WebP, SVG, HTML, Mermaid) (2026-11-26)",
     "[7f4bd97] Fix flexbox clipping so Mailpit row renders cleanly below Redis (2026-11-26)",
     "[e989c9e] Add SSMS-style right-click context menu and interactive ER database diagram (2026-11-26)",
     "[f88eada] Add Close All SQL query tabs button and workspace AGENTS.md (2026-11-26)",
@@ -57,7 +58,6 @@
     "[435cf11] Add database/table count badges, resizable browser splitters, and column resizing (2026-11-21)",
     "[574c61f] Fix MS SQL Error 4060 stale Cloud DB selection and missing profile fallback (2026-11-21)",
     "[72f61ac] Remove hidden PowerShell shortcut dropper and use clean go:embed PE installer (2026-11-21)",
-    "[7efa46a] Display latest 10 GitHub pushes in Release Announcement (2026-11-21)",
-    "[74e9110] Fix MS SQL Server toggle turning back OFF after start (2026-11-21)"
+    "[7efa46a] Display latest 10 GitHub pushes in Release Announcement (2026-11-21)"
   ]
 }

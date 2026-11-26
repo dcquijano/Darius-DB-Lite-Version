@@ -24,6 +24,18 @@ Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS 
 
 ![Darius DB Database Manager and SQL Browser](database-manager.jpg)
 
+### SSMS-Style Right-Click Menu (`New Database Diagram`, `New Query`, `Create Table`, `Refresh`)
+![Right-Click Database Context Menu](database-context-menu.jpg)
+
+### Interactive ER Database Diagram & Export Dropdown (`.png`, `.jpg`, `.webp`, `.svg`, `.html`, `.mmd`)
+![Interactive ER Database Diagram and Export Dropdown](database-diagram-export.jpg)
+
+### Chrome-Style Tear-Off Floating Query Windows (`↗` / `↩ Put Back` / `✕ Close All`)
+![Tear-Off Floating Query Windows](database-floating-tabs.jpg)
+
+### SQL Editor Tab Autocomplete & Smart Suggestions
+![SQL Editor Tab Autocomplete](database-sql-autocomplete.jpg)
+
 ---
 
 ## 3. Row CRUD (Show, Edit & Create)
@@ -65,8 +77,14 @@ Connect and manage **cPanel / Plesk / Hostinger (MySQL)**, **MonsterASP.NET / Sm
 ### Add Cloud Database (Quick URI / ADO.NET Auto-Fill)
 ![Add Cloud Database Modal](cloud-add-database.jpg)
 
-### New Daily Auto-Sync & 2:00 AM Auto-Backup Schedule
-![New Daily Auto-Sync and 2:00 AM Auto-Backup Modal](cloud-auto-sync-schedule.png)
+### New Daily Auto-Sync Schedule
+![New Daily Auto-Sync Schedule](cloud-auto-sync-schedule.png)
+
+### New Daily Auto-Backup & Purge Schedule (with Purge Date Guide)
+![New Daily Auto-Backup and Purge Schedule Modal](cloud-daily-auto-backup.jpg)
+
+### Sync & Auto-Schedule Trace Logs (`scheduler.log`)
+![Sync and Auto-Schedule Trace Logs](cloud-sync-trace-logs.jpg)
 
 ### Windows Task Scheduler (2:00 AM Auto-Wake)
 ![Registered Daily 2:00 AM Windows Task Scheduler Job](cloud-win-2am-task.png)
@@ -104,3 +122,21 @@ Configure ports, default database credentials, Start All selection, close-to-tra
 Check online for new versions/builds, sync release announcements and commit history directly from GitHub, and perform 1-click in-place upgrades with automatic restart (`data/` and `www/` preserved).
 
 ![Darius DB System Version Updater](system-updater.png)
+
+---
+
+## 9. Built-in Visual Guide, Keyboard Shortcuts (`F1`) & CLI / Ports Reference
+
+Explore the interactive quick-start checklist, collapsible visual step-by-step guides (`Alt+8`), searchable keyboard shortcuts popup (`F1` / `Ctrl+/` / `?`), full shortcuts matrix, default engine ports (including Mailpit `:8025/:1025`), and one-click copy `darius` CLI commands.
+
+### Interactive Quick-Start Checklist & Step-by-Step Visual Guide (`Alt+8`)
+![Step-by-Step Guide and Checklist](guide-step-by-step.jpg)
+
+### Quick Searchable Keyboard Shortcuts Modal (`F1` / `Ctrl+/` / `?`)
+![Keyboard Shortcuts Popup Modal](shortcuts-modal.jpg)
+
+### Full Keyboard Shortcuts Reference
+![Full Keyboard Shortcuts Reference](guide-keyboard-shortcuts.jpg)
+
+### CLI (`darius`), Default Ports & Credentials Reference
+![CLI Commands and Default Ports Reference](guide-cli-ports.jpg)

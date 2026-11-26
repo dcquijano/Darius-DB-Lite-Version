@@ -20,8 +20,16 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 |---|---|
 | ![Auto-Run Bar](example/dashboard-auto-run.png) | ![Repair Modal](example/repair-diagnostics.jpg) |
 
-### Database Manager, SQL Browser & Row CRUD
+### Database Manager, ER Diagrams, SQL Autocomplete & Floating Query Tabs
 ![Darius DB Database Manager](example/database-manager.jpg)
+
+| Right-Click DB Menu (`New Database Diagram`) | Interactive ER Diagram & Export Dropdown |
+|---|---|
+| ![Right-Click Database Context Menu](example/database-context-menu.jpg) | ![Interactive ER Database Diagram](example/database-diagram-export.jpg) |
+
+| Tear-Off Floating Query Windows (`↩ Put Back` & `✕ Close All`) | IDE-Style SQL Tab Autocomplete |
+|---|---|
+| ![Floating SQL Query Tabs](example/database-floating-tabs.jpg) | ![SQL Autocomplete](example/database-sql-autocomplete.jpg) |
 
 | Show Row Details | Edit Row | Create Row |
 |---|---|---|
@@ -32,14 +40,14 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 |---|---|---|---|
 | ![Export Database](example/database-export.png) | ![Backup ZIP](example/database-backup-zip.jpg) | ![Import Database](example/database-import.jpg) | ![Restore .bak](example/database-restore-bak.jpg) |
 
-### Cloud Databases & 2:00 AM Auto-Sync / Backup
-| Cloud Databases & Daily Scheduler | Add Cloud DB (URI / ADO.NET Parse) | New 2:00 AM Auto-Sync & Backup |
-|---|---|---|
-| ![Cloud Databases](example/cloud-databases.jpg) | ![Add Cloud Database](example/cloud-add-database.jpg) | ![2:00 AM Schedule](example/cloud-auto-sync-schedule.png) |
+### Cloud Databases, Manual Sync, Daily Auto-Backup & Trace Logs
+| Cloud Databases & Daily Scheduler | Add Cloud DB (URI / ADO.NET Parse & TLS) | Daily Auto-Backup & Purge Schedule | Sync & Auto-Schedule Trace Logs |
+|---|---|---|---|
+| ![Cloud Databases](example/cloud-databases.jpg) | ![Add Cloud Database](example/cloud-add-database.jpg) | ![Daily Auto-Backup and Purge](example/cloud-daily-auto-backup.jpg) | ![Sync Trace Logs](example/cloud-sync-trace-logs.jpg) |
 
-| Windows 2:00 AM Scheduled Task | 7-Day Snapshot Purge | `backups/` Snapshot Folder |
+| New 2:00 AM Auto-Sync Schedule | Windows 2:00 AM Scheduled Task | 7-Day Snapshot Purge & `backups/` |
 |---|---|---|
-| ![Win 2 AM Task](example/cloud-win-2am-task.png) | ![Purge Snapshots](example/cloud-purge-snapshots.png) | ![Backups Folder](example/cloud-backups-folder.png) |
+| ![2:00 AM Schedule](example/cloud-auto-sync-schedule.png) | ![Win 2 AM Task](example/cloud-win-2am-task.png) | ![Backups Folder](example/cloud-backups-folder.png) |
 
 ### Versions Manager, Config & Logs, and Built-in Terminal
 | Portable Engine Versions | Config & Logs Editor | Built-in Multi-Mode Terminal |
@@ -50,6 +58,15 @@ Manage **Apache Web Server**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL S
 | Settings | GitHub System Updater |
 |---|---|
 | ![Settings](example/settings.jpg) | ![System Updater](example/system-updater.png) |
+
+### In-App Visual Guide, Keyboard Shortcuts (`F1`) & CLI / Ports Reference
+| Visual Step-by-Step Guide & Checklist (`Alt+8`) | Quick Keyboard Shortcuts Popup (`F1` / `Ctrl+/`) |
+|---|---|
+| ![Step-by-Step Guide](example/guide-step-by-step.jpg) | ![Keyboard Shortcuts Modal](example/shortcuts-modal.jpg) |
+
+| Full Keyboard Shortcuts Reference | Default Ports, Mailpit (`:8025`) & `darius` CLI Reference |
+|---|---|
+| ![Full Keyboard Shortcuts](example/guide-keyboard-shortcuts.jpg) | ![CLI and Ports Reference](example/guide-cli-ports.jpg) |
 
 ---
 

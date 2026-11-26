@@ -296,10 +296,13 @@
             </div>
             <div class="pane-head sub">
               <span class="pane-head-left">
-                <span class="pane-title" id="sqlTablesTitle">Tables</span>
+                <span class="pane-title" id="sqlTablesTitle" title="Right-click a database or click Diagram to open ER Diagram">Tables</span>
                 <span class="pane-count" id="sqlTablesCount" hidden>0</span>
               </span>
-              <button class="btn xs primary" id="btnNewTable" title="Create a new table in this database">+ New</button>
+              <div style="display:inline-flex;gap:4px;align-items:center">
+                <button class="btn xs" id="btnNewDiagram" title="New Database Diagram (or right-click any database)">🗺️ Diagram</button>
+                <button class="btn xs primary" id="btnNewTable" title="Create a new table in this database">+ New</button>
+              </div>
             </div>
             <div class="tree-list sql-table-list" id="sqlTableList"></div>
           </aside>
@@ -316,6 +319,7 @@
               <button type="button" class="sql-tab-add" id="btnNewSqlTab" title="Open new SQL query tab">+</button>
               <button type="button" class="sql-tab-clear-all" id="btnCloseAllSqlTabs" title="Close all query tabs (including popped-out windows)">✕ Close All</button>
             </div>
+            <div class="sql-diagram-stage" id="sqlDiagramStage" hidden></div>
             <div class="editor-box" id="sqlEditorBox">
               <div class="editor-bar">
                 <span class="chip" id="sqlActiveDb">No DB selected</span>
@@ -1922,6 +1926,7 @@
   </div>
 
   <div id="sqlFloatingWindows" class="sql-float-layer" aria-live="polite"></div>
+  <div id="dbContextMenu" class="db-ctx-menu" role="menu" hidden></div>
 
   <div class="toasts" id="toasts"></div>
 

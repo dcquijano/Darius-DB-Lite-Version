@@ -189,7 +189,7 @@
   }
 
   function isBlankSqlTab(tab) {
-    return !!tab && !tab.table && !tab.result && !tab.loading && !(tab.sql || "").trim();
+    return !!tab && tab.kind !== "diagram" && !tab.diagram && !tab.table && !tab.result && !tab.loading && !(tab.sql || "").trim();
   }
 
   function nextQueryTabTitle(engine) {
@@ -199,10 +199,11 @@
     return `Query ${n}`;
   }
 
-  function createSqlTabObj({ engine = state.dbEngine, db = state.sqlDb, table = "", title = "", sql = "", pageSize = state.sqlPageSize || 50 } = {}) {
+  function createSqlTabObj({ engine = state.dbEngine, db = state.sqlDb, table = "", title = "", sql = "", kind = "query", diagram = null, pageSize = state.sqlPageSize || 50 } = {}) {
     const id = `sqltab-${++sqlTabIdSeq}`;
     return {
       id,
+      kind: kind || "query",
       title: title || table || nextQueryTabTitle(engine),
       engine,
       db: db || "",
@@ -210,6 +211,7 @@
       columns: [],
       sql: sql || "",
       result: null,
+      diagram: diagram || null,
       showingAll: false,
       page: 1,
       pageSize: pageSize ?? 50,
@@ -227,7 +229,7 @@
 
   function syncActiveTabFromDom() {
     const tab = getActiveSqlTab();
-    if (!tab || tab.detached) return;
+    if (!tab || tab.detached || tab.kind === "diagram") return;
     tab.table = state.sqlTable;
     tab.columns = state.sqlColumns;
     tab.result = state.sqlLastResult;
@@ -282,30 +284,46 @@
     }
     state.activeSqlTabId = tab.id;
     activeSqlTabByEngine.set(tab.engine, tab.id);
-    state.sqlTable = tab.table || "";
-    state.sqlColumns = tab.columns || [];
-    state.sqlLastResult = tab.result || null;
-    state.sqlShowingAll = !!tab.showingAll;
-    state.sqlPage = tab.page || 1;
-    state.sqlPageSize = tab.pageSize !== undefined ? tab.pageSize : 50;
-    state.sqlColWidths = tab.colWidths || null;
+    const isDiagram = tab.kind === "diagram";
+    if ($("sqlDiagramStage")) $("sqlDiagramStage").hidden = !isDiagram;
+    if ($("sqlEditorBox")) $("sqlEditorBox").hidden = isDiagram;
+    if ($("sqlMainSplitH")) $("sqlMainSplitH").hidden = isDiagram;
+    if ($("sqlResultBox")) $("sqlResultBox").hidden = isDiagram;
 
-    if ($("sqlEditor")) $("sqlEditor").value = tab.sql || "";
-    if ($("sqlRowFilter")) $("sqlRowFilter").value = tab.filter || "";
-    if ($("sqlPageSize")) $("sqlPageSize").value = String(state.sqlPageSize);
-    const meta = $("sqlMeta");
-    if (meta) {
-      meta.textContent = tab.metaText || "Ready";
-      meta.parentElement.className = tab.metaError ? "result-meta-bar error" : "result-meta-bar";
-    }
-    if (tab.result && tab.result.isQuery) {
-      renderSqlTable(tab.result);
+    if (isDiagram) {
+      state.sqlTable = "";
+      state.sqlColumns = [];
+      state.sqlLastResult = null;
+      updateSqlTableToolbar();
+      renderSqlTabs();
+      renderDatabaseDiagramInto($("sqlDiagramStage"), tab);
     } else {
-      if ($("sqlResults")) $("sqlResults").innerHTML = "";
-      hideSqlPager();
+      if ($("sqlDiagramStage")) $("sqlDiagramStage").innerHTML = "";
+      state.sqlTable = tab.table || "";
+      state.sqlColumns = tab.columns || [];
+      state.sqlLastResult = tab.result || null;
+      state.sqlShowingAll = !!tab.showingAll;
+      state.sqlPage = tab.page || 1;
+      state.sqlPageSize = tab.pageSize !== undefined ? tab.pageSize : 50;
+      state.sqlColWidths = tab.colWidths || null;
+
+      if ($("sqlEditor")) $("sqlEditor").value = tab.sql || "";
+      if ($("sqlRowFilter")) $("sqlRowFilter").value = tab.filter || "";
+      if ($("sqlPageSize")) $("sqlPageSize").value = String(state.sqlPageSize);
+      const meta = $("sqlMeta");
+      if (meta) {
+        meta.textContent = tab.metaText || "Ready";
+        meta.parentElement.className = tab.metaError ? "result-meta-bar error" : "result-meta-bar";
+      }
+      if (tab.result && tab.result.isQuery) {
+        renderSqlTable(tab.result);
+      } else {
+        if ($("sqlResults")) $("sqlResults").innerHTML = "";
+        hideSqlPager();
+      }
+      updateSqlTableToolbar();
+      renderSqlTabs();
     }
-    updateSqlTableToolbar();
-    renderSqlTabs();
 
     if (syncSidebar && tab.db && tab.db !== state.sqlDb && tab.engine === state.dbEngine) {
       state.sqlDb = tab.db;
@@ -495,6 +513,12 @@
     if (labelEl) labelEl.textContent = tab.title || tab.table || "Query";
     const dbEl = winEl.querySelector(".sql-float-db");
     if (dbEl) dbEl.textContent = tab.db ? `${tab.engine} / ${tab.db}` : tab.engine;
+
+    if (tab.kind === "diagram") {
+      const diagWrap = winEl.querySelector(".sql-float-diagram");
+      if (diagWrap) renderDatabaseDiagramInto(diagWrap, tab);
+      return;
+    }
 
     const ed = winEl.querySelector(".sql-float-editor");
     if (ed && document.activeElement !== ed) ed.value = tab.sql || "";
@@ -1003,9 +1027,10 @@
     if (!layer || !tab) return null;
     removeFloatingSqlWin(tab.id);
 
+    const isDiagram = tab.kind === "diagram";
     const pos = tab.floatPos || {};
-    const w = pos.width || Math.min(640, Math.max(400, Math.round(window.innerWidth * 0.54)));
-    const h = pos.height || Math.min(460, Math.max(320, Math.round(window.innerHeight * 0.6)));
+    const w = pos.width || Math.min(isDiagram ? 860 : 640, Math.max(400, Math.round(window.innerWidth * (isDiagram ? 0.68 : 0.54))));
+    const h = pos.height || Math.min(isDiagram ? 620 : 460, Math.max(320, Math.round(window.innerHeight * (isDiagram ? 0.74 : 0.6))));
     const cascade = floatingSqlWins.size * 24;
     const left = Math.max(8, Math.min(window.innerWidth - w - 8, pos.left ?? Math.round((window.innerWidth - w) * 0.65 + cascade)));
     const top = Math.max(8, Math.min(window.innerHeight - h - 8, pos.top ?? Math.round(84 + cascade)));
@@ -1026,11 +1051,15 @@
         <span class="chip sql-float-db">${esc(tab.db ? `${tab.engine} / ${tab.db}` : tab.engine)}</span>
         <div class="spacer"></div>
         <div class="sql-float-head-acts">
-          <button type="button" class="btn xs accent" data-f-dock title="Put this query tab back into the main tab bar">↩ Put Back</button>
+          <button type="button" class="btn xs accent" data-f-dock title="Put this tab back into the main tab bar">↩ Put Back</button>
           <button type="button" class="icon-btn" data-f-max title="Maximize / Restore">⬜</button>
           <button type="button" class="icon-btn" data-f-close title="Close tab">✕</button>
         </div>
       </div>
+      ${
+        isDiagram
+          ? `<div class="sql-float-body"><div class="sql-diagram-stage sql-float-diagram" style="flex:1;min-height:0"></div></div>`
+          : `
       <div class="sql-float-bar">
         <span class="hint">Tab to suggest · Ctrl+Enter to run · Drag titlebar back to dock</span>
         <div class="spacer"></div>
@@ -1058,38 +1087,88 @@
             <button type="button" class="btn xs pager-btn" data-f-next>Next ›</button>
           </div>
         </div>
-      </div>
+      </div>`
+      }
       <div class="sql-float-resize-se" title="Drag to resize window"></div>
     `;
 
-    const ed = winEl.querySelector(".sql-float-editor");
-    const edWrap = winEl.querySelector(".sql-float-editor-wrap");
-    ed.value = tab.sql || "";
-    ed.addEventListener("input", () => {
-      tab.sql = ed.value;
-    });
-    const floatSuggest = attachSqlAutocomplete({
-      textarea: ed,
-      menu: winEl.querySelector(".sql-suggest-menu"),
-      stage: edWrap,
-      boundsEl: winEl.querySelector(".sql-float-body"),
-      getTab: () => tab,
-      onRun: () => {
+    let floatSuggest = null;
+    if (!isDiagram) {
+      const ed = winEl.querySelector(".sql-float-editor");
+      const edWrap = winEl.querySelector(".sql-float-editor-wrap");
+      ed.value = tab.sql || "";
+      ed.addEventListener("input", () => {
+        tab.sql = ed.value;
+      });
+      floatSuggest = attachSqlAutocomplete({
+        textarea: ed,
+        menu: winEl.querySelector(".sql-suggest-menu"),
+        stage: edWrap,
+        boundsEl: winEl.querySelector(".sql-float-body"),
+        getTab: () => tab,
+        onRun: () => {
+          tab.sql = ed.value;
+          runSqlQuery(false, false, tab.id);
+        },
+      });
+
+      const filt = winEl.querySelector(".sql-float-filter");
+      let filtTimer = null;
+      filt.addEventListener("input", () => {
+        clearTimeout(filtTimer);
+        filtTimer = setTimeout(() => {
+          tab.filter = filt.value;
+          tab.page = 1;
+          updateFloatingSqlWin(tab);
+        }, 120);
+      });
+
+      winEl.querySelector("[data-f-run]").onclick = () => {
+        floatSuggest.close();
         tab.sql = ed.value;
         runSqlQuery(false, false, tab.id);
-      },
-    });
-
-    const filt = winEl.querySelector(".sql-float-filter");
-    let filtTimer = null;
-    filt.addEventListener("input", () => {
-      clearTimeout(filtTimer);
-      filtTimer = setTimeout(() => {
-        tab.filter = filt.value;
-        tab.page = 1;
+      };
+      winEl.querySelector("[data-f-all]").onclick = () => {
+        floatSuggest.close();
+        tab.sql = applySqlQueryLimit(ed.value, 0);
+        ed.value = tab.sql;
+        runSqlQuery(true, false, tab.id);
+      };
+      winEl.querySelector("[data-f-clear]").onclick = () => {
+        floatSuggest.close();
+        ed.value = "";
+        tab.sql = "";
+        ed.focus();
+      };
+      winEl.querySelector("[data-f-prev]").onclick = () => {
+        tab.page = Math.max(1, (tab.page || 1) - 1);
         updateFloatingSqlWin(tab);
-      }, 120);
-    });
+      };
+      winEl.querySelector("[data-f-next]").onclick = () => {
+        tab.page = (tab.page || 1) + 1;
+        updateFloatingSqlWin(tab);
+      };
+
+      // Horizontal splitter inside floating window
+      const splitEl = winEl.querySelector(".sql-float-split");
+      splitEl.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const startY = e.clientY;
+        const startH = edWrap.getBoundingClientRect().height;
+        const maxH = Math.max(90, winEl.getBoundingClientRect().height - 165);
+        const onMv = (ev) => {
+          const nextH = Math.max(64, Math.min(maxH, startH + (ev.clientY - startY)));
+          edWrap.style.height = `${nextH}px`;
+        };
+        const onUp = () => {
+          window.removeEventListener("pointermove", onMv);
+          window.removeEventListener("pointerup", onUp);
+        };
+        window.addEventListener("pointermove", onMv);
+        window.addEventListener("pointerup", onUp);
+      });
+    }
 
     winEl.addEventListener("pointerdown", () => focusFloatingSqlWin(winEl));
 
@@ -1097,7 +1176,7 @@
     head.addEventListener("pointerdown", (e) => {
       if (e.button !== 0 || e.target.closest("button")) return;
       e.preventDefault();
-      floatSuggest.close();
+      floatSuggest?.close();
       startFloatingWinDrag(winEl, tab, e.clientX, e.clientY);
     });
     head.addEventListener("dblclick", (e) => {
@@ -1106,56 +1185,11 @@
     });
 
     winEl.querySelector("[data-f-dock]").onclick = () => {
-      floatSuggest.close();
+      floatSuggest?.close();
       dockSqlTab(tab.id, null);
     };
     winEl.querySelector("[data-f-max]").onclick = () => winEl.classList.toggle("is-maximized");
     winEl.querySelector("[data-f-close]").onclick = () => closeSqlTab(tab.id);
-    winEl.querySelector("[data-f-run]").onclick = () => {
-      floatSuggest.close();
-      tab.sql = ed.value;
-      runSqlQuery(false, false, tab.id);
-    };
-    winEl.querySelector("[data-f-all]").onclick = () => {
-      floatSuggest.close();
-      tab.sql = applySqlQueryLimit(ed.value, 0);
-      ed.value = tab.sql;
-      runSqlQuery(true, false, tab.id);
-    };
-    winEl.querySelector("[data-f-clear]").onclick = () => {
-      floatSuggest.close();
-      ed.value = "";
-      tab.sql = "";
-      ed.focus();
-    };
-    winEl.querySelector("[data-f-prev]").onclick = () => {
-      tab.page = Math.max(1, (tab.page || 1) - 1);
-      updateFloatingSqlWin(tab);
-    };
-    winEl.querySelector("[data-f-next]").onclick = () => {
-      tab.page = (tab.page || 1) + 1;
-      updateFloatingSqlWin(tab);
-    };
-
-    // Horizontal splitter inside floating window
-    const splitEl = winEl.querySelector(".sql-float-split");
-    splitEl.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      const startY = e.clientY;
-      const startH = edWrap.getBoundingClientRect().height;
-      const maxH = Math.max(90, winEl.getBoundingClientRect().height - 165);
-      const onMv = (ev) => {
-        const nextH = Math.max(64, Math.min(maxH, startH + (ev.clientY - startY)));
-        edWrap.style.height = `${nextH}px`;
-      };
-      const onUp = () => {
-        window.removeEventListener("pointermove", onMv);
-        window.removeEventListener("pointerup", onUp);
-      };
-      window.addEventListener("pointermove", onMv);
-      window.addEventListener("pointerup", onUp);
-    });
 
     // Corner resize handle
     const resizer = winEl.querySelector(".sql-float-resize-se");
@@ -1277,6 +1311,819 @@
     } else {
       applyTabToDom(tab, { syncSidebar: true });
     }
+  }
+
+  // ---- SSMS-Style Right-Click Context Menu & Interactive ER Database Diagram ----
+  function hideDbContextMenu() {
+    const menu = $("dbContextMenu");
+    if (!menu || menu.hidden) return;
+    menu.hidden = true;
+    menu.innerHTML = "";
+  }
+
+  function showDbContextMenu(clientX, clientY, headerText, items) {
+    const menu = $("dbContextMenu");
+    if (!menu) return;
+    hideDbContextMenu();
+    if (headerText) {
+      const head = document.createElement("div");
+      head.className = "db-ctx-head";
+      head.textContent = headerText;
+      head.title = headerText;
+      menu.appendChild(head);
+    }
+    (items || []).forEach((item) => {
+      if (!item || item.type === "sep") {
+        const sep = document.createElement("div");
+        sep.className = "db-ctx-sep";
+        menu.appendChild(sep);
+        return;
+      }
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `db-ctx-item${item.danger ? " danger" : ""}`;
+      btn.disabled = !!item.disabled;
+      btn.innerHTML = `<span style="width:16px;text-align:center;flex-shrink:0">${esc(item.icon || "")}</span><span>${esc(item.label || "")}</span>`;
+      btn.onclick = async (ev) => {
+        ev.stopPropagation();
+        hideDbContextMenu();
+        if (item.onClick) await item.onClick();
+      };
+      menu.appendChild(btn);
+    });
+    menu.hidden = false;
+    menu.style.left = "0px";
+    menu.style.top = "0px";
+    const r = menu.getBoundingClientRect();
+    const left = Math.max(8, Math.min(window.innerWidth - r.width - 8, clientX));
+    const top = Math.max(8, Math.min(window.innerHeight - r.height - 8, clientY));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  function diagramTableKey(name) {
+    const s = String(name || "").trim().toLowerCase();
+    const dot = s.lastIndexOf(".");
+    return dot >= 0 ? s.slice(dot + 1) : s;
+  }
+
+  function buildDiagramEdges(data, includeInferred = true) {
+    const tables = data?.tables || [];
+    const fks = data?.foreignKeys || [];
+    const byLower = new Map();
+    const byShort = new Map();
+    tables.forEach((t) => {
+      const low = String(t.name || "").toLowerCase();
+      byLower.set(low, t);
+      const short = diagramTableKey(t.name);
+      if (!byShort.has(short)) byShort.set(short, t);
+    });
+
+    const resolveTable = (name) => {
+      const low = String(name || "").toLowerCase();
+      return byLower.get(low) || byShort.get(diagramTableKey(low)) || null;
+    };
+
+    const edges = [];
+    const seen = new Set();
+    fks.forEach((fk) => {
+      const fromTbl = resolveTable(fk.fromTable);
+      const toTbl = resolveTable(fk.toTable);
+      if (!fromTbl || !toTbl) return;
+      const key = `${fromTbl.name}|${String(fk.fromColumn || "").toLowerCase()}|${toTbl.name}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      edges.push({
+        constraintName: fk.constraintName || "",
+        fromTable: fromTbl.name,
+        fromColumn: fk.fromColumn,
+        toTable: toTbl.name,
+        toColumn: fk.toColumn || "id",
+        updateRule: fk.updateRule || "",
+        deleteRule: fk.deleteRule || "",
+        inferred: false,
+      });
+    });
+
+    if (!includeInferred) return edges;
+
+    const findTargetTableForFkCol = (colName) => {
+      const low = String(colName || "").toLowerCase();
+      if (!low.endsWith("_id") || low.length <= 3) return null;
+      const base = low.slice(0, -3).replace(/^tbl_/, "");
+      const candidates = [base, `${base}s`, `${base}es`];
+      if (base.endsWith("y") && base.length > 1) candidates.push(`${base.slice(0, -1)}ies`);
+      if (base.endsWith("s")) candidates.push(base.slice(0, -1));
+      if (base.endsWith("ies")) candidates.push(`${base.slice(0, -3)}y`);
+      for (const c of candidates) {
+        const hit = byShort.get(c);
+        if (hit) return hit;
+      }
+      return null;
+    };
+
+    tables.forEach((t) => {
+      (t.columns || []).forEach((col) => {
+        const target = findTargetTableForFkCol(col.name);
+        if (!target) return;
+        const key = `${t.name}|${String(col.name || "").toLowerCase()}|${target.name}`;
+        if (seen.has(key)) return;
+        const pkCol = (target.columns || []).find((c) => c.isPrimaryKey)?.name || (target.columns || []).find((c) => c.name.toLowerCase() === "id")?.name || "";
+        if (!pkCol) return;
+        seen.add(key);
+        edges.push({
+          constraintName: `inferred:${t.name}.${col.name}`,
+          fromTable: t.name,
+          fromColumn: col.name,
+          toTable: target.name,
+          toColumn: pkCol,
+          updateRule: "",
+          deleteRule: "",
+          inferred: true,
+        });
+      });
+    });
+    return edges;
+  }
+
+  function computeDiagramAutoLayout(tables, edges) {
+    const layout = {};
+    if (!tables || !tables.length) return layout;
+
+    const degree = new Map();
+    tables.forEach((t) => degree.set(t.name, 0));
+    (edges || []).forEach((e) => {
+      degree.set(e.fromTable, (degree.get(e.fromTable) || 0) + 1);
+      degree.set(e.toTable, (degree.get(e.toTable) || 0) + 1);
+    });
+
+    const sorted = [...tables].sort((a, b) => {
+      const da = degree.get(a.name) || 0;
+      const db = degree.get(b.name) || 0;
+      if (da !== db) return db - da;
+      return a.name.localeCompare(b.name);
+    });
+
+    const colsPerRow = Math.max(2, Math.min(5, Math.ceil(Math.sqrt(sorted.length * 1.15))));
+    const gapX = 310;
+    const gapY = 44;
+    const startX = 48;
+    const startY = 42;
+    let curY = startY;
+
+    for (let i = 0; i < sorted.length; i += colsPerRow) {
+      const slice = sorted.slice(i, i + colsPerRow);
+      let maxRowH = 120;
+      slice.forEach((t, colIdx) => {
+        const colRows = Math.min(11, Math.max(1, (t.columns || []).length));
+        const estH = 42 + colRows * 25 + 10;
+        if (estH > maxRowH) maxRowH = estH;
+        layout[t.name] = {
+          x: startX + colIdx * gapX,
+          y: curY,
+        };
+      });
+      curY += maxRowH + gapY;
+    }
+    return layout;
+  }
+
+  function diagramToMermaid(data, edges, visibleSet) {
+    const tables = (data?.tables || []).filter((t) => !visibleSet || visibleSet.has(t.name));
+    const visNames = new Set(tables.map((t) => t.name));
+    const cleanId = (s) => String(s || "tbl").replace(/[^A-Za-z0-9_]/g, "_");
+    const lines = ["erDiagram"];
+    tables.forEach((t) => {
+      lines.push(`  ${cleanId(t.name)} {`);
+      (t.columns || []).forEach((c) => {
+        const typ = String(c.dataType || "string").replace(/\s+/g, "_").replace(/[^A-Za-z0-9_()]/g, "");
+        const col = cleanId(c.name);
+        const flag = c.isPrimaryKey ? " PK" : "";
+        lines.push(`    ${typ || "any"} ${col}${flag}`);
+      });
+      lines.push("  }");
+    });
+    (edges || []).forEach((e) => {
+      if (!visNames.has(e.fromTable) || !visNames.has(e.toTable)) return;
+      const rel = e.inferred ? "}o..||" : "}o--||";
+      lines.push(`  ${cleanId(e.fromTable)} ${rel} ${cleanId(e.toTable)} : "${e.fromColumn} -> ${e.toColumn}"`);
+    });
+    return lines.join("\n");
+  }
+
+  function diagramToSvgDocument(diagState, edges, visibleTables) {
+    const layout = diagState.layout || {};
+    const nodeW = 248;
+    const nodePos = [];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    visibleTables.forEach((t) => {
+      const p = layout[t.name] || { x: 40, y: 40 };
+      const cols = t.columns || [];
+      const h = 36 + Math.max(1, cols.length) * 23 + 8;
+      nodePos.push({ t, x: p.x, y: p.y, w: nodeW, h });
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + nodeW);
+      maxY = Math.max(maxY, p.y + h);
+    });
+    if (!nodePos.length) {
+      minX = 0; minY = 0; maxX = 600; maxY = 300;
+    }
+    const pad = 36;
+    const vbX = Math.floor(minX - pad);
+    const vbY = Math.floor(minY - pad);
+    const vbW = Math.ceil(maxX - minX + pad * 2);
+    const vbH = Math.ceil(maxY - minY + pad * 2);
+    const posMap = new Map(nodePos.map((n) => [n.t.name, n]));
+    const escXml = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    const edgePaths = (edges || []).map((e) => {
+      const a = posMap.get(e.fromTable);
+      const b = posMap.get(e.toTable);
+      if (!a || !b) return "";
+      const axIdx = Math.max(0, (a.t.columns || []).findIndex((c) => c.name === e.fromColumn));
+      const bxIdx = Math.max(0, (b.t.columns || []).findIndex((c) => c.name === e.toColumn));
+      const y1 = a.y + 44 + axIdx * 23;
+      const y2 = b.y + 44 + bxIdx * 23;
+      let d = "";
+      if (a === b) {
+        const rx = a.x + a.w;
+        d = `M ${rx} ${y1} C ${rx + 56} ${y1}, ${rx + 56} ${y2}, ${rx} ${y2}`;
+      } else if (a.x + a.w < b.x) {
+        const x1 = a.x + a.w;
+        const x2 = b.x;
+        const dx = Math.max(36, (x2 - x1) * 0.45);
+        d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+      } else if (b.x + b.w < a.x) {
+        const x1 = a.x;
+        const x2 = b.x + b.w;
+        const dx = Math.max(36, (x1 - x2) * 0.45);
+        d = `M ${x1} ${y1} C ${x1 - dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`;
+      } else {
+        const x1 = a.x + a.w;
+        const x2 = b.x + b.w;
+        const bend = Math.max(x1, x2) + 46;
+        d = `M ${x1} ${y1} C ${bend} ${y1}, ${bend} ${y2}, ${x2} ${y2}`;
+      }
+      const stroke = e.inferred ? "#38bdf8" : "#14b8a6";
+      const dash = e.inferred ? ` stroke-dasharray="5 4"` : "";
+      return `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="2"${dash} marker-end="url(#fk-arrow)"/>`;
+    }).join("\n");
+
+    const cards = nodePos.map((n) => {
+      const colRows = (n.t.columns || []).map((c, idx) => {
+        const ry = n.y + 48 + idx * 23;
+        const badge = c.isPrimaryKey ? "PK" : "";
+        return `<text x="${n.x + 10}" y="${ry}" fill="${c.isPrimaryKey ? "#fbbf24" : "#94a3b8"}" font-size="10" font-family="monospace">${escXml(badge)}</text>
+          <text x="${n.x + 32}" y="${ry}" fill="#e2e8f0" font-size="11.5" font-family="monospace">${escXml(c.name)}</text>
+          <text x="${n.x + n.w - 10}" y="${ry}" text-anchor="end" fill="#94a3b8" font-size="10.5" font-family="monospace">${escXml(c.dataType || "")}</text>`;
+      }).join("\n");
+      return `<g>
+        <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="8" fill="#131c2e" stroke="#26334d"/>
+        <rect x="${n.x}" y="${n.y}" width="${n.w}" height="32" rx="8" fill="#1a263e"/>
+        <text x="${n.x + 10}" y="${n.y + 20}" fill="#f8fafc" font-size="12" font-weight="700" font-family="sans-serif">${escXml(n.t.name)}</text>
+        ${colRows}
+      </g>`;
+    }).join("\n");
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vbX} ${vbY} ${vbW} ${vbH}" width="${vbW}" height="${vbH}">
+  <rect x="${vbX}" y="${vbY}" width="${vbW}" height="${vbH}" fill="#0b1120"/>
+  <defs>
+    <marker id="fk-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#14b8a6"/>
+    </marker>
+  </defs>
+  ${edgePaths}
+  ${cards}
+</svg>`;
+  }
+
+  function refreshDiagramViewForTab(tab) {
+    if (!tab) return;
+    if (tab.detached) {
+      updateFloatingSqlWin(tab);
+      return;
+    }
+    if (tab.engine === state.dbEngine && tab.id === state.activeSqlTabId) {
+      renderDatabaseDiagramInto($("sqlDiagramStage"), tab);
+    }
+  }
+
+  async function loadDatabaseDiagramData(tab, { preserveLayout = false } = {}) {
+    if (!tab || !tab.diagram) return;
+    const d = tab.diagram;
+    d.loading = true;
+    d.error = "";
+    tab.loading = true;
+    renderSqlTabs();
+    refreshDiagramViewForTab(tab);
+    try {
+      const data = await api().GetDatabaseDiagram(tab.engine, tab.db);
+      d.data = data || { engine: tab.engine, database: tab.db, tables: [], foreignKeys: [] };
+      const edges = buildDiagramEdges(d.data, d.showInferred);
+      const freshLayout = computeDiagramAutoLayout(d.data.tables || [], edges);
+      if (preserveLayout && d.layout) {
+        const merged = {};
+        (d.data.tables || []).forEach((t) => {
+          merged[t.name] = d.layout[t.name] || freshLayout[t.name] || { x: 40, y: 40 };
+        });
+        d.layout = merged;
+      } else {
+        d.layout = freshLayout;
+        d._fitPending = true;
+      }
+      d.loading = false;
+      tab.loading = false;
+      renderSqlTabs();
+      refreshDiagramViewForTab(tab);
+    } catch (err) {
+      d.loading = false;
+      d.error = errMsg(err);
+      tab.loading = false;
+      renderSqlTabs();
+      refreshDiagramViewForTab(tab);
+    }
+  }
+
+  async function openDatabaseDiagramTab({ engine = state.dbEngine, db = state.sqlDb, focusTable = "" } = {}) {
+    if (!db) {
+      toast("Select a database first to open a diagram", "info");
+      return null;
+    }
+    syncActiveTabFromDom();
+    if (engine === state.dbEngine && db !== state.sqlDb) {
+      state.sqlDb = db;
+      renderSqlDbList();
+      loadSqlTables(db, false);
+    }
+    const existing = engineTabs(engine).find((t) => t.kind === "diagram" && t.db === db);
+    if (existing) {
+      if (existing.diagram && focusTable) existing.diagram.selectedTable = focusTable;
+      if (existing.detached) {
+        updateFloatingSqlWin(existing);
+        focusFloatingSqlWin(floatingSqlWins.get(existing.id));
+      } else {
+        applyTabToDom(existing, { syncSidebar: true });
+      }
+      if (existing.diagram && !existing.diagram.data && !existing.diagram.loading) {
+        loadDatabaseDiagramData(existing);
+      }
+      return existing;
+    }
+    const tab = createSqlTabObj({
+      engine,
+      db,
+      kind: "diagram",
+      title: `🗺️ ${db}`,
+      diagram: {
+        database: db,
+        loading: true,
+        error: "",
+        data: null,
+        layout: {},
+        panX: 24,
+        panY: 20,
+        zoom: 1,
+        showInferred: true,
+        visibleTables: null,
+        selectedTable: focusTable || "",
+        filterText: "",
+        pickerOpen: false,
+        _fitPending: true,
+      },
+    });
+    state.sqlTabs.push(tab);
+    applyTabToDom(tab, { syncSidebar: true });
+    await loadDatabaseDiagramData(tab);
+    return tab;
+  }
+
+  function renderDatabaseDiagramInto(container, tab) {
+    if (!container || !tab || !tab.diagram) return;
+    const d = tab.diagram;
+    const allTables = d.data?.tables || [];
+    const visSet = d.visibleTables ? new Set(d.visibleTables) : null;
+    const visibleTables = allTables.filter((t) => !visSet || visSet.has(t.name));
+    const allEdges = buildDiagramEdges(d.data, d.showInferred);
+    const visNames = new Set(visibleTables.map((t) => t.name));
+    const visibleEdges = allEdges.filter((e) => visNames.has(e.fromTable) && visNames.has(e.toTable));
+    const fkColMap = new Map();
+    visibleEdges.forEach((e) => {
+      const k = `${e.fromTable}|${String(e.fromColumn || "").toLowerCase()}`;
+      fkColMap.set(k, e);
+    });
+
+    const zoomPct = Math.round((d.zoom || 1) * 100);
+    container.innerHTML = `
+      <div class="diagram-root">
+        <div class="diagram-toolbar">
+          <span class="chip accent" title="Database Diagram">${esc(`${tab.engine} / ${tab.db}`)}</span>
+          <span class="chip">${visibleTables.length}/${allTables.length} tables · ${visibleEdges.length} links</span>
+          <button type="button" class="btn xs" data-diag-act="picker">📋 Tables</button>
+          <label class="inline-check" style="margin:0 4px;font-size:11.5px;gap:5px" title="Draw dashed inferred links for *_id columns even without explicit SQL FOREIGN KEY constraints">
+            <input type="checkbox" data-diag-act="inferred" ${d.showInferred ? "checked" : ""} />
+            <span>Inferred *_id</span>
+          </label>
+          <div class="spacer"></div>
+          <button type="button" class="btn xs" data-diag-act="arrange" title="Auto-arrange table cards cleanly">✨ Auto Arrange</button>
+          <button type="button" class="btn xs" data-diag-act="fit" title="Fit diagram to viewport">⊡ Fit</button>
+          <button type="button" class="btn xs" data-diag-act="zoom-out" title="Zoom out">−</button>
+          <span class="chip" data-diag-zoom-label>${zoomPct}%</span>
+          <button type="button" class="btn xs" data-diag-act="zoom-in" title="Zoom in">+</button>
+          <button type="button" class="btn xs" data-diag-act="mermaid" title="Copy Mermaid erDiagram snippet">Mermaid</button>
+          <button type="button" class="btn xs" data-diag-act="svg" title="Download diagram as SVG">SVG</button>
+          <button type="button" class="btn xs primary" data-diag-act="refresh" title="Reload schema & foreign keys">↻ Refresh</button>
+        </div>
+        <div class="diagram-picker-pop" ${d.pickerOpen ? "" : "hidden"}>
+          <input type="search" class="input xs" data-diag-picker-filter placeholder="Filter tables..." value="${esc(d.filterText || "")}" />
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <button type="button" class="btn xs" data-diag-pick="all">All</button>
+            <button type="button" class="btn xs" data-diag-pick="none">None</button>
+            <button type="button" class="btn xs" data-diag-pick="linked">Linked</button>
+          </div>
+          <div class="diagram-picker-list">
+            ${allTables
+              .filter((t) => !d.filterText || t.name.toLowerCase().includes(d.filterText.toLowerCase()))
+              .map((t) => {
+                const checked = !visSet || visSet.has(t.name);
+                return `<label class="inline-check" style="gap:6px;padding:2px 4px;border-radius:4px">
+                  <input type="checkbox" data-diag-pick-tbl="${esc(t.name)}" ${checked ? "checked" : ""} />
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name)}</span>
+                </label>`;
+              })
+              .join("")}
+          </div>
+        </div>
+        <div class="diagram-viewport">
+          <div class="diagram-world" style="transform:translate(${d.panX || 0}px,${d.panY || 0}px) scale(${d.zoom || 1})">
+            <svg class="diagram-svg" width="4000" height="3000"></svg>
+            ${visibleTables
+              .map((t) => {
+                const pos = d.layout?.[t.name] || { x: 40, y: 40 };
+                const isView = String(t.kind || "").toUpperCase().includes("VIEW");
+                const isSel = d.selectedTable === t.name;
+                return `<div class="diagram-node${isSel ? " is-hot" : ""}" data-diag-node="${esc(t.name)}" style="left:${pos.x}px;top:${pos.y}px">
+                  <div class="diagram-node-head${isView ? " is-view" : ""}" title="Drag to reposition · Double-click header to browse rows">
+                    <span>${isView ? "👁️" : "📋"}</span>
+                    <span class="diagram-node-title">${esc(t.name)}</span>
+                    <button type="button" class="diagram-node-open" data-diag-open-tbl="${esc(t.name)}" title="Open table rows in query tab">↗</button>
+                  </div>
+                  <div class="diagram-node-cols">
+                    ${(t.columns || [])
+                      .map((c) => {
+                        const fkEdge = fkColMap.get(`${t.name}|${String(c.name || "").toLowerCase()}`);
+                        const badge = c.isPrimaryKey ? "🔑" : fkEdge ? "🔗" : "";
+                        const badgeTip = c.isPrimaryKey
+                          ? "Primary Key"
+                          : fkEdge
+                            ? `${fkEdge.inferred ? "Inferred link" : "Foreign Key"} -> ${fkEdge.toTable}.${fkEdge.toColumn}`
+                            : "";
+                        return `<div class="diagram-col-row" data-diag-col="${esc(c.name)}" title="${esc(badgeTip || c.dataType || "")}">
+                          <span class="diagram-col-badges">${badge}</span>
+                          <span class="diagram-col-name">${esc(c.name)}</span>
+                          <span class="diagram-col-type">${esc(c.dataType || "")}</span>
+                          <span class="diagram-col-null">${c.nullable ? "?" : ""}</span>
+                        </div>`;
+                      })
+                      .join("")}
+                  </div>
+                </div>`;
+              })
+              .join("")}
+          </div>
+          ${
+            d.loading
+              ? `<div class="diagram-empty-overlay"><span class="muted">Loading tables, columns, and relationships for <b>${esc(tab.db)}</b>...</span></div>`
+              : d.error
+                ? `<div class="diagram-empty-overlay"><span style="color:var(--red)">${esc(d.error)}</span><button type="button" class="btn xs primary" data-diag-act="refresh">Retry</button></div>`
+                : !allTables.length
+                  ? `<div class="diagram-empty-overlay"><span class="muted">No tables found in <b>${esc(tab.db)}</b>.</span></div>`
+                  : ""
+          }
+        </div>
+      </div>
+    `;
+
+    const viewport = container.querySelector(".diagram-viewport");
+    const world = container.querySelector(".diagram-world");
+    const svg = container.querySelector(".diagram-svg");
+    const zoomLbl = container.querySelector("[data-diag-zoom-label]");
+
+    const applyTransform = () => {
+      if (world) world.style.transform = `translate(${d.panX}px,${d.panY}px) scale(${d.zoom})`;
+      if (zoomLbl) zoomLbl.textContent = `${Math.round(d.zoom * 100)}%`;
+    };
+
+    const nodeEls = new Map();
+    container.querySelectorAll(".diagram-node").forEach((el) => {
+      nodeEls.set(el.dataset.diagNode, el);
+    });
+
+    const getColMidY = (nodeEl, colName) => {
+      const top = nodeEl.offsetTop;
+      const h = nodeEl.offsetHeight || 90;
+      const colsWrap = nodeEl.querySelector(".diagram-node-cols");
+      const rows = colsWrap ? Array.from(colsWrap.querySelectorAll(".diagram-col-row")) : [];
+      const row = rows.find((r) => String(r.dataset.diagCol || "").toLowerCase() === String(colName || "").toLowerCase());
+      if (!row || !colsWrap) return top + Math.min(48, h / 2);
+      const relY = colsWrap.offsetTop + row.offsetTop - colsWrap.scrollTop + row.offsetHeight / 2;
+      return Math.max(top + 18, Math.min(top + h - 8, top + relY));
+    };
+
+    const redrawSvg = () => {
+      if (!svg) return;
+      const defs = `<defs>
+        <marker id="diag-fk-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="var(--accent)"/>
+        </marker>
+        <marker id="diag-fk-arrow-inf" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8"/>
+        </marker>
+      </defs>`;
+      const parts = [defs];
+      visibleEdges.forEach((e, idx) => {
+        const aEl = nodeEls.get(e.fromTable);
+        const bEl = nodeEls.get(e.toTable);
+        if (!aEl || !bEl) return;
+        const ax = aEl.offsetLeft;
+        const aw = aEl.offsetWidth || 248;
+        const bx = bEl.offsetLeft;
+        const bw = bEl.offsetWidth || 248;
+        const y1 = getColMidY(aEl, e.fromColumn);
+        const y2 = getColMidY(bEl, e.toColumn);
+        let pathD = "";
+        if (aEl === bEl) {
+          const rx = ax + aw;
+          pathD = `M ${rx} ${y1} C ${rx + 56} ${y1}, ${rx + 56} ${y2}, ${rx} ${y2}`;
+        } else if (ax + aw + 18 < bx) {
+          const x1 = ax + aw;
+          const x2 = bx;
+          const dx = Math.max(38, (x2 - x1) * 0.46);
+          pathD = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+        } else if (bx + bw + 18 < ax) {
+          const x1 = ax;
+          const x2 = bx + bw;
+          const dx = Math.max(38, (x1 - x2) * 0.46);
+          pathD = `M ${x1} ${y1} C ${x1 - dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`;
+        } else {
+          const x1 = ax + aw;
+          const x2 = bx + bw;
+          const bend = Math.max(x1, x2) + 46;
+          pathD = `M ${x1} ${y1} C ${bend} ${y1}, ${bend} ${y2}, ${x2} ${y2}`;
+        }
+        const tip = `${e.fromTable}.${e.fromColumn} -> ${e.toTable}.${e.toColumn}${e.constraintName ? ` (${e.constraintName})` : ""}`;
+        const marker = e.inferred ? "url(#diag-fk-arrow-inf)" : "url(#diag-fk-arrow)";
+        parts.push(
+          `<path class="diagram-fk-path${e.inferred ? " inferred" : ""}" data-edge-idx="${idx}" data-from="${esc(e.fromTable)}" data-to="${esc(e.toTable)}" d="${pathD}" marker-end="${marker}"><title>${esc(tip)}</title></path>`
+        );
+      });
+      svg.innerHTML = parts.join("");
+
+      svg.querySelectorAll(".diagram-fk-path").forEach((pEl) => {
+        pEl.addEventListener("mouseenter", () => {
+          pEl.classList.add("is-hot");
+          nodeEls.get(pEl.dataset.from)?.classList.add("is-hot");
+          nodeEls.get(pEl.dataset.to)?.classList.add("is-hot");
+        });
+        pEl.addEventListener("mouseleave", () => {
+          pEl.classList.remove("is-hot");
+          if (d.selectedTable !== pEl.dataset.from) nodeEls.get(pEl.dataset.from)?.classList.remove("is-hot");
+          if (d.selectedTable !== pEl.dataset.to) nodeEls.get(pEl.dataset.to)?.classList.remove("is-hot");
+        });
+      });
+    };
+
+    const fitView = () => {
+      if (!viewport || !nodeEls.size) return;
+      const vr = viewport.getBoundingClientRect();
+      if (vr.width < 40 || vr.height < 40) return;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      nodeEls.forEach((el) => {
+        minX = Math.min(minX, el.offsetLeft);
+        minY = Math.min(minY, el.offsetTop);
+        maxX = Math.max(maxX, el.offsetLeft + (el.offsetWidth || 248));
+        maxY = Math.max(maxY, el.offsetTop + (el.offsetHeight || 160));
+      });
+      const contentW = Math.max(100, maxX - minX);
+      const contentH = Math.max(100, maxY - minY);
+      const pad = 28;
+      const scale = Math.max(0.32, Math.min(1.1, Math.min((vr.width - pad * 2) / contentW, (vr.height - pad * 2) / contentH)));
+      d.zoom = Number(scale.toFixed(3));
+      d.panX = Math.round((vr.width - contentW * d.zoom) / 2 - minX * d.zoom);
+      d.panY = Math.round((vr.height - contentH * d.zoom) / 2 - minY * d.zoom);
+      applyTransform();
+    };
+
+    // Node dragging, hover highlighting, and open-table shortcut
+    nodeEls.forEach((el, tblName) => {
+      el.addEventListener("mouseenter", () => {
+        svg?.querySelectorAll(".diagram-fk-path").forEach((p) => {
+          if (p.dataset.from === tblName || p.dataset.to === tblName) p.classList.add("is-hot");
+        });
+      });
+      el.addEventListener("mouseleave", () => {
+        svg?.querySelectorAll(".diagram-fk-path.is-hot").forEach((p) => p.classList.remove("is-hot"));
+      });
+      el.querySelector(".diagram-node-cols")?.addEventListener("scroll", () => redrawSvg(), { passive: true });
+      const head = el.querySelector(".diagram-node-head");
+      head?.addEventListener("dblclick", (ev) => {
+        if (ev.target.closest("button")) return;
+        const tblObj = state.sqlTables.find((x) => x.name === tblName) || { name: tblName, kind: "BASE TABLE", select: `SELECT * FROM ${tblName} LIMIT 50;`, selectAll: `SELECT * FROM ${tblName};` };
+        if (tab.db === state.sqlDb) selectSqlTable(tblObj, false);
+      });
+      head?.addEventListener("pointerdown", (ev) => {
+        if (ev.button !== 0 || ev.target.closest("button")) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        d.selectedTable = tblName;
+        nodeEls.forEach((n, k) => n.classList.toggle("is-hot", k === tblName));
+        const startX = ev.clientX;
+        const startY = ev.clientY;
+        const origX = el.offsetLeft;
+        const origY = el.offsetTop;
+        const onMv = (m) => {
+          const z = d.zoom || 1;
+          const nx = Math.max(0, Math.round(origX + (m.clientX - startX) / z));
+          const ny = Math.max(0, Math.round(origY + (m.clientY - startY) / z));
+          el.style.left = `${nx}px`;
+          el.style.top = `${ny}px`;
+          d.layout[tblName] = { x: nx, y: ny };
+          redrawSvg();
+        };
+        const onUp = () => {
+          window.removeEventListener("pointermove", onMv);
+          window.removeEventListener("pointerup", onUp);
+        };
+        window.addEventListener("pointermove", onMv);
+        window.addEventListener("pointerup", onUp);
+      });
+    });
+
+    container.querySelectorAll("[data-diag-open-tbl]").forEach((btn) => {
+      btn.onclick = async (ev) => {
+        ev.stopPropagation();
+        const tblName = btn.dataset.diagOpenTbl;
+        if (state.dbEngine !== tab.engine) return;
+        if (state.sqlDb !== tab.db) {
+          state.sqlDb = tab.db;
+          renderSqlDbList();
+          await loadSqlTables(tab.db, false);
+        }
+        const tblObj = state.sqlTables.find((x) => x.name === tblName);
+        if (tblObj) await selectSqlTable(tblObj, false);
+      };
+    });
+
+    // Pan & Zoom on background
+    if (viewport) {
+      viewport.addEventListener("pointerdown", (ev) => {
+        if (ev.button !== 0 || ev.target.closest(".diagram-node")) return;
+        ev.preventDefault();
+        viewport.classList.add("is-panning");
+        const sx = ev.clientX;
+        const sy = ev.clientY;
+        const ox = d.panX || 0;
+        const oy = d.panY || 0;
+        const onMv = (m) => {
+          d.panX = Math.round(ox + (m.clientX - sx));
+          d.panY = Math.round(oy + (m.clientY - sy));
+          applyTransform();
+        };
+        const onUp = () => {
+          viewport.classList.remove("is-panning");
+          window.removeEventListener("pointermove", onMv);
+          window.removeEventListener("pointerup", onUp);
+        };
+        window.addEventListener("pointermove", onMv);
+        window.addEventListener("pointerup", onUp);
+      });
+      viewport.addEventListener("wheel", (ev) => {
+        ev.preventDefault();
+        const vr = viewport.getBoundingClientRect();
+        const mx = ev.clientX - vr.left;
+        const my = ev.clientY - vr.top;
+        const oldZ = d.zoom || 1;
+        const factor = ev.deltaY < 0 ? 1.12 : 0.89;
+        const newZ = Math.max(0.25, Math.min(2.2, Number((oldZ * factor).toFixed(3))));
+        if (newZ === oldZ) return;
+        d.panX = Math.round(mx - ((mx - (d.panX || 0)) / oldZ) * newZ);
+        d.panY = Math.round(my - ((my - (d.panY || 0)) / oldZ) * newZ);
+        d.zoom = newZ;
+        applyTransform();
+      }, { passive: false });
+    }
+
+    // Toolbar actions
+    const setZoomCentered = (nextZ) => {
+      const clamped = Math.max(0.25, Math.min(2.2, Number(nextZ.toFixed(3))));
+      if (viewport) {
+        const vr = viewport.getBoundingClientRect();
+        const cx = vr.width / 2;
+        const cy = vr.height / 2;
+        const oldZ = d.zoom || 1;
+        d.panX = Math.round(cx - ((cx - (d.panX || 0)) / oldZ) * clamped);
+        d.panY = Math.round(cy - ((cy - (d.panY || 0)) / oldZ) * clamped);
+      }
+      d.zoom = clamped;
+      applyTransform();
+    };
+
+    container.querySelectorAll("[data-diag-act]").forEach((el) => {
+      if (el.tagName === "INPUT") {
+        el.onchange = () => {
+          d.showInferred = !!el.checked;
+          renderDatabaseDiagramInto(container, tab);
+        };
+        return;
+      }
+      el.onclick = async () => {
+        const act = el.dataset.diagAct;
+        if (act === "picker") {
+          d.pickerOpen = !d.pickerOpen;
+          renderDatabaseDiagramInto(container, tab);
+        } else if (act === "arrange") {
+          d.layout = computeDiagramAutoLayout(visibleTables, visibleEdges);
+          d._fitPending = true;
+          renderDatabaseDiagramInto(container, tab);
+        } else if (act === "fit") {
+          fitView();
+        } else if (act === "zoom-in") {
+          setZoomCentered((d.zoom || 1) * 1.18);
+        } else if (act === "zoom-out") {
+          setZoomCentered((d.zoom || 1) * 0.85);
+        } else if (act === "refresh") {
+          await loadDatabaseDiagramData(tab, { preserveLayout: true });
+        } else if (act === "mermaid") {
+          await copyText(diagramToMermaid(d.data, visibleEdges, visSet));
+          toast("Copied Mermaid erDiagram to clipboard!", "ok");
+        } else if (act === "svg") {
+          const svgDoc = diagramToSvgDocument(d, visibleEdges, visibleTables);
+          const blob = new Blob([svgDoc], { type: "image/svg+xml;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${tab.db || "database"}-diagram.svg`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          toast(`Exported ${tab.db}-diagram.svg`, "ok");
+        }
+      };
+    });
+
+    // Table picker handlers
+    const pFilter = container.querySelector("[data-diag-picker-filter]");
+    if (pFilter) {
+      pFilter.oninput = () => {
+        d.filterText = pFilter.value;
+        const pos = pFilter.selectionStart;
+        renderDatabaseDiagramInto(container, tab);
+        const nf = container.querySelector("[data-diag-picker-filter]");
+        if (nf) {
+          nf.focus();
+          nf.setSelectionRange(pos, pos);
+        }
+      };
+    }
+    container.querySelectorAll("[data-diag-pick]").forEach((btn) => {
+      btn.onclick = () => {
+        const mode = btn.dataset.diagPick;
+        if (mode === "all") {
+          d.visibleTables = null;
+        } else if (mode === "none") {
+          d.visibleTables = [];
+        } else if (mode === "linked") {
+          const linked = new Set();
+          allEdges.forEach((e) => {
+            linked.add(e.fromTable);
+            linked.add(e.toTable);
+          });
+          d.visibleTables = Array.from(linked);
+        }
+        d._fitPending = true;
+        renderDatabaseDiagramInto(container, tab);
+      };
+    });
+    container.querySelectorAll("[data-diag-pick-tbl]").forEach((cb) => {
+      cb.onchange = () => {
+        const cur = new Set(d.visibleTables ? d.visibleTables : allTables.map((t) => t.name));
+        if (cb.checked) cur.add(cb.dataset.diagPickTbl);
+        else cur.delete(cb.dataset.diagPickTbl);
+        d.visibleTables = cur.size === allTables.length ? null : Array.from(cur);
+        renderDatabaseDiagramInto(container, tab);
+      };
+    });
+
+    requestAnimationFrame(() => {
+      redrawSvg();
+      if (d._fitPending && !d.loading && nodeEls.size > 0) {
+        d._fitPending = false;
+        fitView();
+        redrawSvg();
+      }
+    });
   }
 
   function pickBestDbEngine() {
@@ -4505,33 +5352,47 @@ try {
       }
     };
 
-    $("sqlDbList").addEventListener("click", async (e) => {
-      const del = e.target.closest("[data-drop-db]");
-      if (del) {
-        e.stopPropagation();
-        const name = del.dataset.dropDb;
-        if (!(await askConfirm("Drop Database?", `Permanently drop database "${name}"? This cannot be undone.`, "Drop")))
-          return;
-        try {
-          await api().DropDatabase(state.dbEngine, name);
-          toast(`Dropped ${name}`, "ok");
-          state.sqlTabs
-            .filter((t) => t.engine === state.dbEngine && t.db === name)
-            .forEach((t) => removeFloatingSqlWin(t.id));
-          state.sqlTabs = state.sqlTabs.filter((t) => !(t.engine === state.dbEngine && t.db === name));
-          if (state.sqlDb === name) state.sqlDb = "";
-          invalidateSqlCache(state.dbEngine);
-          ensureActiveSqlTab();
-          await loadSqlDatabases(true);
-        } catch (err) {
-          toast(errMsg(err), "err");
-        }
+    const confirmAndDropDatabase = async (name) => {
+      if (!name || SYSTEM_DBS.has(name.toLowerCase())) return;
+      if (!(await askConfirm("Drop Database?", `Permanently drop database "${name}"? This cannot be undone.`, "Drop")))
         return;
+      try {
+        await api().DropDatabase(state.dbEngine, name);
+        toast(`Dropped ${name}`, "ok");
+        state.sqlTabs
+          .filter((t) => t.engine === state.dbEngine && t.db === name)
+          .forEach((t) => removeFloatingSqlWin(t.id));
+        state.sqlTabs = state.sqlTabs.filter((t) => !(t.engine === state.dbEngine && t.db === name));
+        if (state.sqlDb === name) state.sqlDb = "";
+        invalidateSqlCache(state.dbEngine);
+        ensureActiveSqlTab();
+        await loadSqlDatabases(true);
+      } catch (err) {
+        toast(errMsg(err), "err");
       }
-      const item = e.target.closest("[data-db]");
-      if (!item) return;
+    };
+
+    const confirmAndDropTable = async (tbl) => {
+      if (!tbl || !state.sqlDb) return;
+      if (!(await askConfirm("Drop Table?", `Permanently delete table "${tbl}" from "${state.sqlDb}"?`, "Drop")))
+        return;
+      try {
+        await api().DropTable(state.dbEngine, state.sqlDb, tbl);
+        toast(`Dropped table ${tbl}`, "ok");
+        state.sqlTabs
+          .filter((t) => t.engine === state.dbEngine && t.db === state.sqlDb && t.table === tbl)
+          .forEach((t) => closeSqlTab(t.id));
+        invalidateSqlCache(state.dbEngine, state.sqlDb);
+        await loadSqlTables(state.sqlDb, true);
+      } catch (err) {
+        toast(errMsg(err), "err");
+      }
+    };
+
+    const selectDatabaseItem = async (dbName) => {
+      if (!dbName) return;
       syncActiveTabFromDom();
-      state.sqlDb = item.dataset.db;
+      state.sqlDb = dbName;
       const curTab = getActiveSqlTab();
       if (curTab && isBlankSqlTab(curTab)) {
         curTab.db = state.sqlDb;
@@ -4540,32 +5401,150 @@ try {
       $("sqlActiveDb").textContent = `${state.dbEngine} / ${state.sqlDb}`;
       renderSqlDbList();
       await loadSqlTables(state.sqlDb);
+    };
+
+    document.addEventListener("pointerdown", (e) => {
+      const menu = $("dbContextMenu");
+      if (menu && !menu.hidden && !e.target.closest("#dbContextMenu")) {
+        hideDbContextMenu();
+      }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") hideDbContextMenu();
+    });
+    window.addEventListener("blur", hideDbContextMenu);
+
+    if ($("btnNewDiagram")) {
+      $("btnNewDiagram").onclick = () => openDatabaseDiagramTab({ engine: state.dbEngine, db: state.sqlDb });
+    }
+
+    $("sqlDbList").addEventListener("click", async (e) => {
+      const del = e.target.closest("[data-drop-db]");
+      if (del) {
+        e.stopPropagation();
+        await confirmAndDropDatabase(del.dataset.dropDb);
+        return;
+      }
+      const item = e.target.closest("[data-db]");
+      if (!item) return;
+      await selectDatabaseItem(item.dataset.db);
+    });
+
+    $("sqlDbList").addEventListener("contextmenu", async (e) => {
+      const item = e.target.closest("[data-db]");
+      if (!item) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const dbName = item.dataset.db;
+      const isSys = SYSTEM_DBS.has(dbName.toLowerCase());
+      if (state.sqlDb !== dbName) {
+        selectDatabaseItem(dbName);
+      }
+      showDbContextMenu(e.clientX, e.clientY, `Database: ${dbName}`, [
+        {
+          icon: "🗺️",
+          label: "New Database Diagram",
+          onClick: () => openDatabaseDiagramTab({ engine: state.dbEngine, db: dbName }),
+        },
+        { type: "sep" },
+        {
+          icon: "📝",
+          label: "New Query Tab",
+          onClick: () => {
+            state.sqlDb = dbName;
+            const t = openNewSqlTab({ focus: true });
+            if (t) {
+              t.db = dbName;
+              renderSqlTabs();
+            }
+          },
+        },
+        {
+          icon: "➕",
+          label: "Create Table...",
+          onClick: () => {
+            state.sqlDb = dbName;
+            $("btnNewTable")?.click();
+          },
+        },
+        {
+          icon: "↻",
+          label: "Refresh Tables",
+          onClick: () => loadSqlTables(dbName, true),
+        },
+        {
+          icon: "🔄",
+          label: "Refresh Databases",
+          onClick: () => loadSqlDatabases(true),
+        },
+        { type: "sep" },
+        {
+          icon: "🗑️",
+          label: "Drop Database...",
+          danger: true,
+          disabled: isSys,
+          onClick: () => confirmAndDropDatabase(dbName),
+        },
+      ]);
     });
 
     $("sqlTableList").addEventListener("click", async (e) => {
       const dropBtn = e.target.closest("[data-drop-table]");
       if (dropBtn) {
         e.stopPropagation();
-        const tbl = dropBtn.dataset.dropTable;
-        if (!(await askConfirm("Drop Table?", `Permanently delete table "${tbl}" from "${state.sqlDb}"?`, "Drop")))
-          return;
-        try {
-          await api().DropTable(state.dbEngine, state.sqlDb, tbl);
-          toast(`Dropped table ${tbl}`, "ok");
-          state.sqlTabs
-            .filter((t) => t.engine === state.dbEngine && t.db === state.sqlDb && t.table === tbl)
-            .forEach((t) => closeSqlTab(t.id));
-          invalidateSqlCache(state.dbEngine, state.sqlDb);
-          await loadSqlTables(state.sqlDb, true);
-        } catch (err) {
-          toast(errMsg(err), "err");
-        }
+        await confirmAndDropTable(dropBtn.dataset.dropTable);
         return;
       }
       const item = e.target.closest("[data-table-idx]");
       if (!item) return;
       const t = state.sqlTables[Number(item.dataset.tableIdx)];
       await selectSqlTable(t, false);
+    });
+
+    $("sqlTableList").addEventListener("contextmenu", (e) => {
+      const item = e.target.closest("[data-table-idx]");
+      if (!item) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const tblObj = state.sqlTables[Number(item.dataset.tableIdx)];
+      if (!tblObj) return;
+      const isView = String(tblObj.kind || "").toUpperCase().includes("VIEW");
+      const items = [
+        {
+          icon: "📄",
+          label: "Select Top Rows",
+          onClick: () => selectSqlTable(tblObj, false),
+        },
+        {
+          icon: "📋",
+          label: "Show All Rows",
+          onClick: () => selectSqlTable(tblObj, true),
+        },
+        { type: "sep" },
+        {
+          icon: "🗺️",
+          label: "New Database Diagram",
+          onClick: () => openDatabaseDiagramTab({ engine: state.dbEngine, db: state.sqlDb, focusTable: tblObj.name }),
+        },
+        {
+          icon: "📤",
+          label: "Export Table...",
+          onClick: () => {
+            state.sqlTable = tblObj.name;
+            openExportModal("single");
+          },
+        },
+      ];
+      if (!isView) {
+        items.push({ type: "sep" });
+        items.push({
+          icon: "🗑️",
+          label: "Drop Table...",
+          danger: true,
+          onClick: () => confirmAndDropTable(tblObj.name),
+        });
+      }
+      showDbContextMenu(e.clientX, e.clientY, `${isView ? "View" : "Table"}: ${tblObj.name}`, items);
     });
 
     if ($("btnNewSqlTab")) {

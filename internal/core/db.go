@@ -873,6 +873,258 @@ func describeTableOnceWithPool(engine string, s EngineSettings, dbName, schema, 
 	return cols, rows.Err()
 }
 
+type DiagramTable struct {
+	Name    string       `json:"name"`
+	Schema  string       `json:"schema"`
+	Kind    string       `json:"kind"`
+	Columns []ColumnInfo `json:"columns"`
+}
+
+type ForeignKeyInfo struct {
+	ConstraintName string `json:"constraintName"`
+	FromTable      string `json:"fromTable"`
+	FromColumn     string `json:"fromColumn"`
+	ToTable        string `json:"toTable"`
+	ToColumn       string `json:"toColumn"`
+	UpdateRule     string `json:"updateRule,omitempty"`
+	DeleteRule     string `json:"deleteRule,omitempty"`
+}
+
+type DatabaseDiagramData struct {
+	Engine      string           `json:"engine"`
+	Database    string           `json:"database"`
+	Tables      []DiagramTable   `json:"tables"`
+	ForeignKeys []ForeignKeyInfo `json:"foreignKeys"`
+}
+
+// GetDatabaseDiagram returns all tables, columns, and foreign key relationships for dbName
+// in a minimal batch of metadata queries suitable for rendering an interactive ER diagram.
+func GetDatabaseDiagram(engine string, s EngineSettings, dbName string) (*DatabaseDiagramData, error) {
+	dbName = strings.TrimSpace(dbName)
+	if dbName == "" {
+		return nil, errors.New("database name is required")
+	}
+	if engine == "mssql" {
+		return mssqlDatabaseDiagram(s, dbName)
+	}
+	if !isMy(engine) && engine != "postgresql" {
+		return nil, fmt.Errorf("database diagram is not supported for %s", engine)
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		out, err := databaseDiagramOnceWithPool(engine, s, dbName)
+		if err == nil {
+			return out, nil
+		}
+		lastErr = err
+		if attempt == 0 && isTransientConnErr(err) {
+			evictSQLPool(engine, s, dbName)
+			continue
+		}
+		return nil, err
+	}
+	return nil, lastErr
+}
+
+func databaseDiagramOnceWithPool(engine string, s EngineSettings, dbName string) (*DatabaseDiagramData, error) {
+	db, err := pooledSQL(engine, s, dbName)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &DatabaseDiagramData{
+		Engine:      engine,
+		Database:    dbName,
+		Tables:      []DiagramTable{},
+		ForeignKeys: []ForeignKeyInfo{},
+	}
+	tableByKey := map[string]int{}
+
+	addTable := func(schema, name, kind string) int {
+		display := name
+		if engine == "postgresql" && schema != "" && schema != "public" {
+			display = schema + "." + name
+		}
+		key := schema + "." + name
+		if idx, ok := tableByKey[key]; ok {
+			return idx
+		}
+		idx := len(out.Tables)
+		tableByKey[key] = idx
+		out.Tables = append(out.Tables, DiagramTable{
+			Name:    display,
+			Schema:  schema,
+			Kind:    kind,
+			Columns: []ColumnInfo{},
+		})
+		return idx
+	}
+
+	if isMy(engine) {
+		tRows, err := db.Query(`SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, dbName)
+		if err != nil {
+			return nil, err
+		}
+		for tRows.Next() {
+			var sch, tbl, kind string
+			if err := tRows.Scan(&sch, &tbl, &kind); err != nil {
+				tRows.Close()
+				return nil, err
+			}
+			addTable(sch, tbl, kind)
+		}
+		if err := tRows.Err(); err != nil {
+			tRows.Close()
+			return nil, err
+		}
+		tRows.Close()
+
+		cRows, err := db.Query(`SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY, EXTRA
+			FROM information_schema.COLUMNS
+			WHERE TABLE_SCHEMA = ?
+			ORDER BY TABLE_NAME, ORDINAL_POSITION`, dbName)
+		if err != nil {
+			return nil, err
+		}
+		for cRows.Next() {
+			var sch, tbl, col, dataType, isNull, colKey, extra string
+			var def sql.NullString
+			if err := cRows.Scan(&sch, &tbl, &col, &dataType, &isNull, &def, &colKey, &extra); err != nil {
+				cRows.Close()
+				return nil, err
+			}
+			idx := addTable(sch, tbl, "BASE TABLE")
+			var defPtr *string
+			if def.Valid {
+				v := def.String
+				defPtr = &v
+			}
+			out.Tables[idx].Columns = append(out.Tables[idx].Columns, ColumnInfo{
+				Name:            col,
+				DataType:        dataType,
+				Nullable:        strings.EqualFold(isNull, "YES"),
+				DefaultVal:      defPtr,
+				IsPrimaryKey:    strings.EqualFold(colKey, "PRI"),
+				IsAutoIncrement: strings.Contains(strings.ToLower(extra), "auto_increment"),
+			})
+		}
+		if err := cRows.Err(); err != nil {
+			cRows.Close()
+			return nil, err
+		}
+		cRows.Close()
+
+		fkRows, err := db.Query(`SELECT k.CONSTRAINT_NAME, k.TABLE_NAME, k.COLUMN_NAME, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME,
+				COALESCE(r.UPDATE_RULE, ''), COALESCE(r.DELETE_RULE, '')
+			FROM information_schema.KEY_COLUMN_USAGE k
+			LEFT JOIN information_schema.REFERENTIAL_CONSTRAINTS r
+				ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND r.TABLE_NAME = k.TABLE_NAME
+			WHERE k.TABLE_SCHEMA = ? AND k.REFERENCED_TABLE_NAME IS NOT NULL
+			ORDER BY k.TABLE_NAME, k.ORDINAL_POSITION`, dbName)
+		if err != nil {
+			return nil, err
+		}
+		for fkRows.Next() {
+			var fk ForeignKeyInfo
+			if err := fkRows.Scan(&fk.ConstraintName, &fk.FromTable, &fk.FromColumn, &fk.ToTable, &fk.ToColumn, &fk.UpdateRule, &fk.DeleteRule); err != nil {
+				fkRows.Close()
+				return nil, err
+			}
+			out.ForeignKeys = append(out.ForeignKeys, fk)
+		}
+		if err := fkRows.Err(); err != nil {
+			fkRows.Close()
+			return nil, err
+		}
+		fkRows.Close()
+		return out, nil
+	}
+
+	// PostgreSQL: load tables/views + columns, then FK constraints
+	pgRows, err := db.Query(`SELECT ns.nspname, cl.relname,
+			CASE WHEN cl.relkind IN ('v', 'm') THEN 'VIEW' ELSE 'BASE TABLE' END,
+			COALESCE(a.attname, ''),
+			COALESCE(format_type(a.atttypid, a.atttypmod), ''),
+			CASE WHEN a.attname IS NULL THEN 'YES' WHEN a.attnotnull THEN 'NO' ELSE 'YES' END,
+			pg_get_expr(d.adbin, d.adrelid),
+			CASE WHEN a.attname IS NOT NULL AND EXISTS (
+				SELECT 1 FROM pg_index i
+				WHERE i.indrelid = a.attrelid AND i.indisprimary AND a.attnum = ANY(i.indkey)
+			) THEN 'PRI' ELSE '' END,
+			CASE WHEN a.attname IS NOT NULL AND (a.attidentity IN ('a', 'd') OR COALESCE(pg_get_expr(d.adbin, d.adrelid), '') LIKE 'nextval(%') THEN 'auto_increment' ELSE '' END
+		FROM pg_class cl
+		JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+		LEFT JOIN pg_attribute a ON a.attrelid = cl.oid AND a.attnum > 0 AND NOT a.attisdropped
+		LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+		WHERE cl.relkind IN ('r', 'p', 'v', 'm')
+		  AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+		ORDER BY ns.nspname <> 'public', ns.nspname, cl.relname, a.attnum`)
+	if err != nil {
+		return nil, err
+	}
+	for pgRows.Next() {
+		var sch, tbl, kind, col, dataType, isNull, colKey, extra string
+		var def sql.NullString
+		if err := pgRows.Scan(&sch, &tbl, &kind, &col, &dataType, &isNull, &def, &colKey, &extra); err != nil {
+			pgRows.Close()
+			return nil, err
+		}
+		idx := addTable(sch, tbl, kind)
+		if col == "" {
+			continue
+		}
+		var defPtr *string
+		if def.Valid {
+			v := def.String
+			defPtr = &v
+		}
+		out.Tables[idx].Columns = append(out.Tables[idx].Columns, ColumnInfo{
+			Name:            col,
+			DataType:        dataType,
+			Nullable:        strings.EqualFold(isNull, "YES"),
+			DefaultVal:      defPtr,
+			IsPrimaryKey:    strings.EqualFold(colKey, "PRI"),
+			IsAutoIncrement: strings.Contains(strings.ToLower(extra), "auto_increment"),
+		})
+	}
+	if err := pgRows.Err(); err != nil {
+		pgRows.Close()
+		return nil, err
+	}
+	pgRows.Close()
+
+	fkRows, err := db.Query(`SELECT c.conname,
+			CASE WHEN n1.nspname = 'public' THEN c1.relname ELSE n1.nspname || '.' || c1.relname END,
+			a1.attname,
+			CASE WHEN n2.nspname = 'public' THEN c2.relname ELSE n2.nspname || '.' || c2.relname END,
+			a2.attname,
+			CASE c.confupdtype WHEN 'c' THEN 'CASCADE' WHEN 'n' THEN 'SET NULL' WHEN 'd' THEN 'SET DEFAULT' WHEN 'r' THEN 'RESTRICT' ELSE 'NO ACTION' END,
+			CASE c.confdeltype WHEN 'c' THEN 'CASCADE' WHEN 'n' THEN 'SET NULL' WHEN 'd' THEN 'SET DEFAULT' WHEN 'r' THEN 'RESTRICT' ELSE 'NO ACTION' END
+		FROM pg_constraint c
+		JOIN pg_class c1 ON c1.oid = c.conrelid
+		JOIN pg_namespace n1 ON n1.oid = c1.relnamespace
+		JOIN pg_class c2 ON c2.oid = c.confrelid
+		JOIN pg_namespace n2 ON n2.oid = c2.relnamespace
+		CROSS JOIN LATERAL unnest(c.conkey, c.confkey) WITH ORDINALITY AS u(att1, att2, ord)
+		JOIN pg_attribute a1 ON a1.attrelid = c1.oid AND a1.attnum = u.att1
+		JOIN pg_attribute a2 ON a2.attrelid = c2.oid AND a2.attnum = u.att2
+		WHERE c.contype = 'f' AND n1.nspname NOT IN ('pg_catalog', 'information_schema')
+		ORDER BY 2, c.conname, u.ord`)
+	if err == nil {
+		for fkRows.Next() {
+			var fk ForeignKeyInfo
+			if err := fkRows.Scan(&fk.ConstraintName, &fk.FromTable, &fk.FromColumn, &fk.ToTable, &fk.ToColumn, &fk.UpdateRule, &fk.DeleteRule); err != nil {
+				fkRows.Close()
+				return nil, err
+			}
+			out.ForeignKeys = append(out.ForeignKeys, fk)
+		}
+		fkRows.Close()
+	}
+	return out, nil
+}
+
 func ph(engine string, idx int) string {
 	if engine == "postgresql" {
 		return fmt.Sprintf("$%d", idx)

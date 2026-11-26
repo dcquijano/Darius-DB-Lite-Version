@@ -1220,3 +1220,126 @@ func mssqlDeleteRow(s EngineSettings, dbName, schema, table string, keys map[str
 	}
 	return nil
 }
+
+func mssqlDatabaseDiagram(s EngineSettings, dbName string) (*DatabaseDiagramData, error) {
+	out := &DatabaseDiagramData{
+		Engine:      "mssql",
+		Database:    dbName,
+		Tables:      []DiagramTable{},
+		ForeignKeys: []ForeignKeyInfo{},
+	}
+	tableIdxByKey := map[string]int{}
+	addTable := func(schema, name, kind string) int {
+		display := name
+		if schema != "" && !strings.EqualFold(schema, "dbo") {
+			display = schema + "." + name
+		}
+		key := schema + "." + name
+		if idx, ok := tableIdxByKey[key]; ok {
+			return idx
+		}
+		idx := len(out.Tables)
+		tableIdxByKey[key] = idx
+		out.Tables = append(out.Tables, DiagramTable{
+			Name:    display,
+			Schema:  schema,
+			Kind:    kind,
+			Columns: []ColumnInfo{},
+		})
+		return idx
+	}
+
+	colQ := `SET NOCOUNT ON;
+SELECT s.name,
+       o.name,
+       CASE o.type WHEN 'V' THEN 'VIEW' ELSE 'BASE TABLE' END,
+       ISNULL(c.name, ''),
+       ISNULL(t.name + CASE
+         WHEN t.name IN ('varchar','char','varbinary','binary')
+           THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length AS VARCHAR(16)) END + ')'
+         WHEN t.name IN ('nvarchar','nchar')
+           THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length / 2 AS VARCHAR(16)) END + ')'
+         ELSE ''
+       END, ''),
+       CASE WHEN c.is_nullable = 1 THEN 'YES' ELSE 'NO' END,
+       dc.definition,
+       CASE WHEN c.column_id IS NOT NULL AND EXISTS (
+         SELECT 1
+         FROM sys.index_columns ic
+         INNER JOIN sys.indexes ix ON ix.object_id = ic.object_id AND ix.index_id = ic.index_id
+         WHERE ic.object_id = c.object_id AND ic.column_id = c.column_id AND ix.is_primary_key = 1
+       ) THEN '1' ELSE '0' END,
+       CASE WHEN c.is_identity = 1 THEN '1' ELSE '0' END
+FROM sys.objects o
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+LEFT JOIN sys.columns c ON c.object_id = o.object_id
+LEFT JOIN sys.types t ON c.user_type_id = t.user_type_id
+LEFT JOIN sys.default_constraints dc ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id
+WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0
+ORDER BY s.name, o.name, c.column_id;`
+
+	res, err := mssqlRunQuery(s, dbName, colQ)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range res.Rows {
+		sch, tbl, kind := valAt(r, 0), valAt(r, 1), valAt(r, 2)
+		if tbl == "" {
+			continue
+		}
+		idx := addTable(sch, tbl, kind)
+		colName := valAt(r, 3)
+		if colName == "" {
+			continue
+		}
+		var defPtr *string
+		if len(r) > 6 && r[6] != nil {
+			v := *r[6]
+			defPtr = &v
+		}
+		out.Tables[idx].Columns = append(out.Tables[idx].Columns, ColumnInfo{
+			Name:            colName,
+			DataType:        valAt(r, 4),
+			Nullable:        strings.EqualFold(valAt(r, 5), "YES"),
+			DefaultVal:      defPtr,
+			IsPrimaryKey:    valAt(r, 7) == "1",
+			IsAutoIncrement: valAt(r, 8) == "1",
+		})
+	}
+
+	fkQ := `SET NOCOUNT ON;
+SELECT fk.name,
+       CASE WHEN ps.name = 'dbo' THEN po.name ELSE ps.name + '.' + po.name END,
+       pc.name,
+       CASE WHEN rs.name = 'dbo' THEN ro.name ELSE rs.name + '.' + ro.name END,
+       rc.name,
+       fk.update_referential_action_desc,
+       fk.delete_referential_action_desc
+FROM sys.foreign_keys fk
+INNER JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+INNER JOIN sys.objects po ON po.object_id = fkc.parent_object_id
+INNER JOIN sys.schemas ps ON ps.schema_id = po.schema_id
+INNER JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
+INNER JOIN sys.objects ro ON ro.object_id = fkc.referenced_object_id
+INNER JOIN sys.schemas rs ON rs.schema_id = ro.schema_id
+INNER JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
+ORDER BY 2, fk.name, fkc.constraint_column_id;`
+
+	if fkRes, ferr := mssqlRunQuery(s, dbName, fkQ); ferr == nil {
+		for _, r := range fkRes.Rows {
+			if len(r) < 5 {
+				continue
+			}
+			out.ForeignKeys = append(out.ForeignKeys, ForeignKeyInfo{
+				ConstraintName: valAt(r, 0),
+				FromTable:      valAt(r, 1),
+				FromColumn:     valAt(r, 2),
+				ToTable:        valAt(r, 3),
+				ToColumn:       valAt(r, 4),
+				UpdateRule:     valAt(r, 5),
+				DeleteRule:     valAt(r, 6),
+			})
+		}
+	}
+	return out, nil
+}

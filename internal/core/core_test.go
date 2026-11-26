@@ -954,6 +954,15 @@ func TestRunCmdCaptureCancelsPromptly(t *testing.T) {
 	}
 }
 
+func TestGetDatabaseDiagramGuards(t *testing.T) {
+	if _, err := GetDatabaseDiagram("mysql", EngineSettings{}, ""); err == nil {
+		t.Fatal("expected error when dbName is empty")
+	}
+	if _, err := GetDatabaseDiagram("redis", EngineSettings{}, "db0"); err == nil {
+		t.Fatal("expected error for unsupported non-SQL engine redis")
+	}
+}
+
 func TestFormatAutoPullLocalDBName(t *testing.T) {
 	ts := time.Date(2026, 11, 22, 13, 21, 36, 0, time.Local)
 

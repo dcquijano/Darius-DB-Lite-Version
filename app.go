@@ -770,6 +770,14 @@ func (a *App) DescribeTable(engine, dbName, tableName string) ([]core.ColumnInfo
 	return core.DescribeTable(realEng, es, dbName, tableName)
 }
 
+func (a *App) GetDatabaseDiagram(engine, dbName string) (*core.DatabaseDiagramData, error) {
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return nil, err
+	}
+	return core.GetDatabaseDiagram(realEng, es, dbName)
+}
+
 func (a *App) InsertRow(engine, dbName, tableName string, values map[string]core.RowValue) error {
 	realEng, es, _, err := a.resolveTargetStrict(engine)
 	if err != nil {

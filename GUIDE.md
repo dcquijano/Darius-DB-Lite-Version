@@ -15,7 +15,7 @@
 
 1. [System Requirements](#1-system-requirements)
 2. [How to Install Darius DB (Step by Step)](#2-how-to-install-darius-db-step-by-step)
-   - [Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.5.exe`)](#option-a-using-the-standalone-windows-installer-dariusdb-setup-014exe)
+   - [Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.5.exe`)](#option-a-using-the-standalone-windows-installer-dariusdb-setup-015exe)
    - [Option B: 100% Portable (No Installation Required)](#option-b-100-portable-no-installation-required)
 3. [First-Time Setup & Daily Usage Guide](#3-first-time-setup--daily-usage-guide)
 4. [Keyboard Shortcuts Reference](#4-keyboard-shortcuts-reference)
@@ -32,7 +32,7 @@
 
 - **OS:** Windows 10 or Windows 11 (64-bit / x64)
 - **Runtime:** Microsoft Edge WebView2 Runtime (already pre-installed on Windows 11 and modern Windows 10; the launcher checks for it automatically)
-- **Disk Space:** ~15 MB for Darius DB itself, plus whichever database engines you choose to download
+- **Disk Space:** ~17 MB for Darius DB itself, plus whichever database engines you choose to download
 - **Admin Rights:** **Not required** — Darius DB runs and installs cleanly in user space (e.g. `C:\DariusDB`)
 
 ---
@@ -41,17 +41,17 @@
 
 ### Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.5.exe`)
 
-1. Download **`DariusDB-Setup-0.1.5.exe`** from the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.5.exe` or `dist\DariusDB-Setup-0.1.5.exe`).
+1. Download **`DariusDB-Setup-0.1.5.exe`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.5.exe` or `dist\DariusDB-Setup-0.1.5.exe`).
 2. In the **Darius DB (Lite Version 0.1.5) Setup Wizard**:
    - Accept the MIT License Agreement and click **Next >**.
    - Keep the recommended destination folder **`C:\DariusDB`** (or click **Browse...** to choose another folder) and select your shortcut/PATH/startup options.
    - Click **Install**.
 3. Setup automatically:
-   - Extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Uninstall.exe`, `DariusDB-Updater.exe`, `darius.exe`, `LICENSE`, `README.md`, and `GUIDE.md`.
-   - Creates `www/`, `bin/`, `data/`, `etc/`, `logs/`, and `tmp/`.
+   - Extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Repair.exe`, `DariusDB-Uninstall.exe`, `DariusDB-Updater.exe`, `darius.exe`, `LICENSE`, `README.md`, and `GUIDE.md`.
+   - Creates `www/`, `backups/`, `bin/`, `data/`, `etc/`, `logs/`, and `tmp/`.
    - Creates Desktop & Start Menu shortcuts (**Darius DB**, **Darius DB Terminal**, **Update Darius DB**, **Repair Darius DB**, **Uninstall Darius DB**).
    - Registers **Darius DB (Lite Version 0.1.5)** in **Windows Settings → Apps → Installed Apps** and adds `darius` CLI to your Windows `PATH`.
-   - **Upgrade, Double-Install Protection & Repair Mode:** If an older version (e.g. `0.1.4`) is installed, running `DariusDB-Setup-0.1.5.exe` offers a 1-click **in-place upgrade** (keeping all databases in `data/` and websites in `www/` untouched). If the same version is already installed, it blocks duplicate installation and offers **Repair Mode**.
+   - **Upgrade, Double-Install Protection & Repair Mode:** If an older version (e.g. `0.1.4`) is installed, running `DariusDB-Setup-0.1.5.exe` offers a 1-click **in-place upgrade** (keeping all databases in `data/`, backups in `backups/`, and websites in `www/` untouched). If the same version is already installed, it blocks duplicate installation and offers **Repair Mode**.
 4. Click **Finish** to launch **Darius DB (Lite Version 0.1.5)** immediately.
 
 > **Silent / Automated CLI install or repair:**
@@ -64,11 +64,10 @@
 
 ### Option B: 100% Portable (No Installation Required)
 
-1. Create any folder, e.g. `D:\Tools\DariusDB\` or on a USB flash drive.
-2. Copy **`DariusDB.exe`** (and optionally `DariusDB-Launcher.exe`) into that folder.
-3. Double-click **`DariusDB-Launcher.exe`** (or `DariusDB.exe` directly).
-4. Darius DB automatically creates `bin/`, `data/`, `etc/`, `logs/`, `tmp/`, and `settings.json` right beside itself.
-5. To move Darius DB to another PC or drive later: stop all services, then simply copy/move the whole folder!
+1. Download **`DariusDB-0.1.5-portable-windows-amd64.zip`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or [**Google Drive**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing), and extract it to any folder (e.g. `D:\Tools\DariusDB\` or a USB drive).
+2. Double-click **`DariusDB-Launcher.exe`** (or **`DariusDB.exe`** directly).
+3. Darius DB automatically creates `www/`, `backups/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`, and `settings.json` right beside itself.
+4. To move Darius DB to another PC or drive later: stop all services (`F9`), then simply copy or move the whole folder!
 
 ---
 
@@ -93,15 +92,18 @@
 4. **Host local websites & PHP apps (`www/`):** Start **Apache** (`:8080`, integrated with PHP 8.x), place files in `www/` or click **Deploy .zip**, and open `http://localhost:8080/`. Start **Mailpit** (`:8025` Web UI / `:1025` SMTP) to inspect local outgoing emails.
 5. On the very first start, Darius DB automatically generates clean default config files (`etc/*`) and initializes each engine's `data/` folder. Once running, the status dot turns green and displays the active **port** and **PID**.
 
-### Step 3: Browse Databases, Multi-Tab SQL, Row CRUD & Redis
+### Step 3: Browse Databases, ER Diagrams, Floating SQL Tabs, Row CRUD & Redis
 
 1. Click **Browse** on any running engine card (or press **`Alt + 2`** to open **Database**).
-2. **For MariaDB, MySQL, PostgreSQL, and MS SQL Server:**
-   - Click **+ New** (**`Alt + D`**) to create a database (and optionally create a dedicated user/login with password and full privileges on that database in one step!).
-   - Click **+ New** (**`Alt + T`**) in the Tables pane to create a table visually, or click any table to preview its rows.
-   - Open extra SQL query tabs with **`Alt + N`**, switch tabs with **`Alt + [`** / **`Alt + ]`**, and close a tab with **`Alt + W`**.
-   - Write any SQL query in the editor and press **`Ctrl + Enter`** to run it, or **`Ctrl + Shift + Enter`** for **Show All** (removes `LIMIT` / `TOP`).
-   - Double-click any row (or use **+ Create** via **`Alt + =`**, **Show**, **Edit**, **Delete**) for full visual Row CRUD. Filter visible rows with **`Ctrl + F`** and paginate with **`Alt + ←`** / **`Alt + →`**.
+2. **For MariaDB, MySQL, PostgreSQL, and MS SQL Server (Local & Cloud):**
+   - **Databases & Right-Click Context Menu:** Click **+ New** (**`Alt + D`**) to create a database (+ optional user/login), or **right-click any database or table** for quick actions (`🗺️ New Database Diagram`, `📝 New Query Tab`, `➕ Create Table...`, `↻ Refresh`, `📤 Export`, `🗑️ Drop`).
+   - **Interactive ER Database Diagrams (`🗺️ Diagram`):** Right-click a database or click **🗺️ Diagram** in the Tables header to explore draggable table cards, solid Foreign Key + optional dashed inferred `*_id` links, Auto-Arrange, Fit View, Table picker, double-click/open table rows, and **`📤 Export ▾`** (**PNG**, **JPEG**, **WebP**, **SVG**, **HTML**, **Mermaid `.mmd`**, or **Copy PNG to Clipboard**).
+   - **Multi-Tab SQL Editor, Autocomplete & Tear-Off Floating Windows:**
+     - Press **`Tab`** inside the SQL editor for IDE-style autocomplete (`CREATE`, `SHOW`, `SELECT`, aggregate functions, tables, and columns).
+     - Open extra query tabs with **`Alt + N`**, switch tabs with **`Alt + [`** / **`Alt + ]`**, close one tab with **`Alt + W`**, or clear all tabs with **`✕ Close All`**.
+     - Drag any tab out (or click **`↗`**) into a floating query/diagram window — click **`↩ Put Back`** or drag its titlebar back onto the tab bar to re-dock!
+     - Press **`Ctrl + Enter`** to run SQL or **`Ctrl + Shift + Enter`** for **Show All** (removes `LIMIT` / `TOP`).
+   - **Visual Row CRUD & Pagination:** Double-click any row (or use **+ Create** via **`Alt + =`**, **Show**, **Edit**, **Delete**) for full visual Row CRUD. Filter visible rows with **`Ctrl + F`** and paginate with **`Alt + ←`** / **`Alt + →`**.
    - Click **Copy URI** (**`Alt + C`**) or **VS / .env** to copy ready-to-paste connection strings for Visual Studio and VS Code!
 3. **For Redis:**
    - Pick a logical DB (`db0`–`db15`) from the dropdown.
@@ -120,8 +122,8 @@
 1. Open **Cloud** (**`Alt + 3`**) and pick a **Quick Provider Preset** (cPanel/Plesk/Hostinger, MonsterASP.NET/SmarterASP, Supabase/Neon, Aiven/TiDB/PlanetScale, AWS RDS/Azure, or Redis Cloud) or click **+ Add Cloud DB** (**`Alt + N`**).
 2. Paste a connection URI or ADO.NET string into **Quick Auto-Fill** and click **Parse**, then click **🔌 Test Connection** and **Save Profile**.
 3. Click **Browse** on any Cloud profile to query, edit rows, import, and export live remote databases directly in the Database tab.
-4. Click **🔄 Local ↔ Cloud Sync** (**`Alt + S`**) to push Local → Cloud or pull Cloud → Local (you can minimize the sync dialog to a floating background bar). When pulling **Cloud → Local**, you can optionally check **✨ Auto-generate Local DB name (Date, Day, Year & Timestamp)** — or click **✨ Auto** once — to auto-name the local database (e.g. `alegria_2026_11_22_Sun_132136`, `alegria_Nov_22_2026_Sun_132136`, or daily `alegria_2026_11_22_Sun`), or leave it unchecked to type/pick any manual Local Database name.
-5. Click **⏰ Auto Sync & Backup (2 AM)** (**`Alt + B`**) to configure daily pulls (with optional per-pull auto-generated dated DB names) and 2:00 AM `.zip` snapshots into `backups/` with automatic **7-day snapshot purge** (plus an optional **🪟 Win 2 AM Task** Windows Task Scheduler registration).
+4. Click **Manual Sync** (**`Alt + S`**) to run a one-time Push (`Local → Cloud`) or Pull (`Cloud → Local`, including optional **✨ Auto-generate Local DB name** with Date, Day, Year & Timestamp). You can minimize active syncs into the unified floating progress bar.
+5. Manage **Daily Auto-Sync** (`+ Auto-Sync`, supporting Local DB or **Generated Folder**) and **Daily 2:00 AM Auto-Backup** (`+ Auto-Backup`, supporting dated `.zip` snapshots or Generated Folders with live **Purge Date Guide** & 7-day automatic retention purge) in their own dedicated panels, inspect history in **📜 Sync Logs** (`scheduler.log`), and toggle **🪟 Win 2 AM Task** for Windows Task Scheduler wake-up.
 
 ### Step 6: Switch Between Multiple Engine Versions
 
@@ -346,7 +348,7 @@ powershell -ExecutionPolicy Bypass -File installer\build-all.ps1
 ```
 
 This creates:
-- `build\bin\DariusDB.exe` — main desktop app (~13 MB)
+- `build\bin\DariusDB.exe` — main desktop app (~17 MB)
 - `build\bin\DariusDB-Launcher.exe` (and `installer\DariusDB-Launcher.exe`) — native launcher (~2–3 MB)
 - `build\bin\DariusDB-Uninstall.exe` (and `installer\DariusDB-Uninstall.exe`) — native 3-step uninstaller & repair wizard (~2–3 MB)
 - `build\bin\DariusDB-Updater.exe` (and `installer\DariusDB-Updater.exe`) — standalone native System Version Updater (~2–3 MB)

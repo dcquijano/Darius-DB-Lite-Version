@@ -147,30 +147,32 @@
             <p class="subtitle" id="rootPathLabel">Portable root</p>
           </div>
           <div class="head-actions">
-            <button class="btn ghost" id="btnToggleAnnounce"
+            <button class="btn sm ghost" id="btnToggleAnnounce"
               title="Show System Announcement &amp; New Version Installer">
               📢 What's New
             </button>
-            <button class="btn accent" id="btnDashGuides"
+            <button class="btn sm ghost" id="btnDashGuides"
               title="Open Step-by-Step Visual Guide with Screenshots (Alt+8)">
               📖 Guides
             </button>
-            <button class="btn accent" id="btnDashShortcuts"
+            <button class="btn sm ghost" id="btnDashShortcuts"
               title="Open Keyboard Shortcuts Reference (F1 or Ctrl+/)">
               ⌨️ Shortcuts
             </button>
-            <button class="btn accent" id="btnOpenSysUpdater"
+            <span class="head-sep" aria-hidden="true"></span>
+            <button class="btn sm" id="btnOpenSysUpdater"
               title="Check for Darius DB System Updates or install a new Setup .exe / .zip version">
               ⬆️ System Updater
             </button>
-            <button class="btn accent" id="btnOpenRepair"
+            <button class="btn sm" id="btnOpenRepair"
               title="Repair a single selected service/engine only without changing other system settings">
               🔧 Repair
             </button>
-            <button class="btn accent" id="btnRepairAllSystem"
+            <button class="btn sm" id="btnRepairAllSystem"
               title="Repair All system components, engines, blocked ports, caches, locks &amp; Windows PATH">
               🛠️ Repair All
             </button>
+            <span class="head-sep" aria-hidden="true"></span>
             <button class="btn primary" id="btnStartAll">
               <svg viewBox="0 0 24 24">
                 <polygon points="6 4 20 12 6 20 6 4" />
@@ -187,7 +189,7 @@
         </header>
 
         <!-- SYSTEM ANNOUNCEMENT & NEW VERSION UPDATER BANNER -->
-        <div class="welcome-banner" id="announcementBanner" style="align-items:flex-start;gap:16px">
+        <div class="welcome-banner announce-banner" id="announcementBanner">
           <div style="flex:1">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
               <span class="pill running">📢 Announcement</span>
@@ -202,15 +204,15 @@
               PostgreSQL, or Redis releases.
             </div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex-shrink:0">
             <button class="btn sm primary" id="btnAnnounceSysUpdate" title="Open Darius DB System Version Updater">
               ⬆️ Update System
             </button>
-            <button class="btn sm accent" id="btnAnnounceCheckVer"
+            <button class="btn sm" id="btnAnnounceCheckVer"
               title="Check upstream APIs for newest engine versions and open Versions installer">
-              ↻ Check Engine Versions
+              ↻ Check Versions
             </button>
-            <button class="btn sm" id="btnAnnounceGetSetup"
+            <button class="btn sm ghost" id="btnAnnounceGetSetup"
               title="Download latest Darius DB Setup Installer from Official Google Drive">
               📥 Official Setup .exe
             </button>
@@ -240,17 +242,18 @@
           <div class="head-actions">
             <button class="btn sm primary" id="btnOpenImport"
               title="Import .sql script or .csv data into the selected or new database">📥 Import</button>
-            <button class="btn sm accent" id="btnOpenRestore"
+            <button class="btn sm" id="btnOpenRestore"
               title="Restore a .bak backup or import a .sql script (MS SQL Server)" hidden>Restore .bak</button>
-            <button class="btn sm accent" id="btnBackupBak" title="Back up selected database to .bak file" hidden>Backup
+            <button class="btn sm" id="btnBackupBak" title="Back up selected database to .bak file" hidden>Backup
               .bak</button>
             <button class="btn sm" id="btnBackupSql"
               title="Export entire database, single table, or selected tables (.sql / .zip / .csv)">📤 Export</button>
-            <button class="btn sm accent" id="btnBackupZip"
+            <button class="btn sm" id="btnBackupZip"
               title="Back up the entire selected database as a full .zip archive (SQL + CSV tables + manifest.json)">📦 Backup .zip</button>
-            <button class="btn sm" id="btnCopyIDE"
+            <span class="head-sep" aria-hidden="true"></span>
+            <button class="btn sm ghost" id="btnCopyIDE"
               title="Copy Visual Studio (appsettings.json) &amp; VS Code (.env) config">VS / .env</button>
-            <button class="btn sm" id="btnCopyConn" title="Copy connection URI">Copy URI</button>
+            <button class="btn sm ghost" id="btnCopyConn" title="Copy connection URI">Copy URI</button>
             <button class="btn sm" id="btnDbRefresh">Refresh</button>
           </div>
         </header>
@@ -311,6 +314,7 @@
               <div class="sql-tab-list" id="sqlTabList" role="tablist"></div>
               <span class="sql-tab-drop-hint" id="sqlTabDropHint" hidden>📥 Drop here to put tab back</span>
               <button type="button" class="sql-tab-add" id="btnNewSqlTab" title="Open new SQL query tab">+</button>
+              <button type="button" class="sql-tab-clear-all" id="btnCloseAllSqlTabs" title="Close all query tabs (including popped-out windows)">✕ Close All</button>
             </div>
             <div class="editor-box" id="sqlEditorBox">
               <div class="editor-bar">

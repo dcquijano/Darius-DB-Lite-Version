@@ -266,6 +266,12 @@
     if (activeEl && activeEl.scrollIntoView) {
       activeEl.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
+    const clearAllBtn = $("btnCloseAllSqlTabs");
+    if (clearAllBtn) {
+      const all = engineTabs(state.dbEngine);
+      const hasContentOrMulti = all.length > 1 || all.some((t) => t.detached || !isBlankSqlTab(t));
+      clearAllBtn.disabled = !hasContentOrMulti;
+    }
   }
 
   function applyTabToDom(tab, { syncSidebar = false } = {}) {
@@ -370,6 +376,24 @@
     } else {
       renderSqlTabs();
     }
+  }
+
+  function closeAllSqlTabs() {
+    const eng = state.dbEngine;
+    const all = engineTabs(eng);
+    if (!all.length) return;
+    syncActiveTabFromDom();
+    const hadAction = all.length > 1 || all.some((t) => t.detached || !isBlankSqlTab(t));
+    all.forEach((t) => {
+      if (t.detached) removeFloatingSqlWin(t.id);
+    });
+    state.sqlTabs = state.sqlTabs.filter((t) => t.engine !== eng);
+    activeSqlTabByEngine.delete(eng);
+    const fresh = createSqlTabObj({ engine: eng, db: state.sqlDb });
+    state.sqlTabs.push(fresh);
+    applyTabToDom(fresh);
+    if ($("sqlEditor")) $("sqlEditor").focus();
+    if (hadAction) toast(`Closed ${all.length} query tab(s)`, "ok");
   }
 
   function resetSqlBrowserState(nextDb = "") {
@@ -4546,6 +4570,9 @@ try {
 
     if ($("btnNewSqlTab")) {
       $("btnNewSqlTab").onclick = () => openNewSqlTab({ focus: true });
+    }
+    if ($("btnCloseAllSqlTabs")) {
+      $("btnCloseAllSqlTabs").onclick = () => closeAllSqlTabs();
     }
     if ($("sqlTabList")) {
       $("sqlTabList").addEventListener("click", (e) => {

@@ -4102,12 +4102,11 @@ body { font-size: var(--fs-base); letter-spacing: -0.003em; }
     var(--bg);
 }
 
-/* ---------- Sidebar (glass) ---------- */
+/* ---------- Sidebar ---------- */
 .sidebar {
   background:
     linear-gradient(180deg, rgba(20, 184, 166, 0.05), transparent 220px),
-    var(--glass-strong);
-  backdrop-filter: blur(18px) saturate(150%);
+    var(--bg-elev);
   border-right: 1px solid var(--glass-border);
 }
 .brand { padding: 4px 8px 14px; gap: 11px; }
@@ -4147,11 +4146,10 @@ body { font-size: var(--fs-base); letter-spacing: -0.003em; }
 .side-action, .side-mini { border-radius: var(--radius-sm); }
 .side-action { background: var(--bg-hover); border-color: var(--glass-border); }
 
-/* ---------- View headers (glass) ---------- */
+/* ---------- View headers ---------- */
 .view-head {
   padding: var(--pad-head);
-  background: var(--glass);
-  backdrop-filter: blur(16px) saturate(150%);
+  background: var(--bg-elev);
   border-bottom: 1px solid var(--glass-border);
   box-shadow: none;
 }
@@ -4239,11 +4237,11 @@ body { font-size: var(--fs-base); letter-spacing: -0.003em; }
 .chip.accent { background: var(--accent-soft); }
 
 /* ---------- Database browser ---------- */
-.browser-pane { background: var(--glass); backdrop-filter: blur(12px); }
+.browser-pane { background: var(--bg-elev); }
 .pane-head { padding: calc(var(--pad-tree) + 3px) 10px; letter-spacing: 0.01em; }
 .tree-item { padding: var(--pad-tree); border-radius: var(--radius-sm); transition: background 0.14s, color 0.14s; }
 .tree-item.active { background: var(--accent-grad-soft); box-shadow: inset 2px 0 0 var(--accent); }
-.sql-tabs-bar { background: var(--glass); backdrop-filter: blur(12px); }
+.sql-tabs-bar { background: var(--bg-subtle); }
 .sql-tab { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
 .sql-tab.active { box-shadow: inset 0 2px 0 var(--accent); }
 .editor-bar, .result-meta-bar { background: var(--bg-subtle); }
@@ -4252,8 +4250,7 @@ body { font-size: var(--fs-base); letter-spacing: -0.003em; }
 .table-wrap { background: transparent; }
 .data-table th, .data-table td { padding: var(--pad-cell); }
 .data-table th {
-  background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
-  backdrop-filter: blur(10px);
+  background: var(--bg-elev);
   letter-spacing: 0.02em;
   text-transform: none;
 }
@@ -4292,9 +4289,8 @@ body { font-size: var(--fs-base); letter-spacing: -0.003em; }
 /* ---------- Toasts & context menus ---------- */
 .toast {
   border-radius: var(--radius);
-  background: var(--glass-strong);
-  backdrop-filter: blur(14px) saturate(150%);
-  border: 1px solid var(--glass-border);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
   box-shadow: var(--shadow);
 }
 .db-ctx-menu {

@@ -125,19 +125,24 @@ func (m *mssqlEngine) Stop(p *Paths, inst Installation, s EngineSettings) error 
 }
 
 func (m *mssqlEngine) PidOf(p *Paths, inst Installation) int {
+	pid := findLocalDBPID()
+	if pid <= 0 {
+		return 0
+	}
 	if localDB := findSqlLocalDB(); localDB != "" {
-		cmd := exec.Command(localDB, "info", mssqlInstance)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, localDB, "info", mssqlInstance)
 		hideWindow(cmd)
 		if out, err := cmd.CombinedOutput(); err == nil {
 			low := strings.ToLower(string(out))
 			if strings.Contains(low, "state:") && strings.Contains(low, "running") {
-				if pid := findLocalDBPID(); pid > 0 {
-					return pid
-				}
+				return pid
 			}
+			return 0
 		}
 	}
-	return 0
+	return pid
 }
 
 var dottedVerRe = regexp.MustCompile(`\d+\.\d+(?:\.\d+){0,2}`)
@@ -162,8 +167,8 @@ var (
 )
 
 const (
-	sysDetectCacheTTL   = 60 * time.Second
-	mssqlTargetCacheTTL = 30 * time.Second
+	sysDetectCacheTTL   = 10 * time.Minute
+	mssqlTargetCacheTTL = 60 * time.Second
 )
 
 // InvalidateMSSQLTargetCache clears the cached local MS SQL server target/pipe.
@@ -208,13 +213,15 @@ func detectSystemMSSQL() (Installation, bool) {
 	var ok bool
 	if localDB := findSqlLocalDB(); localDB != "" {
 		ver := "17.0.1000.7"
-		cmd := exec.Command(localDB, "versions")
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		cmd := exec.CommandContext(ctx, localDB, "versions")
 		hideWindow(cmd)
 		if out, err := cmd.CombinedOutput(); err == nil {
 			if m := dottedVerRe.FindString(string(out)); m != "" {
 				ver = m
 			}
 		}
+		cancel()
 		inst = Installation{
 			Engine:  "mssql",
 			Name:    "mssql-2025-" + ver,

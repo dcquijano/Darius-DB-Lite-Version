@@ -75,7 +75,7 @@ func NewManagerWithOptions(p *Paths, st *SettingsStore, onChange func(), skipAdo
 	m.ensureActiveVersions()
 	ensureWwwIndex(p.Www)
 	if dirExists(p.EngineBin("php")) {
-		_, _ = SyncManagedPHPIni(p)
+		go func() { _, _ = SyncManagedPHPIni(p) }()
 	}
 	if skipAdopt {
 		m.forceOffAll(false)
@@ -101,19 +101,47 @@ func (m *Manager) set(id string, fn func(s *service)) {
 
 // ensureActiveVersions picks the newest installation when none is selected.
 func (m *Manager) ensureActiveVersions() {
-	for _, id := range EngineIDs {
-		es := m.st.Engine(id)
-		if _, ok := FindInstallation(m.p, id, es.Version); ok {
-			continue
+	type pick struct {
+		id   string
+		name string
+	}
+	results := make([]pick, len(EngineIDs))
+	var wg sync.WaitGroup
+	for i, id := range EngineIDs {
+		wg.Add(1)
+		go func(i int, id string) {
+			defer wg.Done()
+			es := m.st.Engine(id)
+			if _, ok := FindInstallation(m.p, id, es.Version); ok {
+				return
+			}
+			insts := ListInstallations(m.p, id)
+			name := ""
+			if len(insts) > 0 {
+				name = insts[0].Name
+			}
+			if name != es.Version {
+				results[i] = pick{id: id, name: name}
+			}
+		}(i, id)
+	}
+	wg.Wait()
+
+	hasUpdates := false
+	for _, r := range results {
+		if r.id != "" {
+			hasUpdates = true
+			break
 		}
-		insts := ListInstallations(m.p, id)
-		name := ""
-		if len(insts) > 0 {
-			name = insts[0].Name
-		}
-		if name != es.Version {
-			_ = m.st.Update(func(s *Settings) { s.Engines[id].Version = name })
-		}
+	}
+	if hasUpdates {
+		_ = m.st.Update(func(s *Settings) {
+			for _, r := range results {
+				if r.id != "" && s.Engines[r.id] != nil {
+					s.Engines[r.id].Version = r.name
+				}
+			}
+		})
 	}
 }
 
@@ -151,7 +179,7 @@ func (m *Manager) adopt() {
 
 func (m *Manager) monitor() {
 	var lastMSSQLKeepAlive time.Time
-	for range time.Tick(2 * time.Second) {
+	for range time.Tick(3 * time.Second) {
 		changed := false
 		checkMSSQL := false
 		keepMSSQLWarm := false

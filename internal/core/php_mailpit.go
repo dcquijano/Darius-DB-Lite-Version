@@ -488,13 +488,15 @@ func detectSystemPHP() (Installation, bool) {
 			continue
 		}
 		ver := "8.4.0"
-		cmd := exec.Command(exe, "-r", "echo PHP_VERSION;")
+		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		cmd := exec.CommandContext(ctx, exe, "-r", "echo PHP_VERSION;")
 		hideWindow(cmd)
 		if out, err := cmd.Output(); err == nil {
 			if v := strings.TrimSpace(string(out)); v != "" {
 				ver = parseVersion(v)
 			}
 		}
+		cancel()
 		foundInst = Installation{
 			Engine:  "php",
 			Name:    "php-" + ver,

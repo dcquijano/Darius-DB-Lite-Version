@@ -179,7 +179,7 @@ func clearReadOnlyRecursive(dir string) {
 }
 
 func portInUse(port int) bool {
-	c, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(port), 120*time.Millisecond)
+	c, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(port), 45*time.Millisecond)
 	if err != nil {
 		return false
 	}

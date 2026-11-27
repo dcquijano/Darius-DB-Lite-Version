@@ -117,13 +117,16 @@ func (a *App) startup(ctx context.Context) {
 
 	tr, err := tray.Start(tray.Config{
 		Tag:       core.InstanceTag(a.paths.Root),
-		Tooltip:   a.trayTooltip(),
+		Tooltip:   AppName,
 		IconPNG:   tray.DefaultIconPNG,
 		OnShow:    a.ShowWindow,
 		BuildMenu: a.buildTrayMenu,
 	})
 	if err == nil {
 		a.tr = tr
+		go func() {
+			tr.SetTooltip(a.trayTooltip())
+		}()
 	}
 
 	if a.sched != nil {

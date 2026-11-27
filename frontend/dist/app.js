@@ -10,6 +10,7 @@
 
   const state = {
     tab: "dashboard",
+    dashDirty: false,
     info: null,
     settings: null,
     statuses: [],
@@ -173,7 +174,9 @@
 
     stopLogPolling();
 
-    if (tab === "database") {
+    if (tab === "dashboard") {
+      if (state.dashDirty) renderDashboard();
+    } else if (tab === "database") {
       pickBestDbEngine();
       renderDbEngineTabs();
       loadDbView();
@@ -2325,8 +2328,19 @@
     }
   }
 
+  function updateRunningBadge() {
+    const badge = $("runningBadge");
+    if (!badge) return;
+    const runningCount = (state.statuses || []).filter(
+      (s) => s.engine !== "php" && s.state === "running"
+    ).length;
+    badge.textContent = runningCount;
+    badge.hidden = runningCount === 0;
+  }
+
   // ---- Dashboard (5th-Picture Unified Row Layout: Apache + PHP Unified, Separate MariaDB & MySQL) ----
   function renderDashboard() {
+    state.dashDirty = false;
     const phpSvc = state.statuses.find((s) => s.engine === "php");
     const apacheSvc = state.statuses.find((s) => s.engine === "apache");
     const mariaSvc = state.statuses.find((s) => s.engine === "mariadb");
@@ -2334,10 +2348,7 @@
 
     // Keep MariaDB and MySQL as separate rows (only PHP is embedded inside the Apache row)
     const visibleStatuses = state.statuses.filter((s) => s.engine !== "php");
-    const runningCount = visibleStatuses.filter((s) => s.state === "running").length;
-    const badge = $("runningBadge");
-    badge.textContent = runningCount;
-    badge.hidden = runningCount === 0;
+    updateRunningBadge();
 
     const anyInstalled = state.statuses.some((s) => s.installations && s.installations.length > 0);
     $("welcomeBanner").hidden = anyInstalled;
@@ -6564,24 +6575,27 @@ try {
     setupBrowserSplitters();
     wireSqlColResizer();
 
-    const [info, settings, statuses, catalog, cloudProfiles, schedules, winTask] = await Promise.all([
-      api().Info(),
-      api().GetSettings(),
-      api().Status(),
-      api().Catalog(),
-      api().CloudProfiles().catch(() => []),
-      api().Schedules().catch(() => []),
-      api().WindowsTaskStatus().catch(() => ({ registered: false, detail: "" })),
+    // Paint theme/density as soon as settings arrive and unblock first Dashboard paint on core state only.
+    const infoPromise = api().Info();
+    const settingsPromise = api().GetSettings().then((settings) => {
+      state.settings = settings;
+      if (settings) {
+        applyTheme(settings.theme);
+        applyDensity(settings.density);
+      }
+      return settings;
+    });
+    const statusPromise = api().Status();
+
+    const [info, settings, statuses] = await Promise.all([
+      infoPromise,
+      settingsPromise,
+      statusPromise,
     ]);
 
     state.info = info;
     state.settings = settings;
     state.statuses = statuses || [];
-    state.catalog = catalog || {};
-    state.cloudProfiles = cloudProfiles || [];
-    state.schedules = schedules || [];
-    state.winTask = winTask || { registered: false, detail: "" };
-    updateCloudBadge();
 
     $("appVersion").textContent = "Lite Version " + info.version;
     if ($("dashSystemBadge")) {
@@ -6591,10 +6605,29 @@ try {
       $("guideVersionBadge").textContent = "Darius DB · Lite Version " + info.version;
     }
     $("rootPathLabel").textContent = info.root;
-    applyTheme(settings.theme);
-    applyDensity(settings.density);
 
     renderDashboard();
+
+    // Load secondary metadata (catalog, cloud profiles, schedules, Windows Task Scheduler status)
+    // in the background right after Dashboard paints so first render isn't blocked by schtasks.exe.
+    Promise.all([
+      api().Catalog().catch(() => ({})),
+      api().CloudProfiles().catch(() => []),
+      api().Schedules().catch(() => []),
+      api().WindowsTaskStatus().catch(() => ({ registered: false, detail: "" })),
+    ]).then(([catalog, cloudProfiles, schedules, winTask]) => {
+      state.catalog = catalog || {};
+      state.cloudProfiles = cloudProfiles || [];
+      state.schedules = schedules || [];
+      state.winTask = winTask || { registered: false, detail: "" };
+      updateCloudBadge();
+      if (state.tab === "cloud") {
+        renderCloudView();
+      } else if (state.tab === "versions") {
+        renderVerEngineTabs();
+        renderVersions();
+      }
+    });
 
     // Non-blocking live announcement & GitHub commit check on startup (deferred so Dashboard paints immediately)
     setTimeout(() => {
@@ -6615,7 +6648,12 @@ try {
     onEvent("status", (list) => {
       const prev = getStatus(state.dbEngine)?.state;
       state.statuses = list || [];
-      renderDashboard();
+      if (state.tab === "dashboard") {
+        renderDashboard();
+      } else {
+        state.dashDirty = true;
+        updateRunningBadge();
+      }
       if (state.tab === "versions") {
         renderVerEngineTabs();
         renderVersions();

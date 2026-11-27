@@ -89,7 +89,7 @@
 1. Return to the **Dashboard** tab (**`Alt + 1`**).
 2. Click **Start All** (**`F8`**, **`Ctrl + Shift + S`**, or **`Alt + Shift + S`**) to start all enabled engines at once, or click **Start** on an individual engine row. Press **`F9`**, **`Ctrl + Shift + X`**, or **`Alt + Shift + X`** for **Stop All** (use **`F8`** / **`F9`** / **`Alt + Shift + X`** if Windows or Edge intercepts `Ctrl + Shift + X`).
 3. Use the **Auto-Run Bar** at the top of Dashboard to choose which engines auto-start when Darius DB opens (or pick quick presets like *MySQL + Apache* or *Match Running*).
-4. **Host local websites & PHP apps (`www/`):** Start **Apache** (`:8080`, integrated with PHP 8.x), place files in `www/` or click **Deploy .zip**, and open `http://localhost:8080/`. Start **Mailpit** (`:8025` Web UI / `:1025` SMTP) to inspect local outgoing emails.
+4. **Host local websites & PHP apps (`www/`):** Start **Apache** (`:8080`, integrated with PHP 8.x), place files in `www/` or click **Deploy .zip**, and open `http://localhost:8080/`. Start **Mailpit** (`:8025` Web UI / `:1025` SMTP) to inspect local outgoing emails. Darius DB also automatically hardlinks `etc/php/php.ini` into each `bin/php/<ver>/php.ini`, so running `php artisan serve`, `php artisan tinker`, or `php -m` from any CLI automatically loads `PDO`, `pdo_mysql`, `mysqli`, `gd`, `mbstring`, `openssl`, `curl`, `intl`, `fileinfo`, `zip`, and `Zend OPcache` without altering global `PHPRC`.
 5. On the very first start, Darius DB automatically generates clean default config files (`etc/*`) and initializes each engine's `data/` folder. Once running, the status dot turns green and displays the active **port** and **PID**.
 
 ### Step 3: Browse Databases, ER Diagrams, Floating SQL Tabs, Row CRUD & Redis

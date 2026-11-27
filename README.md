@@ -73,7 +73,7 @@ Manage **Apache Web Server (+ PHP 8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **
 ## Features
 
 - **100% Portable or Standard `.exe` Install** — Run directly out of any folder (`www/`, `backups/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`, `settings.json`) or install using the standalone Windows Setup Wizard **`DariusDB-Setup-0.1.5.exe`** (with automatic upgrade protection and built-in **Repair Mode**).
-- **Unified Apache + PHP (`8.2`/`8.3`/`8.4`) + MariaDB/MySQL (`:3306`) Web Stack** — Host local websites in `www/` at `http://localhost:8080/`, drag & drop project folders / `.zip` bundles / `.html` files (or click **`Deploy .zip`**), switch PHP versions inline on the Apache card, toggle MariaDB/MySQL cleanly on port `3306`, and copy hardened PHP PDO (`utf8mb4`) snippets in one click.
+- **Unified Apache + PHP (`8.2`/`8.3`/`8.4`) + MariaDB/MySQL (`:3306`) Web Stack** — Host local websites in `www/` at `http://localhost:8080/`, drag & drop project folders / `.zip` bundles / `.html` files (or click **`Deploy .zip`**), switch PHP versions inline on the Apache card, toggle MariaDB/MySQL cleanly on port `3306`, and copy hardened PHP PDO (`utf8mb4`) snippets in one click. Managed `etc/php/php.ini` is automatically **NTFS-hardlinked** into every `bin/php/<ver>/php.ini` (`PDO`, `pdo_mysql`, `mysqli`, `mysqlnd`, `gd`, `mbstring`, `openssl`, `curl`, `intl`, `fileinfo`, `zip`, `Zend OPcache`) so CLI tools like `php artisan serve` and `php artisan tinker` work out of the box without setting global `PHPRC`.
 - **Built-in Mailpit (`:8025` Web Inbox / `:1025` SMTP)** — Instant zero-download local email capture for PHP/Laravel/app testing right on the Dashboard below Redis.
 - **One-Click Start/Stop, Auto-Run Presets & Native System Tray** — Start All / Stop All (`F8` / `F9`), per-service Auto-Run pills & quick presets (*MySQL*, *MySQL + Apache*, *Use Running*), live PID & port-conflict detection, single-instance wake, close-to-tray, and right-click tray menu.
 - **Multi-Format Import, Export, Full `.zip` Backup & MS SQL `.bak` Restore** — Import `.sql`, `.csv` (auto-creates columns), MS SQL `.bak` (automatic `RESTORE FILELISTONLY` logical-file relocation into `data/mssql/`), or PostgreSQL `.backup`; export *Entire DB*, *Current Table*, or *Selected Tables* as `.sql` (Structure/Data toggles), `.zip`, or `.csv`; and generate full `.zip` snapshots (`SQL dump + table CSVs + manifest.json`) from GUI or CLI (`darius restore` / `darius backup`).
@@ -133,7 +133,7 @@ C:\DariusDB\
 │   └── <schedule-name>/
 ├── bin/
 │   ├── apache/apache-2.4.66/
-│   ├── php/php-8.4.4/
+│   ├── php/php-8.4.4/          # includes php.ini hardlinked to etc/php/php.ini
 │   ├── mariadb/mariadb-13.0.2/
 │   ├── mysql/mysql-9.7.2/
 │   ├── postgresql/postgresql-18.7/

@@ -102,6 +102,8 @@ func (m *Manager) RepairWithOptions(opts RepairOptions) (*RepairReport, error) {
 		m.repairSingleEngine(id, opts, usedPorts, add)
 	}
 
+	m.checkRuntimePrereqsForRepair(targets, add)
+
 	if target == "all" {
 		m.repairSystemPath(add)
 	}
@@ -591,6 +593,8 @@ func (m *Manager) repairSingleEngine(id string, opts RepairOptions, usedPorts ma
 						}
 					}
 				}
+			} else if ok || opts.Target == "mssql" {
+				add(cat, fmt.Sprintf("SqlLocalDB.exe not found on this PC — use Auto-Install SQL Server Express LocalDB or connect to a running TCP SQL Server on port %d", es.Port), "warn")
 			}
 		}
 		if findSqlcmd() == "" {
@@ -703,6 +707,40 @@ func (m *Manager) repairCorruptConfigContent(id, cfgPath string) bool {
 		}
 	}
 	return false
+}
+
+func (m *Manager) checkRuntimePrereqsForRepair(targets []string, add func(cat, action, status string)) {
+	vcNeededBy := []string{}
+	for _, id := range targets {
+		if id != "mysql" && id != "postgresql" && id != "php" && id != "apache" {
+			continue
+		}
+		inst, ok := FindInstallation(m.p, id, m.st.Engine(id).Version)
+		if !ok {
+			continue
+		}
+		if id == "apache" && !fileExists(filepath.Join(inst.Dir, "bin", "httpd.exe")) && !fileExists(filepath.Join(inst.Dir, "httpd.exe")) {
+			continue
+		}
+		binDir := inst.Dir
+		if dirExists(filepath.Join(inst.Dir, "bin")) {
+			binDir = filepath.Join(inst.Dir, "bin")
+		}
+		if !dirHasVCRuntime(binDir) {
+			if eng, err := GetEngine(id); err == nil {
+				vcNeededBy = append(vcNeededBy, eng.Name())
+			}
+		}
+	}
+	if len(vcNeededBy) == 0 {
+		return
+	}
+	vc := CheckVCRedistX64()
+	if vc.Installed {
+		add("VC++ Runtime", vc.Detail, "ok")
+	} else {
+		add("VC++ Runtime", fmt.Sprintf("%s — affects: %s. Use Auto-Install VC++ x64 or download vc_redist.x64.exe", vc.Detail, strings.Join(vcNeededBy, ", ")), "warn")
+	}
 }
 
 func isStalePostmasterPid(pmPath string) bool {

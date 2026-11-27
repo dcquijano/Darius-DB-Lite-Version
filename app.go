@@ -71,6 +71,9 @@ type App struct {
 	syncMu     sync.Mutex
 	syncCancel context.CancelFunc
 	syncActive bool
+
+	prereqMu     sync.Mutex
+	prereqActive map[string]bool
 }
 
 func NewApp(paths *core.Paths, st *core.SettingsStore) *App {
@@ -348,6 +351,50 @@ func (a *App) InstallFromZip(engine string) (string, error) {
 
 func (a *App) CancelInstall(engine, version string) { a.dl.Cancel(engine, version) }
 func (a *App) ActiveDownloads() []string            { return a.dl.Active() }
+
+// ---------------------------------------------------------------- Windows Prerequisites
+
+func (a *App) CheckPrerequisites() []core.PrereqStatus {
+	return core.CheckPrerequisites()
+}
+
+func (a *App) InstallPrerequisite(id string) error {
+	id = strings.ToLower(strings.TrimSpace(id))
+	if id != core.PrereqIDVCRedistX64 && id != core.PrereqIDMSSQLLocalDB {
+		return fmt.Errorf("unknown prerequisite %q", id)
+	}
+	a.prereqMu.Lock()
+	if a.prereqActive == nil {
+		a.prereqActive = map[string]bool{}
+	}
+	if a.prereqActive[id] {
+		a.prereqMu.Unlock()
+		return fmt.Errorf("%s installation is already in progress", id)
+	}
+	a.prereqActive[id] = true
+	a.prereqMu.Unlock()
+
+	baseCtx := a.ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	go func() {
+		defer func() {
+			a.prereqMu.Lock()
+			delete(a.prereqActive, id)
+			a.prereqMu.Unlock()
+		}()
+		err := core.InstallPrerequisite(baseCtx, a.paths, id, a.emitProgress)
+		if err == nil && a.mgr != nil {
+			a.mgr.ClearErrorsForPrereq(id)
+			a.emitStatus()
+		}
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "prereqs-updated", core.CheckPrerequisites())
+		}
+	}()
+	return nil
+}
 
 // ---------------------------------------------------------------- Config & Logs
 

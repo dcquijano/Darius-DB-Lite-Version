@@ -683,6 +683,9 @@ func (a *apacheEngine) Start(p *Paths, inst Installation, s EngineSettings) (*St
 		httpd = filepath.Join(inst.Dir, "httpd.exe")
 	}
 	if fileExists(httpd) {
+		if !HasVCRedistX64() && !dirHasVCRuntime(filepath.Dir(httpd)) {
+			return nil, missingVCRedistError(a.Name())
+		}
 		cmd := exec.Command(httpd,
 			"-f", a.ConfigFile(p, inst),
 			"-c", fmt.Sprintf(`Define SRVROOT "%s"`, filepath.ToSlash(inst.Dir)),

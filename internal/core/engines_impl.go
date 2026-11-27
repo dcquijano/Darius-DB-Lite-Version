@@ -118,6 +118,9 @@ func (m *mysqlFamily) Prepare(ctx context.Context, p *Paths, inst Installation, 
 	}
 
 	// MySQL
+	if !HasVCRedistX64() && !dirHasVCRuntime(filepath.Join(inst.Dir, "bin")) {
+		return missingVCRedistError(m.name)
+	}
 	args := []string{"--defaults-file=" + cfg, "--initialize-insecure", "--basedir=" + inst.Dir, "--datadir=" + data, "--console"}
 	if s.Password != "" {
 		initFile := filepath.Join(p.Tmp, "mysql-init.sql")
@@ -132,6 +135,9 @@ func (m *mysqlFamily) Prepare(ctx context.Context, p *Paths, inst Installation, 
 }
 
 func (m *mysqlFamily) Start(p *Paths, inst Installation, s EngineSettings) (*StartSpec, error) {
+	if m.id == "mysql" && !HasVCRedistX64() && !dirHasVCRuntime(filepath.Join(inst.Dir, "bin")) {
+		return nil, missingVCRedistError(m.name)
+	}
 	cmd := exec.Command(m.serverExe(inst),
 		"--defaults-file="+m.ConfigFile(p, inst), // must be first
 		"--basedir="+inst.Dir,
@@ -217,6 +223,9 @@ func (pg *postgres) Prepare(ctx context.Context, p *Paths, inst Installation, s 
 	if dirExists(data) && !dirEmpty(data) {
 		return fmt.Errorf("data folder %s exists but is not a valid PostgreSQL data folder", data)
 	}
+	if !HasVCRedistX64() && !dirHasVCRuntime(filepath.Join(inst.Dir, "bin")) {
+		return missingVCRedistError(pg.Name())
+	}
 	user := s.User
 	if user == "" {
 		user = "postgres"
@@ -269,6 +278,9 @@ func ensurePostgresConfFiles(dataDir, instDir string, logf func(string)) error {
 }
 
 func (pg *postgres) Start(p *Paths, inst Installation, s EngineSettings) (*StartSpec, error) {
+	if !HasVCRedistX64() && !dirHasVCRuntime(filepath.Join(inst.Dir, "bin")) {
+		return nil, missingVCRedistError(pg.Name())
+	}
 	cmd := exec.Command(filepath.Join(inst.Dir, "bin", "pg_ctl.exe"),
 		"start", "-D", pg.DataDir(p, inst),
 		"-l", p.LogFile("postgresql"),

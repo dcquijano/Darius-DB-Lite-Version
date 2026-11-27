@@ -1777,6 +1777,123 @@ func TestBuildDownloadCandidatesAndDownloadOnceRejectsHTML(t *testing.T) {
 	}
 }
 
+func TestMailpitStartUsesDatabaseFlag(t *testing.T) {
+	root := t.TempDir()
+	p := NewPaths(root)
+	if err := p.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	mpDir := filepath.Join(p.EngineBin("mailpit"), "mailpit-1.34.0")
+	if err := os.MkdirAll(mpDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mpDir, "mailpit.exe"), []byte("stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	eng := &mailpitEngine{}
+	inst := Installation{Engine: "mailpit", Name: "mailpit-1.34.0", Version: "1.34.0", Dir: mpDir}
+	spec, err := eng.Start(p, inst, EngineSettings{Port: 8025})
+	if err != nil {
+		t.Fatalf("mailpit Start failed: %v", err)
+	}
+	argsJoined := strings.Join(spec.Cmd.Args, " ")
+	if strings.Contains(argsJoined, "--db-file") {
+		t.Fatalf("expected --db-file to be replaced by --database, got args: %v", spec.Cmd.Args)
+	}
+	if !strings.Contains(argsJoined, "--database") {
+		t.Fatalf("expected --database flag in mailpit args, got: %v", spec.Cmd.Args)
+	}
+}
+
+func TestListInstallationsDeduplicatesMSSQLOnPath(t *testing.T) {
+	root := t.TempDir()
+	p := NewPaths(root)
+	if err := p.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	mssqlDir := filepath.Join(p.EngineBin("mssql"), "mssql-17.0.1000.7")
+	if err := os.MkdirAll(mssqlDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mssqlDir, "sqlcmd.exe"), []byte("stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origPath := os.Getenv("PATH")
+	origRoot := os.Getenv("DARIUSDB_HOME")
+	t.Cleanup(func() {
+		_ = os.Setenv("PATH", origPath)
+		_ = os.Setenv("DARIUSDB_HOME", origRoot)
+		InvalidateSystemDetectCache()
+	})
+	_ = os.Setenv("DARIUSDB_HOME", root)
+	_ = os.Setenv("PATH", mssqlDir+string(os.PathListSeparator)+origPath)
+	InvalidateSystemDetectCache()
+
+	if got := lookPathOutsideDir("sqlcmd.exe", filepath.Join(root, "bin")); strings.EqualFold(filepath.Dir(got), mssqlDir) {
+		t.Fatalf("lookPathOutsideDir should skip DariusDB bin dir, got %s", got)
+	}
+
+	insts := ListInstallations(p, "mssql")
+	countInDir := 0
+	for _, in := range insts {
+		if strings.EqualFold(filepath.Clean(in.Dir), filepath.Clean(mssqlDir)) {
+			countInDir++
+		}
+	}
+	if countInDir != 1 {
+		t.Fatalf("expected exactly 1 installation for %s (no duplicate mssql-2025 entry), got %d: %+v", mssqlDir, countInDir, insts)
+	}
+}
+
+func TestVCRedistChecksAndErrorAnnotation(t *testing.T) {
+	if !isDLLNotFoundErr(errors.New("exit status 0xc0000135")) {
+		t.Fatal("expected 0xc0000135 to be classified as DLL not found")
+	}
+	ann := annotateWindowsExecError("MySQL", errors.New("exit status 0xc0000135"))
+	if !strings.Contains(ann.Error(), "vc_redist.x64.exe") {
+		t.Fatalf("expected vc_redist hint in annotated error, got: %v", ann)
+	}
+
+	tmpBin := t.TempDir()
+	if dirHasVCRuntime(tmpBin) {
+		t.Fatal("expected empty dir to report missing VC++ runtime DLLs")
+	}
+	for _, dll := range vcRedistRequiredDLLs {
+		if err := os.WriteFile(filepath.Join(tmpBin, dll), []byte("stub"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !dirHasVCRuntime(tmpBin) {
+		t.Fatal("expected populated dir to report VC++ runtime DLLs present")
+	}
+
+	// Simulate missing System32 VC++ runtime and verify MySQL fails fast with helpful error
+	vcRedistCheckMu.Lock()
+	origCheck := hasVCRedistX64Fn
+	hasVCRedistX64Fn = func() bool { return false }
+	vcRedistCheckMu.Unlock()
+	t.Cleanup(func() {
+		vcRedistCheckMu.Lock()
+		hasVCRedistX64Fn = origCheck
+		vcRedistCheckMu.Unlock()
+	})
+
+	root := t.TempDir()
+	p := NewPaths(root)
+	_ = p.Ensure()
+	myDir := filepath.Join(p.EngineBin("mysql"), "mysql-26.10.0")
+	_ = os.MkdirAll(filepath.Join(myDir, "bin"), 0o755)
+	_ = os.WriteFile(filepath.Join(myDir, "bin", "mysqld.exe"), []byte("stub"), 0o644)
+
+	myEng := &mysqlFamily{id: "mysql", name: "MySQL"}
+	_, startErr := myEng.Start(p, Installation{Engine: "mysql", Name: "mysql-26.10.0", Version: "26.10.0", Dir: myDir}, EngineSettings{Port: 3306})
+	if startErr == nil || !strings.Contains(startErr.Error(), "0xc0000135") || !strings.Contains(startErr.Error(), "vc_redist.x64.exe") {
+		t.Fatalf("expected actionable VC++ error on MySQL Start without runtime, got: %v", startErr)
+	}
+}
+
+
 
 
 

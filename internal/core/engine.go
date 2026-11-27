@@ -131,7 +131,20 @@ func ListInstallations(p *Paths, engineID string) []Installation {
 	// For MS SQL Server, also detect Windows-installed SQL Server LocalDB / sqlcmd tools
 	if engineID == "mssql" {
 		if sysInst, ok := detectSystemMSSQL(); ok && !isVersionHidden(p, engineID, sysInst.Name) {
-			out = append(out, sysInst)
+			cleanBin := strings.ToLower(filepath.Clean(p.Bin)) + string(filepath.Separator)
+			cleanSys := strings.ToLower(filepath.Clean(sysInst.Dir))
+			dup := strings.HasPrefix(cleanSys+string(filepath.Separator), cleanBin)
+			if !dup {
+				for _, existing := range out {
+					if strings.EqualFold(filepath.Clean(existing.Dir), filepath.Clean(sysInst.Dir)) {
+						dup = true
+						break
+					}
+				}
+			}
+			if !dup {
+				out = append(out, sysInst)
+			}
 		}
 	}
 	// For Apache Web Server, also include the built-in zero-download portable server
@@ -237,7 +250,8 @@ func runQuiet(ctx context.Context, logf func(string), name string, args ...strin
 		if len(tail) > 600 {
 			tail = "..." + tail[len(tail)-600:]
 		}
-		return fmt.Errorf("%s failed: %v\n%s", filepath.Base(name), err, tail)
+		annotated := annotateWindowsExecError(filepath.Base(name), err)
+		return fmt.Errorf("%s failed: %v\n%s", filepath.Base(name), annotated, tail)
 	}
 	return nil
 }

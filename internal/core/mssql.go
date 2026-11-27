@@ -273,6 +273,41 @@ func findSqlLocalDB() string {
 	return found
 }
 
+func lookPathOutsideDir(exeName string, skipRoots ...string) string {
+	pathEnv := os.Getenv("PATH")
+	if pathEnv == "" {
+		return ""
+	}
+	normSkips := make([]string, 0, len(skipRoots))
+	for _, r := range skipRoots {
+		if strings.TrimSpace(r) != "" {
+			normSkips = append(normSkips, strings.ToLower(filepath.Clean(r))+string(filepath.Separator))
+		}
+	}
+	for _, dir := range filepath.SplitList(pathEnv) {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		cleanDir := strings.ToLower(filepath.Clean(dir)) + string(filepath.Separator)
+		skip := false
+		for _, s := range normSkips {
+			if strings.HasPrefix(cleanDir, s) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+		cand := filepath.Join(dir, exeName)
+		if fileExists(cand) {
+			return cand
+		}
+	}
+	return ""
+}
+
 func findSystemSqlcmd() string {
 	sysSqlcmdMu.Lock()
 	if !sysSqlcmdChecked.IsZero() && time.Since(sysSqlcmdChecked) < sysDetectCacheTTL {
@@ -283,7 +318,11 @@ func findSystemSqlcmd() string {
 	sysSqlcmdMu.Unlock()
 
 	found := ""
-	if p, err := exec.LookPath("sqlcmd.exe"); err == nil {
+	var skipRoots []string
+	if root := ResolveRoot(); root != "" {
+		skipRoots = append(skipRoots, filepath.Join(root, "bin"))
+	}
+	if p := lookPathOutsideDir("sqlcmd.exe", skipRoots...); p != "" {
 		found = p
 	} else {
 		for _, ver := range []string{"180", "170", "160", "150"} {

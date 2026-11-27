@@ -409,7 +409,8 @@ func (m *Manager) Start(id string) error {
 			if tail != "" {
 				tail = "\n\n" + tail
 			}
-			return fail(fmt.Errorf("%s failed to start: %v%s%s", eng.Name(), err, tail, m.logTail(id)))
+			annotated := annotateWindowsExecError(eng.Name(), err)
+			return fail(fmt.Errorf("%s failed to start: %v%s%s", eng.Name(), annotated, tail, m.logTail(id)))
 		}
 		if m.isStopRequested(id) {
 			if p2 := eng.PidOf(m.p, inst); p2 > 0 {
@@ -466,7 +467,7 @@ func (m *Manager) Start(id string) error {
 				} else {
 					msg := "process exited unexpectedly"
 					if werr != nil {
-						msg += " (" + werr.Error() + ")"
+						msg += " (" + annotateWindowsExecError(eng.Name(), werr).Error() + ")"
 					}
 					tail := m.logTail(id)
 					if id == "mysql" && strings.Contains(tail, "MY-012960") {
@@ -656,8 +657,46 @@ func (m *Manager) StartAll() error {
 		if _, ok := FindInstallation(m.p, id, es.Version); !ok {
 			return nil
 		}
+		// Avoid parallel port collision when both MariaDB and MySQL are enabled on the same port (e.g. 3306).
+		if id == "mysql" && !m.IsRunning("mysql") {
+			maria := m.st.Engine("mariadb")
+			if maria.Enabled && maria.Port == es.Port {
+				if _, hasMaria := FindInstallation(m.p, "mariadb", maria.Version); hasMaria {
+					m.logf("mysql")(fmt.Sprintf("Skipping MySQL in Start All because MariaDB is also enabled on port %d (change MySQL port to 3307 in Settings to run both)", es.Port))
+					return nil
+				}
+			}
+		}
 		return m.Start(id)
 	})
+}
+
+// ClearErrorsForPrereq clears StateError on engines unblocked by installing prereqID.
+func (m *Manager) ClearErrorsForPrereq(prereqID string) {
+	var targets []string
+	switch strings.ToLower(strings.TrimSpace(prereqID)) {
+	case PrereqIDVCRedistX64:
+		targets = []string{"mysql", "postgresql", "php", "apache"}
+	case PrereqIDMSSQLLocalDB:
+		targets = []string{"mssql"}
+	default:
+		return
+	}
+	cleared := false
+	m.mu.Lock()
+	for _, id := range targets {
+		if s := m.svc[id]; s != nil && s.state == StateError {
+			s.state = StateStopped
+			s.message = ""
+			s.pid = 0
+			s.cmd = nil
+			cleared = true
+		}
+	}
+	m.mu.Unlock()
+	if cleared {
+		m.changed()
+	}
 }
 
 func (m *Manager) StopAll() error {

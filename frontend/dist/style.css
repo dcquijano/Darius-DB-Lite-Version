@@ -841,6 +841,12 @@ code, pre, textarea.code-area { font-family: var(--font-mono); }
   color: var(--text);
 }
 
+.svc-err-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .svc-err {
   background: var(--red-soft);
   border: 1px solid rgba(239, 68, 68, 0.35);
@@ -853,6 +859,65 @@ code, pre, textarea.code-area { font-family: var(--font-mono); }
   max-height: 95px;
   overflow-y: auto;
   user-select: text;
+}
+
+.svc-err-actions,
+.prereq-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.prereq-banner {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 15px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.11), var(--bg-card));
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  box-shadow: var(--shadow-sm);
+}
+.prereq-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.prereq-item + .prereq-item {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.prereq-info {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.prereq-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.prereq-detail {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.prereq-card {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+.prereq-card.missing {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), var(--bg-card));
 }
 
 .svc-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

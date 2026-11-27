@@ -186,6 +186,35 @@ if ($AutoStart) {
     Set-ItemProperty -Path $runKey -Name "DariusDB" -Value "`"$installedMain`" --minimized"
 }
 
+# Check Visual C++ 2015-2026 Redistributable (x64) required by MySQL, PostgreSQL, PHP, and Apache
+$vcReg = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" -ErrorAction SilentlyContinue
+$sys32 = Join-Path $env:SystemRoot "System32"
+$vcMissing = @("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_atomic_wait.dll") |
+    Where-Object { -not (Test-Path (Join-Path $sys32 $_)) }
+if (-not ($vcReg -and $vcReg.Installed -eq 1 -and $vcMissing.Count -eq 0)) {
+    Write-Host ""
+    Write-Host "NOTE: Microsoft Visual C++ 2015-2026 Redistributable (x64) is not installed." -ForegroundColor Yellow
+    Write-Host "      MySQL, PostgreSQL, PHP, and Apache require it (otherwise fail with 0xc0000135)." -ForegroundColor Yellow
+    Write-Host "      Official link: https://aka.ms/vc14/vc_redist.x64.exe" -ForegroundColor Cyan
+    if (-not $Silent) {
+        $vcAns = Read-Host "Download & install VC++ 2015-2026 Redistributable (x64) now? [Y/n]"
+        if ($vcAns -notmatch '^[Nn]') {
+            $vcTmp = Join-Path $env:TEMP "vc_redist.x64.exe"
+            try {
+                Write-Host "Downloading vc_redist.x64.exe..." -ForegroundColor Cyan
+                Invoke-WebRequest -Uri "https://aka.ms/vc14/vc_redist.x64.exe" -OutFile $vcTmp -UseBasicParsing
+                Write-Host "Running VC++ Redistributable installer..." -ForegroundColor Cyan
+                Start-Process -FilePath $vcTmp -ArgumentList "/install", "/passive", "/norestart" -Verb RunAs -Wait
+            } catch {
+                Write-Host "Could not auto-install VC++ Runtime: $_" -ForegroundColor Yellow
+                Write-Host "Download manually from: https://aka.ms/vc14/vc_redist.x64.exe" -ForegroundColor Yellow
+            } finally {
+                Remove-Item -Force $vcTmp -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
 Write-Host ""
 Write-Host "Installation complete!" -ForegroundColor Green
 Write-Host "  Folder:     $InstallDir"

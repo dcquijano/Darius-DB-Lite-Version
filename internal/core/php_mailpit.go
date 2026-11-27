@@ -426,6 +426,9 @@ func (p *phpEngine) Start(paths *Paths, inst Installation, s EngineSettings) (*S
 	if !fileExists(phpExe) {
 		return nil, errors.New("php.exe not found in " + inst.Dir)
 	}
+	if !HasVCRedistX64() && !dirHasVCRuntime(filepath.Dir(phpExe)) {
+		return nil, missingVCRedistError(p.Name())
+	}
 	_, _ = SyncManagedPHPIni(paths)
 	_ = os.MkdirAll(filepath.Dir(p.RouterFile(paths)), 0o755)
 	_ = os.WriteFile(p.RouterFile(paths), []byte(strings.ReplaceAll(defaultPhpRouter, "\n", "\r\n")), 0o644)
@@ -565,7 +568,7 @@ func (m *mailpitEngine) Start(p *Paths, inst Installation, s EngineSettings) (*S
 		cmd := exec.Command(mpExe,
 			"--listen", fmt.Sprintf("127.0.0.1:%d", s.Port),
 			"--smtp", "127.0.0.1:1025",
-			"--db-file", dbFile,
+			"--database", dbFile,
 		)
 		cmd.Dir = inst.Dir
 		return &StartSpec{Cmd: cmd}, nil

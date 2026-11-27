@@ -18,6 +18,7 @@
     cloudProfiles: [],
     schedules: [],
     winTask: { registered: false, detail: "" },
+    prereqs: [],
     downloads: {}, // key "engine@version" -> Progress
     dbEngine: "mariadb",
     sqlDb: "",
@@ -111,6 +112,119 @@
       i++;
     }
     return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+  }
+
+  const PREREQ_META = {
+    vcredist_x64: {
+      id: "vcredist_x64",
+      name: "Microsoft Visual C++ 2015–2026 Redistributable (x64)",
+      downloadUrl: "https://aka.ms/vc14/vc_redist.x64.exe",
+      infoUrl: "https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist",
+      autoLabel: "⚡ Auto-Install VC++ x64",
+      dlLabel: "🔗 Download vc_redist.x64.exe ↗",
+      infoLabel: "📖 Microsoft VC++ Page ↗",
+      engines: ["mysql", "postgresql", "php", "apache"],
+    },
+    mssql_localdb: {
+      id: "mssql_localdb",
+      name: "Microsoft SQL Server Express LocalDB",
+      downloadUrl: "https://download.microsoft.com/download/3/8/d/38de7036-2433-4207-8eae-06e247e17b25/SqlLocalDB.msi",
+      infoUrl: "https://www.microsoft.com/en-us/sql-server/sql-server-downloads",
+      autoLabel: "⚡ Auto-Install SQL LocalDB",
+      dlLabel: "🔗 Download SqlLocalDB.msi ↗",
+      infoLabel: "📖 MS SQL Downloads ↗",
+      engines: ["mssql"],
+    },
+  };
+
+  function openExternalUrl(url) {
+    if (!url) return;
+    if (rt()?.BrowserOpenURL) rt().BrowserOpenURL(url);
+    else window.open(url, "_blank");
+  }
+
+  function getPrereq(id) {
+    const meta = PREREQ_META[id] || { id, name: id, downloadUrl: "", infoUrl: "", engines: [] };
+    const live = (state.prereqs || []).find((p) => p.id === id);
+    return live ? { ...meta, ...live } : { ...meta, installed: true };
+  }
+
+  function detectPrereqFromMessage(msg) {
+    const text = String(msg || "");
+    if (/0xc0000135|-1073741515|vcruntime|msvcp140|vc_redist|visual c\+\+/i.test(text)) {
+      return "vcredist_x64";
+    }
+    if (/sqllocaldb/i.test(text)) {
+      return "mssql_localdb";
+    }
+    return "";
+  }
+
+  function isPrereqInstalling(id) {
+    const d = state.downloads[`prereq@${id}`];
+    return !!(d && (d.phase === "downloading" || d.phase === "extracting" || d.phase === "installing"));
+  }
+
+  function prereqActionsHtml(id) {
+    const p = getPrereq(id);
+    const meta = PREREQ_META[id] || p;
+    const busy = isPrereqInstalling(id);
+    return `
+      <button type="button" class="btn xs primary" data-install-prereq="${esc(id)}" ${busy ? "disabled" : ""} title="Download and run official Microsoft installer automatically">
+        ${busy ? "Installing..." : esc(meta.autoLabel || "⚡ Auto-Install")}
+      </button>
+      ${p.downloadUrl ? `<button type="button" class="btn xs accent" data-prereq-url="${esc(p.downloadUrl)}" title="Open direct Microsoft installer download in your browser">${esc(meta.dlLabel || "🔗 Direct Link ↗")}</button>` : ""}
+      ${p.infoUrl ? `<button type="button" class="btn xs ghost" data-prereq-url="${esc(p.infoUrl)}" title="Open official Microsoft page">${esc(meta.infoLabel || "📖 Official Page ↗")}</button>` : ""}`;
+  }
+
+  function renderPrereqBannerForDashboard() {
+    if (!Array.isArray(state.prereqs) || !state.prereqs.length) return "";
+    const installedEngines = new Set(
+      (state.statuses || []).filter((s) => s.installations && s.installations.length > 0).map((s) => s.engine)
+    );
+    const missingItems = state.prereqs.filter((p) => {
+      if (p.installed) return false;
+      return (p.engines || []).some((eng) => installedEngines.has(eng));
+    });
+    if (!missingItems.length) return "";
+    return `
+      <div class="prereq-banner">
+        ${missingItems
+          .map(
+            (p) => `
+          <div class="prereq-item">
+            <div class="prereq-info">
+              <div class="prereq-title">
+                <span class="pill warn">Missing Runtime</span>
+                <span>${esc(p.name)}</span>
+              </div>
+              <div class="prereq-detail">${esc(p.detail)}</div>
+            </div>
+            <div class="prereq-actions-row">${prereqActionsHtml(p.id)}</div>
+          </div>`
+          )
+          .join("")}
+      </div>`;
+  }
+
+  async function triggerPrereqInstall(id) {
+    if (!id || !api().InstallPrerequisite) return;
+    try {
+      await api().InstallPrerequisite(id);
+      state.downloads[`prereq@${id}`] = {
+        engine: "prereq",
+        version: id,
+        phase: "downloading",
+        received: 0,
+        total: 0,
+      };
+      renderActiveDownloads();
+      if (state.tab === "dashboard") renderDashboard();
+      if (state.tab === "versions") renderVersions();
+      toast(`Downloading ${getPrereq(id).name}...`, "info");
+    } catch (err) {
+      toast(errMsg(err), "err");
+    }
   }
 
   // Resolve the effective color scheme (dark | light) into data-scheme so the v0.1.6
@@ -2542,6 +2656,17 @@
           }
         }
 
+        const sharedMySQLPort =
+          s.engine === "mysql" &&
+          installed &&
+          mariaSvc &&
+          mariaSvc.installations &&
+          mariaSvc.installations.length > 0 &&
+          mariaSvc.port === s.port &&
+          isAutoEng("mysql") &&
+          isAutoEng("mariadb");
+        const errPrereq = s.message ? detectPrereqFromMessage(s.message) : "";
+
         return `
         <div class="svc-row ${s.state}">
           <div class="svc-row-left">
@@ -2552,6 +2677,7 @@
               ${phpIntegrationHtml}
               ${titleIconBtn}
               ${s.engine === "mssql" && s.serverName ? `<span class="meta-tag" title="MS SQL Server Name (Windows PC User)">Server: ${esc(s.serverName)}</span>` : ""}
+              ${sharedMySQLPort ? `<span class="pill warn" title="MariaDB is also set to port ${s.port}. Change MySQL port to 3307 in Settings to run both simultaneously.">Shared :${s.port}</span>` : ""}
               ${s.portBusy && !running ? `<span class="pill warn" title="Port ${s.port} is in use">Port busy</span>` : ""}
             </div>
           </div>
@@ -2561,7 +2687,7 @@
           <div class="svc-row-right">
             ${rightActions}
           </div>
-          ${s.message ? `<div class="svc-err" style="grid-column:1 / -1;margin-top:4px">${esc(s.message)}</div>` : ""}
+          ${s.message ? `<div class="svc-err-wrap" style="grid-column:1 / -1;margin-top:4px"><div class="svc-err">${esc(s.message)}</div>${errPrereq ? `<div class="svc-err-actions">${prereqActionsHtml(errPrereq)}</div>` : ""}</div>` : ""}
         </div>`;
       })
       .join("");
@@ -2615,12 +2741,12 @@
         </div>
       </div>`;
 
-    $("serviceGrid").innerHTML = `${autoRunBarHtml}<div class="svc-list-panel">${rowsHtml}</div>${stackGuideHtml}`;
+    $("serviceGrid").innerHTML = `${autoRunBarHtml}${renderPrereqBannerForDashboard()}<div class="svc-list-panel">${rowsHtml}</div>${stackGuideHtml}`;
   }
 
   function renderActiveDownloads() {
     const active = Object.values(state.downloads).filter(
-      (d) => d.phase === "downloading" || d.phase === "extracting"
+      (d) => d.phase === "downloading" || d.phase === "extracting" || d.phase === "installing"
     );
     const dlBadge = $("dlBadge");
     dlBadge.textContent = active.length;
@@ -2630,18 +2756,28 @@
     strip.hidden = active.length === 0;
     strip.innerHTML = active
       .map((d) => {
-        const pct = d.total > 0 ? Math.min(100, Math.round((d.received / d.total) * 100)) : 0;
+        const isPrereq = d.engine === "prereq";
+        const labelTitle = isPrereq
+          ? (PREREQ_META[d.version]?.name || d.version)
+          : `${d.engine} ${d.version}`;
+        const pct = d.phase === "installing"
+          ? 100
+          : d.total > 0
+            ? Math.min(100, Math.round((d.received / d.total) * 100))
+            : 0;
         const detail =
           d.phase === "downloading"
             ? d.total > 0
               ? `Downloading ${formatBytes(d.received)} / ${formatBytes(d.total)} (${pct}%)`
               : `Downloading ${formatBytes(d.received)}...`
-            : `Extracting ${pct}%`;
+            : d.phase === "installing"
+              ? (d.message || "Installing (approve Windows UAC prompt if shown)...")
+              : `Extracting ${pct}%`;
         return `
         <div class="progress-card">
           <div class="progress-top">
-            <span><strong>${esc(d.engine)} ${esc(d.version)}</strong> — ${detail}</span>
-            <button class="btn xs danger-ghost" data-cancel-dl="${esc(d.engine)}|${esc(d.version)}">Cancel</button>
+            <span><strong>${esc(labelTitle)}</strong> — ${esc(detail)}</span>
+            ${isPrereq ? "" : `<button class="btn xs danger-ghost" data-cancel-dl="${esc(d.engine)}|${esc(d.version)}">Cancel</button>`}
           </div>
           <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
         </div>`;
@@ -4134,7 +4270,45 @@
     return 0;
   }
 
+  function renderVersionsPrereq() {
+    const box = $("versionsPrereqBox");
+    if (!box) return;
+    const eng = state.verEngine;
+    let prereqId = "";
+    if (eng === "mysql" || eng === "postgresql" || eng === "php" || eng === "apache") {
+      prereqId = "vcredist_x64";
+    } else if (eng === "mssql") {
+      prereqId = "mssql_localdb";
+    }
+    if (!prereqId) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    const p = getPrereq(prereqId);
+    const missing = !p.installed;
+    const extraNote = eng === "mssql"
+      ? `<div class="prereq-detail" style="margin-top:4px">Note: The portable <code>go-sqlcmd</code> build in Available Portable Builds provides the <code>sqlcmd.exe</code> client. Local MS SQL Server toggling requires <strong>SQL Server Express LocalDB</strong> (or connect to a running TCP SQL Server on port 1433).</div>`
+      : "";
+    box.hidden = false;
+    box.innerHTML = `
+      <div class="prereq-card ${missing ? "missing" : ""}">
+        <div class="prereq-item">
+          <div class="prereq-info">
+            <div class="prereq-title">
+              <span class="pill ${missing ? "warn" : "running"}">${missing ? "Required Runtime Missing" : "Runtime Ready"}</span>
+              <span>${esc(p.name)}</span>
+            </div>
+            <div class="prereq-detail">${esc(p.detail || "")}</div>
+            ${extraNote}
+          </div>
+          ${missing ? `<div class="prereq-actions-row">${prereqActionsHtml(prereqId)}</div>` : ""}
+        </div>
+      </div>`;
+  }
+
   function renderVersions() {
+    renderVersionsPrereq();
     const s = getStatus(state.verEngine);
     const insts = s ? s.installations || [] : [];
     const instSet = new Set(insts.map((i) => i.version));
@@ -5000,6 +5174,11 @@
       const deepSystem = repairModalMode === "all";
       const btn = $("btnRunRepair");
       const box = $("repairReportBox");
+      const prereqBox = $("repairPrereqActions");
+      if (prereqBox) {
+        prereqBox.hidden = true;
+        prereqBox.innerHTML = "";
+      }
       btn.disabled = true;
       btn.textContent = repairModalMode === "all" ? "Repairing All..." : "Repairing...";
       box.hidden = false;
@@ -5027,16 +5206,29 @@
           })
           .join("");
         box.innerHTML = `<div style="font-weight:600;margin-bottom:8px;color:var(--accent)">${esc(rep.summary)}</div>${rows}`;
-        const [statuses, settings, cloudProfiles, schedules] = await Promise.all([
+
+        const neededPrereqs = new Set();
+        allItems.forEach((it) => {
+          const hit = detectPrereqFromMessage(it.action);
+          if (hit && it.status === "warn") neededPrereqs.add(hit);
+        });
+        if (prereqBox && neededPrereqs.size > 0) {
+          prereqBox.innerHTML = Array.from(neededPrereqs).map((id) => prereqActionsHtml(id)).join("");
+          prereqBox.hidden = false;
+        }
+
+        const [statuses, settings, cloudProfiles, schedules, prereqs] = await Promise.all([
           api().Status().catch(() => state.statuses),
           api().GetSettings().catch(() => state.settings),
           api().CloudProfiles().catch(() => state.cloudProfiles),
           api().Schedules().catch(() => state.schedules),
+          api().CheckPrerequisites ? api().CheckPrerequisites().catch(() => state.prereqs) : Promise.resolve(state.prereqs),
         ]);
         state.statuses = statuses || [];
         state.settings = settings || state.settings;
         state.cloudProfiles = cloudProfiles || [];
         state.schedules = schedules || [];
+        state.prereqs = prereqs || state.prereqs;
         updateCloudBadge();
         renderDashboard();
         if (state.tab === "settings") loadSettingsForm();
@@ -5098,6 +5290,10 @@
       $("btnRunRepair").textContent = getRepairButtonLabel();
       $("repairReportBox").hidden = !autoRun;
       if (!autoRun) $("repairReportBox").innerHTML = "";
+      if ($("repairPrereqActions")) {
+        $("repairPrereqActions").hidden = true;
+        $("repairPrereqActions").innerHTML = "";
+      }
       $("modalRepair").hidden = false;
       if (autoRun) runRepairAction();
     };
@@ -6590,6 +6786,20 @@ try {
         if (e.key === "Escape") closeTopModal();
       });
     }
+
+    document.addEventListener("click", (e) => {
+      const instBtn = e.target.closest("[data-install-prereq]");
+      if (instBtn && !instBtn.disabled) {
+        triggerPrereqInstall(instBtn.dataset.installPrereq);
+        return;
+      }
+      const linkBtn = e.target.closest("[data-prereq-url]");
+      if (linkBtn) {
+        e.preventDefault();
+        openExternalUrl(linkBtn.dataset.prereqUrl);
+        toast("Opened official Microsoft download link in your browser", "info");
+      }
+    });
   }
 
   // ---- Init ----
@@ -6632,20 +6842,24 @@ try {
 
     renderDashboard();
 
-    // Load secondary metadata (catalog, cloud profiles, schedules, Windows Task Scheduler status)
+    // Load secondary metadata (catalog, cloud profiles, schedules, Windows Task Scheduler status, prerequisites)
     // in the background right after Dashboard paints so first render isn't blocked by schtasks.exe.
     Promise.all([
       api().Catalog().catch(() => ({})),
       api().CloudProfiles().catch(() => []),
       api().Schedules().catch(() => []),
       api().WindowsTaskStatus().catch(() => ({ registered: false, detail: "" })),
-    ]).then(([catalog, cloudProfiles, schedules, winTask]) => {
+      api().CheckPrerequisites ? api().CheckPrerequisites().catch(() => []) : Promise.resolve([]),
+    ]).then(([catalog, cloudProfiles, schedules, winTask, prereqs]) => {
       state.catalog = catalog || {};
       state.cloudProfiles = cloudProfiles || [];
       state.schedules = schedules || [];
       state.winTask = winTask || { registered: false, detail: "" };
+      state.prereqs = prereqs || [];
       updateCloudBadge();
-      if (state.tab === "cloud") {
+      if (state.tab === "dashboard") {
+        renderDashboard();
+      } else if (state.tab === "cloud") {
         renderCloudView();
       } else if (state.tab === "versions") {
         renderVerEngineTabs();
@@ -6694,20 +6908,43 @@ try {
 
     onEvent("download", (p) => {
       const k = `${p.engine}@${p.version}`;
+      const label = p.engine === "prereq" ? (PREREQ_META[p.version]?.name || p.version) : `${p.engine} ${p.version}`;
       if (p.phase === "done") {
         delete state.downloads[k];
-        toast(p.message || `${p.engine}-${p.version} installed`, "ok");
+        toast(p.message || `${label} installed`, "ok");
       } else if (p.phase === "error") {
         delete state.downloads[k];
-        toast(`${p.engine} ${p.version}: ${p.message}`, "err");
+        toast(`${label}: ${p.message}`, "err");
       } else if (p.phase === "cancelled") {
         delete state.downloads[k];
-        toast(`Cancelled ${p.engine} ${p.version}`, "info");
+        toast(`Cancelled ${label}`, "info");
       } else {
         state.downloads[k] = p;
       }
       renderActiveDownloads();
       if (state.tab === "versions") renderVersions();
+      if (p.engine === "prereq" && (p.phase === "done" || p.phase === "error" || p.phase === "cancelled")) {
+        if (state.tab === "dashboard") renderDashboard();
+        if ($("modalRepair") && !$("modalRepair").hidden && $("repairPrereqActions") && !$("repairPrereqActions").hidden) {
+          const ids = ["vcredist_x64", "mssql_localdb"].filter((id) => $("repairPrereqActions").innerHTML.includes(id));
+          $("repairPrereqActions").innerHTML = ids.filter((id) => !getPrereq(id).installed).map((id) => prereqActionsHtml(id)).join("");
+          $("repairPrereqActions").hidden = !$("repairPrereqActions").innerHTML;
+        }
+      }
+    });
+
+    onEvent("prereqs-updated", (list) => {
+      state.prereqs = list || [];
+      if (state.tab === "dashboard") renderDashboard();
+      else state.dashDirty = true;
+      if (state.tab === "versions") renderVersions();
+      if ($("modalRepair") && !$("modalRepair").hidden && $("repairPrereqActions")) {
+        const missingNeeded = state.prereqs.filter((p) => !p.installed && $("repairPrereqActions").innerHTML.includes(p.id));
+        if (!missingNeeded.length) {
+          $("repairPrereqActions").hidden = true;
+          $("repairPrereqActions").innerHTML = "";
+        }
+      }
     });
 
     onEvent("navigate", (tab) => {

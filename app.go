@@ -473,6 +473,11 @@ func (a *App) OpenFolder(kind string) error {
 	}
 }
 
+// OpenPath opens Windows Explorer pointing at a file (selected) or folder.
+func (a *App) OpenPath(path string) error {
+	return core.RevealPath(path)
+}
+
 func (a *App) OpenTerminal() error {
 	s := a.settings.Get()
 	env := map[string]string{

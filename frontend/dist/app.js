@@ -57,12 +57,40 @@
 
   const errMsg = (e) => (typeof e === "string" ? e : e?.message || String(e));
 
-  function toast(msg, kind = "info") {
+  function toast(msg, kind = "info", opts = null) {
     const el = document.createElement("div");
     el.className = `toast ${kind}`;
-    el.textContent = msg;
+    const openPath = opts?.openPath || "";
+    if (openPath) {
+      el.classList.add("toast-clickable");
+      el.title = `Click to open folder: ${openPath}`;
+      const textEl = document.createElement("div");
+      textEl.textContent = msg;
+      const hintEl = document.createElement("div");
+      hintEl.className = "toast-action";
+      hintEl.textContent = "📁 Click to open folder";
+      el.appendChild(textEl);
+      el.appendChild(hintEl);
+      el.onclick = () => {
+        api().OpenPath(openPath).catch((e) => toast(errMsg(e), "err"));
+      };
+    } else {
+      el.textContent = msg;
+    }
     $("toasts").appendChild(el);
-    setTimeout(() => el.remove(), kind === "err" ? 5500 : 3200);
+    const ms = opts?.duration || (kind === "err" ? 5500 : openPath ? 6500 : 3200);
+    let timer = setTimeout(() => el.remove(), ms);
+    if (openPath) {
+      el.addEventListener("mouseenter", () => clearTimeout(timer));
+      el.addEventListener("mouseleave", () => {
+        timer = setTimeout(() => el.remove(), 2200);
+      });
+    }
+  }
+
+  function toastSaved(prefix, outPath) {
+    if (!outPath) return;
+    toast(`${prefix}: ${outPath}`, "ok", { openPath: outPath });
   }
 
   async function copyText(text) {
@@ -1704,7 +1732,7 @@
           const dataUrl = canvas.toDataURL("image/png");
           if (api()?.SaveDiagramFileDialog) {
             const p = await api().SaveDiagramFileDialog(`${dbSlug}-diagram.png`, "png", dataUrl);
-            if (p) toast(`Saved diagram PNG: ${p}`, "ok");
+            toastSaved("Saved diagram PNG", p);
           } else {
             downloadDataUrlFallback(`${dbSlug}-diagram.png`, pngBlob, true);
           }
@@ -1737,7 +1765,7 @@
 
       if (api()?.SaveDiagramFileDialog) {
         const savedPath = await api().SaveDiagramFileDialog(filename, format, payloadB64);
-        if (savedPath) toast(`Saved diagram: ${savedPath}`, "ok");
+        toastSaved("Saved diagram", savedPath);
       } else if (fallbackBlob) {
         downloadDataUrlFallback(filename, fallbackBlob, true);
         toast(`Exported ${filename}`, "ok");
@@ -5442,9 +5470,7 @@ try {
         toast(`Exporting ${tables.length ? tables.join(", ") : state.sqlDb} (.${fmt})...`, "info");
         closeExport();
         const outPath = await api().ExportDatabaseDialog(state.dbEngine, state.sqlDb, tables, fmt, incSchema, incData);
-        if (outPath) {
-          toast(`Export saved: ${outPath}`, "ok");
-        }
+        toastSaved("Export saved", outPath);
       } catch (err) {
         toast(errMsg(err), "err");
       } finally {
@@ -5494,9 +5520,7 @@ try {
       try {
         toast(`Creating .${fmt} backup of "${state.sqlDb}"...`, "info");
         const outPath = await api().BackupDatabaseDialog(state.dbEngine, state.sqlDb, fmt);
-        if (outPath) {
-          toast(`Backup saved: ${outPath}`, "ok");
-        }
+        toastSaved("Backup saved", outPath);
       } catch (e) {
         toast(errMsg(e), "err");
       }
@@ -5509,7 +5533,7 @@ try {
       try {
         toast(`Creating full .zip backup of ${dbName} (SQL dump + table CSVs)...`, "info");
         const outPath = await api().ExportDatabaseDialog(targetEngine, dbName, [], "zip", true, true);
-        if (outPath) toast(`Full .zip backup saved: ${outPath}`, "ok");
+        toastSaved("Full .zip backup saved", outPath);
       } catch (e) {
         toast(errMsg(e), "err");
       }
@@ -9035,7 +9059,7 @@ try {
         try {
           toast(`Creating full .zip backup of ${db}...`, "info");
           const outPath = await api().ExportDatabaseDialog("cloud:" + c.id, db, [], "zip", true, true);
-          if (outPath) toast(`Full .zip backup saved: ${outPath}`, "ok");
+          toastSaved("Full .zip backup saved", outPath);
         } catch (err) {
           toast(errMsg(err), "err");
         } finally {
@@ -9079,7 +9103,7 @@ try {
           return;
         }
         api().ExportDatabaseDialog(state.dbEngine, db, [], "zip", true, true).then((outPath) => {
-          if (outPath) toast(`Full .zip backup saved: ${outPath}`, "ok");
+          toastSaved("Full .zip backup saved", outPath);
         }).catch((err) => toast(errMsg(err), "err"));
       };
     }

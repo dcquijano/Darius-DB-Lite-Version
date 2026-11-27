@@ -378,6 +378,33 @@ func OpenFolder(path string) error {
 	return exec.Command("explorer.exe", path).Start()
 }
 
+// RevealPath opens Windows Explorer selecting path if it is a file,
+// or opens the containing folder when path is a directory or missing.
+func RevealPath(path string) error {
+	clean := filepath.Clean(strings.TrimSpace(path))
+	if clean == "" || clean == "." {
+		return fmt.Errorf("empty path")
+	}
+	if strings.ContainsAny(clean, `"`) {
+		return fmt.Errorf("invalid path")
+	}
+	if info, err := os.Stat(clean); err == nil {
+		if info.IsDir() {
+			return exec.Command("explorer.exe", clean).Start()
+		}
+		cmd := exec.Command("explorer.exe")
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			CmdLine: fmt.Sprintf(`explorer.exe /select,"%s"`, clean),
+		}
+		return cmd.Start()
+	}
+	parent := filepath.Dir(clean)
+	if info, err := os.Stat(parent); err == nil && info.IsDir() {
+		return exec.Command("explorer.exe", parent).Start()
+	}
+	return fmt.Errorf("path not found: %s", clean)
+}
+
 func OpenInNotepad(path string) error {
 	return exec.Command("notepad.exe", path).Start()
 }

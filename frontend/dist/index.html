@@ -1,10 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-scheme="dark" data-density="comfortable">
 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Darius DB (Lite Version 0.1.5)</title>
+  <script>
+    // Pre-resolve OS color scheme before first paint (app.js refines it once settings load)
+    try {
+      if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
+        document.documentElement.setAttribute("data-scheme", "light");
+      }
+    } catch (e) { }
+  </script>
+  <title>Darius DB (Lite Version 0.1.6)</title>
   <link rel="icon" type="image/svg+xml"
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%230f2942'/%3E%3Cstop offset='1' stop-color='%230d9488'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cellipse cx='16' cy='10' rx='8' ry='3' fill='%23ffffff'/%3E%3Cpath d='M8 12v4.5c0 1.65 3.58 3 8 3s8-1.35 8-3V12c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23d7f6f2'/%3E%3Cpath d='M8 18.2v4.3c0 1.65 3.58 3 8 3s8-1.35 8-3v-4.3c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23bcebe5'/%3E%3Ccircle cx='24.8' cy='24.8' r='2.7' fill='%2334d399' stroke='%230f172a' stroke-width='1.4'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="style.css" />
@@ -31,7 +39,7 @@
         </div>
         <div class="brand-text">
           <div class="brand-name">Darius DB</div>
-          <div class="brand-ver" id="appVersion">Lite Version 0.1.5</div>
+          <div class="brand-ver" id="appVersion">Lite Version 0.1.6</div>
         </div>
       </div>
 
@@ -144,7 +152,7 @@
             <div style="display:flex;align-items:center;gap:10px">
               <h1>Services</h1>
               <span class="pill accent" id="dashSystemBadge" style="font-size:12px">Darius DB · Lite Version
-                0.1.5</span>
+                0.1.6</span>
             </div>
             <p class="subtitle" id="rootPathLabel">Portable root</p>
           </div>
@@ -194,17 +202,19 @@
           <div style="flex:1">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
               <span class="pill running">📢 Announcement</span>
-              <strong id="announceHeading">Darius DB (Lite Version 0.1.5) — Unified Full-Stack Web, PHP, Mailpit &amp;
+              <strong id="announceHeading">Darius DB (Lite Version 0.1.6) — Unified Full-Stack Web, PHP, Mailpit &amp;
                 Database Stack</strong>
               <span class="muted" style="font-size:11.5px">by Darius Cumpio (MIT)</span>
             </div>
             <p id="announceBodyText" style="margin:2px 0 6px;font-size:12.5px">
-              New in <strong>Lite Version 0.1.5</strong>: <strong>Database CRUD &amp; Import/Export</strong> (Create,
-              Show, Edit, Delete, Show All, <code>.sql</code>/<code>.csv</code>/<code>.bak</code> Import &amp;
-              Single/Selected-Table Export), <strong>1-Click GitHub Updater &amp; Auto-Restart</strong>, Toggle-Switch
-              <strong>Apache 2.4 + PHP 8.x + MariaDB/MySQL (:3306)</strong> Stack, <strong>Mailpit</strong>
-              (<code>:8025</code>), <strong>SQL Server 2025</strong> auto-<code>sqlcmd</code>, and 1-Click
-              <strong>Self-Repair</strong>.
+              New in <strong>Lite Version 0.1.6</strong>: <strong>Refreshed UI design</strong> (glass sidebar &amp;
+              headers,
+              gradient accents, polished cards, tables &amp; modals), <strong>improved Light theme</strong>, and a new
+              <strong>Comfortable / Compact density</strong> option in Settings → Appearance — plus ER Database
+              Diagrams,
+              floating SQL tabs with <code>Tab</code> autocomplete, Cloud Sync &amp; 2 AM Auto-Backup,
+              <strong>Apache 2.4 + PHP 8.x + MariaDB/MySQL (:3306)</strong>, <strong>Mailpit</strong>
+              (<code>:8025</code>), and 1-Click <strong>Self-Repair</strong>.
             </p>
             <div id="announceUpdateInfo" style="font-size:12px;color:var(--accent);font-weight:600">
               Click "Check &amp; Install New Versions" to discover and install the latest PHP, Mailpit, MariaDB, MySQL,
@@ -745,6 +755,14 @@
                 </select>
               </label>
               <label class="field">
+                <span>UI Density</span>
+                <select id="setDensity" class="select"
+                  title="Comfortable spacing or compact IDE-style layout (previews instantly)">
+                  <option value="comfortable">Comfortable (default)</option>
+                  <option value="compact">Compact (dense, IDE-style)</option>
+                </select>
+              </label>
+              <label class="field">
                 <span>Custom Catalog JSON URL (optional)</span>
                 <input type="url" id="setCatalogUrl" class="input" placeholder="https://example.com/catalog.json" />
               </label>
@@ -774,7 +792,7 @@
           <div class="card" id="aboutCard">
             <div class="card-head">
               <h2>About &amp; Credits</h2>
-              <span class="pill accent" id="aboutVersionBadge">Lite Version 0.1.5</span>
+              <span class="pill accent" id="aboutVersionBadge">Lite Version 0.1.6</span>
             </div>
             <div class="about-grid" id="aboutGrid"></div>
           </div>
@@ -788,7 +806,7 @@
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
               <h1>📖 Guide &amp; Shortcuts</h1>
               <span class="pill accent" id="guideVersionBadge" style="font-size:12px">Darius DB · Lite Version
-                0.1.5</span>
+                0.1.6</span>
             </div>
             <p class="subtitle">Step-by-step instructions, interactive quick-start checklist, keyboard shortcuts, and
               CLI quick reference.</p>
@@ -1108,12 +1126,12 @@
           style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:10px;flex-wrap:wrap">
           <div>
             <div style="font-size:12px;color:var(--text-muted)">Installed System Version</div>
-            <strong id="sysUpCurVer" style="font-size:15px">Darius DB (Lite Version 0.1.5)</strong>
+            <strong id="sysUpCurVer" style="font-size:15px">Darius DB (Lite Version 0.1.6)</strong>
           </div>
           <div>
             <div style="font-size:12px;color:var(--text-muted)">Latest Official Release</div>
             <div style="display:flex;align-items:center;gap:8px">
-              <strong id="sysUpLatVer" style="font-size:15px">Lite Version 0.1.5</strong>
+              <strong id="sysUpLatVer" style="font-size:15px">Lite Version 0.1.6</strong>
               <span class="pill running" id="sysUpBadge">Up to Date</span>
             </div>
           </div>

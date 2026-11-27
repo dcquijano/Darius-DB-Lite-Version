@@ -62,7 +62,7 @@ func (a *apacheEngine) ConfigFile(p *Paths, _ Installation) string {
 	return filepath.Join(p.EngineEtc("apache"), "httpd.conf")
 }
 
-const apacheHttpdConf = `# Darius DB (Lite Version 0.1.5) - Apache HTTP Server configuration
+const apacheHttpdConf = `# Darius DB (Lite Version 0.1.6) - Apache HTTP Server configuration
 # DocumentRoot (www/) and Listen port are passed automatically by Darius DB.
 ServerName localhost
 
@@ -145,7 +145,7 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Darius DB (Lite Version 0.1.5) — Local Web Server & Drag-and-Drop Hosting</title>
+  <title>Darius DB (Lite Version 0.1.6) — Local Web Server & Drag-and-Drop Hosting</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%230f2942'/%3E%3Cstop offset='1' stop-color='%230d9488'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cellipse cx='16' cy='10' rx='8' ry='3' fill='%23ffffff'/%3E%3Cpath d='M8 12v4.5c0 1.65 3.58 3 8 3s8-1.35 8-3V12c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23d7f6f2'/%3E%3Cpath d='M8 18.2v4.3c0 1.65 3.58 3 8 3s8-1.35 8-3v-4.3c0 1.65-3.58 3-8 3s-8-1.35-8-3z' fill='%23bcebe5'/%3E%3Ccircle cx='24.8' cy='24.8' r='2.7' fill='%2334d399' stroke='%230f172a' stroke-width='1.4'/%3E%3C/svg%3E" />
   <style>
     :root { --bg:#0c1220; --card:#162033; --subtle:#0e1626; --border:rgba(148,163,184,0.18); --text:#e6edf7; --muted:#8ea0ba; --accent:#14b8a6; --accent-hover:#0d9488; --green:#22c55e; --danger:#ef4444; }
@@ -231,7 +231,7 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
         </svg>
       </div>
       <div>
-        <h1>Darius DB (Lite Version 0.1.5)</h1>
+        <h1>Darius DB (Lite Version 0.1.6)</h1>
         <p>Your local web server is active and serving websites directly from your portable <code>www/</code> directory.</p>
       </div>
     </div>
@@ -300,7 +300,7 @@ const defaultWwwIndexHTML = `<!DOCTYPE html>
 
     <div class="foot">
       <span>Created by Darius Cumpio · MIT Open Source</span>
-      <span>Darius DB (Lite Version 0.1.5)</span>
+      <span>Darius DB (Lite Version 0.1.6)</span>
     </div>
   </div>
 
@@ -751,7 +751,7 @@ func RunBuiltInHTTPD(args []string) int {
 	fs := http.FileServer(http.Dir(wwwDir))
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		w.Header().Set("Server", "Apache/2.4 (DariusDB-Lite/0.1.5)")
+		w.Header().Set("Server", "Apache/2.4 (DariusDB-Lite/0.1.6)")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -1399,7 +1399,7 @@ func servePHPFile(w http.ResponseWriter, r *http.Request, wwwDir, scriptPath str
 			"REDIRECT_STATUS=200",
 			"GATEWAY_INTERFACE=CGI/1.1",
 			"SERVER_PROTOCOL=HTTP/1.1",
-			"SERVER_SOFTWARE=Apache/2.4 (DariusDB-Lite/0.1.5)",
+			"SERVER_SOFTWARE=Apache/2.4 (DariusDB-Lite/0.1.6)",
 			"SERVER_NAME=localhost",
 			"SERVER_ADDR=127.0.0.1",
 			"SERVER_PORT="+strconv.Itoa(port),

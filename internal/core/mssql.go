@@ -56,7 +56,7 @@ func (m *mssqlEngine) ConfigFile(p *Paths, _ Installation) string {
 	return filepath.Join(p.EngineEtc("mssql"), "mssql.conf")
 }
 
-const mssqlConf = `# Darius DB (Lite Version 0.1.5) - MS SQL Server configuration
+const mssqlConf = `# Darius DB (Lite Version 0.1.6) - MS SQL Server configuration
 # Default Server Name uses the Windows PC User name (Windows Authentication)
 instance = MSSQLLocalDB
 server = (localdb)\MSSQLLocalDB
@@ -336,7 +336,7 @@ func autoProvisionSqlcmd(root string) string {
 	if err != nil {
 		return ""
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Lite/0.1.5")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Lite/0.1.6")
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		if resp != nil {

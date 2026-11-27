@@ -1,7 +1,7 @@
-# Darius DB (Lite Version 0.1.5) — Step-by-Step Installation & User Guide
+# Darius DB (Lite Version 0.1.6) — Step-by-Step Installation & User Guide
 
-> **Application:** Darius DB (Lite Version 0.1.5)  
-> **Version:** `Lite Version 0.1.5`  
+> **Application:** Darius DB (Lite Version 0.1.6)  
+> **Version:** `Lite Version 0.1.6`  
 > **Created by:** Darius Cumpio  
 > **Created Date:** November 19, 2026  
 > **Year:** 2026  
@@ -15,7 +15,7 @@
 
 1. [System Requirements](#1-system-requirements)
 2. [How to Install Darius DB (Step by Step)](#2-how-to-install-darius-db-step-by-step)
-   - [Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.5.exe`)](#option-a-using-the-standalone-windows-installer-dariusdb-setup-015exe)
+   - [Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.6.exe`)](#option-a-using-the-standalone-windows-installer-dariusdb-setup-015exe)
    - [Option B: 100% Portable (No Installation Required)](#option-b-100-portable-no-installation-required)
 3. [First-Time Setup & Daily Usage Guide](#3-first-time-setup--daily-usage-guide)
 4. [Keyboard Shortcuts Reference](#4-keyboard-shortcuts-reference)
@@ -41,10 +41,10 @@
 
 > **Installer Folder Reference:** If you are installing directly from the repository's `installer\` folder, see [`installer/README.md`](installer/README.md) for a step-by-step guide to every `.exe` and `.ps1` script inside `installer\`.
 
-### Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.5.exe`)
+### Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.6.exe`)
 
-1. Download **`DariusDB-Setup-0.1.5.exe`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.5.exe` or `dist\DariusDB-Setup-0.1.5.exe`).
-2. In the **Darius DB (Lite Version 0.1.5) Setup Wizard**:
+1. Download **`DariusDB-Setup-0.1.6.exe`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.6.exe` or `dist\DariusDB-Setup-0.1.6.exe`).
+2. In the **Darius DB (Lite Version 0.1.6) Setup Wizard**:
    - Accept the MIT License Agreement and click **Next >**.
    - Keep the recommended destination folder **`C:\DariusDB`** (or click **Browse...** to choose another folder) and select your shortcut/PATH/startup options.
    - Click **Install**.
@@ -52,21 +52,21 @@
    - Extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Repair.exe`, `DariusDB-Uninstall.exe`, `DariusDB-Updater.exe`, `darius.exe`, `LICENSE`, `README.md`, and `GUIDE.md`.
    - Creates `www/`, `backups/`, `bin/`, `data/`, `etc/`, `logs/`, and `tmp/`.
    - Creates Desktop & Start Menu shortcuts (**Darius DB**, **Darius DB Terminal**, **Update Darius DB**, **Repair Darius DB**, **Uninstall Darius DB**).
-   - Registers **Darius DB (Lite Version 0.1.5)** in **Windows Settings → Apps → Installed Apps** and adds `darius` CLI to your Windows `PATH`.
-   - **Upgrade, Double-Install Protection & Repair Mode:** If an older version (e.g. `0.1.4`) is installed, running `DariusDB-Setup-0.1.5.exe` offers a 1-click **in-place upgrade** (keeping all databases in `data/`, backups in `backups/`, and websites in `www/` untouched). If the same version is already installed, it blocks duplicate installation and offers **Repair Mode**.
-4. Click **Finish** to launch **Darius DB (Lite Version 0.1.5)** immediately.
+   - Registers **Darius DB (Lite Version 0.1.6)** in **Windows Settings → Apps → Installed Apps** and adds `darius` CLI to your Windows `PATH`.
+   - **Upgrade, Double-Install Protection & Repair Mode:** If an older version (e.g. `0.1.5`) is installed, running `DariusDB-Setup-0.1.6.exe` offers a 1-click **in-place upgrade** (keeping all databases in `data/`, backups in `backups/`, and websites in `www/` untouched). If the same version is already installed, it blocks duplicate installation and offers **Repair Mode**.
+4. Click **Finish** to launch **Darius DB (Lite Version 0.1.6)** immediately.
 
 > **Silent / Automated CLI install or repair:**
 > ```powershell
-> .\DariusDB-Setup-0.1.5.exe --silent --dir="C:\DariusDB" --autostart
-> .\DariusDB-Setup-0.1.5.exe --silent --repair
+> .\DariusDB-Setup-0.1.6.exe --silent --dir="C:\DariusDB" --autostart
+> .\DariusDB-Setup-0.1.6.exe --silent --repair
 > ```
 
 ---
 
 ### Option B: 100% Portable (No Installation Required)
 
-1. Download **`DariusDB-0.1.5-portable-windows-amd64.zip`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or [**Google Drive**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing), and extract it to any folder (e.g. `D:\Tools\DariusDB\` or a USB drive).
+1. Download **`DariusDB-0.1.6-portable-windows-amd64.zip`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or [**Google Drive**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing), and extract it to any folder (e.g. `D:\Tools\DariusDB\` or a USB drive).
 2. Double-click **`DariusDB-Launcher.exe`** (or **`DariusDB.exe`** directly).
 3. Darius DB automatically creates `www/`, `backups/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`, and `settings.json` right beside itself.
 4. To move Darius DB to another PC or drive later: stop all services (`F9`), then simply copy or move the whole folder!
@@ -137,6 +137,7 @@
 ### Step 7: Edit Configs, View Logs & Change Ports
 
 - **Change ports or admin credentials:** Open **Settings** (**`Alt + 7`**), edit the Port / Admin User / Password table, and press **`Ctrl + S`** (or click **Save Settings**). Restart the service for the new port to take effect.
+- **Theme & UI Density:** In **Settings → Appearance**, pick **Theme** (*System default*, *Dark*, or *Light*) and **UI Density** (*Comfortable* or *Compact* IDE-style spacing). Both preview instantly; click **Save Settings** to keep them.
 - **Edit raw config files (`httpd.conf`, `my.ini`, `postgresql.conf`, `mssql.conf`, `redis.conf`):** Open **Config & Logs** (**`Alt + 5`**) → **Config File**, make edits, and press **`Ctrl + S`** to save or **`Ctrl + Shift + Enter`** to **Save & Restart**. Click **Notepad** if you prefer editing externally.
 - **View logs:** Press **`Alt + L`** (or click **Service Log**) in **Config & Logs** (auto-refreshes every 2 seconds).
 
@@ -334,7 +335,7 @@ If you used the portable folder without running an installer:
    ```powershell
    go install github.com/wailsapp/wails/v2/cmd/wails@latest
    ```
-3. *(Optional — only needed to compile `DariusDB-Setup-0.1.5.exe`)* Install **Inno Setup 6**:
+3. *(Optional — only needed to compile `DariusDB-Setup-0.1.6.exe`)* Install **Inno Setup 6**:
    ```powershell
    winget install JRSoftware.InnoSetup
    ```
@@ -355,8 +356,8 @@ This creates:
 - `build\bin\DariusDB-Uninstall.exe` (and `installer\DariusDB-Uninstall.exe`) — native 3-step uninstaller & repair wizard (~2–3 MB)
 - `build\bin\DariusDB-Updater.exe` (and `installer\DariusDB-Updater.exe`) — standalone native System Version Updater (~2–3 MB)
 - `build\bin\darius.exe` — Developer CLI
-- `dist\DariusDB-0.1.5-portable-windows-amd64.zip` — portable archive
-- `dist\DariusDB-Setup-0.1.5.exe` (and `installer\DariusDB-Setup-0.1.5.exe`) — standalone single-file native Windows installer `.exe`
+- `dist\DariusDB-0.1.6-portable-windows-amd64.zip` — portable archive
+- `dist\DariusDB-Setup-0.1.6.exe` (and `installer\DariusDB-Setup-0.1.6.exe`) — standalone single-file native Windows installer `.exe`
 
 ### Manual Inno Setup Build
 
@@ -368,7 +369,7 @@ If you already built `build\bin\*.exe` and want to compile just the Inno Setup `
 
 ### Automated GitHub Releases & In-App Updates
 
-Pushing a version tag (for example `git tag v0.1.5 && git push origin v0.1.5`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which automatically runs tests, builds all binaries (including `DariusDB-Setup-*.exe`, `DariusDB-Launcher.exe`, `DariusDB-Uninstall.exe`, `DariusDB-Updater.exe`, and the portable ZIP), and publishes a **GitHub Release** with all assets attached.
+Pushing a version tag (for example `git tag v0.1.6 && git push origin v0.1.6`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which automatically runs tests, builds all binaries (including `DariusDB-Setup-*.exe`, `DariusDB-Launcher.exe`, `DariusDB-Uninstall.exe`, `DariusDB-Updater.exe`, and the portable ZIP), and publishes a **GitHub Release** with all assets attached.
 
 > **Important for In-App & Standalone Updates:** Ensure `dcquijano/Darius-DB-Lite-Version` is **Public** on GitHub so every user's **System Updater** and `DariusDB-Updater.exe` can fetch `version.json` and download release assets automatically. If you keep the repository **Private**, paste a GitHub Personal Access Token (`Contents: Read-only`) inside **System Updater → 🔐 GitHub Token** (or in `DariusDB-Updater.exe`).
 
@@ -378,7 +379,7 @@ Pushing a version tag (for example `git tag v0.1.5 && git push origin v0.1.5`) t
 
 - **"Port XXXX is already used by another program"** — Another local database server, container, or Windows service is already listening on that port. Open **Settings**, assign a different port (e.g. `3307` or `5433`), save, and start again.
 - **PostgreSQL `postgresql.conf` not found yet** — PostgreSQL creates `postgresql.conf` inside `data/postgresql-<major>/` during its first start (`initdb`). Start PostgreSQL once, then edit it in **Config & Logs**.
-- **PowerShell says running scripts is disabled** — Run the native `.exe` installer **`DariusDB-Setup-0.1.5.exe`** instead of `.ps1` scripts.
+- **PowerShell says running scripts is disabled** — Run the native `.exe` installer **`DariusDB-Setup-0.1.6.exe`** instead of `.ps1` scripts.
 - **Windows SmartScreen warning on unsigned open-source `.exe`** — Because Darius DB is a community open-source build without a paid code-signing certificate, Windows SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway** (or build directly from this source code).
 
 ---
@@ -387,8 +388,8 @@ Pushing a version tag (for example `git tag v0.1.5 && git push origin v0.1.5`) t
 
 | Field | Details |
 |---|---|
-| **Project Name** | Darius DB (Lite Version 0.1.5) |
-| **Version** | `Lite Version 0.1.5` |
+| **Project Name** | Darius DB (Lite Version 0.1.6) |
+| **Version** | `Lite Version 0.1.6` |
 | **Creator / Author** | **Darius Cumpio** |
 | **Built By** | Darius Cumpio |
 | **Created Date** | November 19, 2026 |

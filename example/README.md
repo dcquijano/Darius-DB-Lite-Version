@@ -1,6 +1,6 @@
-# Darius DB (Lite Version 0.1.4) — System Examples & Screenshots
+# Darius DB (Lite Version 0.1.6) — System Examples & Screenshots
 
-Visual showcase of **Darius DB (Lite Version 0.1.4)** in action on Windows.
+Visual showcase of **Darius DB (Lite Version 0.1.6)** in action on Windows.
 
 ---
 

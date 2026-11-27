@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag to publish (e.g. v0.1.5; defaults to v<version> from wails.json)"
+        description: "Release tag to publish (e.g. v0.1.6; defaults to v<version> from wails.json)"
         required: false
         default: ""
 

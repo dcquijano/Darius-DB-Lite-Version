@@ -1,11 +1,11 @@
-# Darius DB (Lite Version 0.1.5)
+# Darius DB (Lite Version 0.1.6)
 
 A fast, lightweight, portable open-source local + cloud web & database environment manager for Windows — built to make full-stack development simple, clean, and zero-bloat.
 
 Manage **Apache Web Server (+ PHP 8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server**, **Redis**, and **Mailpit** from a single **~17 MB** native Windows app with **SSMS-style Interactive ER Database Diagrams** (`PNG` / `JPEG` / `WebP` / `SVG` / `HTML` / `Mermaid`), **Chrome-style tear-off floating SQL tabs with `Tab` autocomplete**, **Cloud Auto-Sync & 2:00 AM Auto-Backup**, local `www/` website hosting, a built-in multi-mode terminal, native launcher, clean uninstaller, and zero runtime bloat.
 
 - **Repository:** [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version)
-- 📥 **Official Installer & Portable Download (Google Drive):** [**Download DariusDB-Setup-0.1.5.exe**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing)
+- 📥 **Official Installer & Portable Download (Google Drive):** [**Download DariusDB-Setup-0.1.6.exe**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing)
 - 🖼️ **System Screenshots & Examples:** [**example/**](example/)
 - 🛠️ **Installer Folder Step-by-Step Guide:** [**installer/README.md**](installer/README.md)
 - 📖 **Full Step-by-Step Guide:** [**GUIDE.md**](GUIDE.md)
@@ -73,7 +73,8 @@ Manage **Apache Web Server (+ PHP 8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **
 
 ## Features
 
-- **100% Portable or Standard `.exe` Install** — Run directly out of any folder (`www/`, `backups/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`, `settings.json`) or install using the standalone Windows Setup Wizard **`DariusDB-Setup-0.1.5.exe`** (with automatic upgrade protection and built-in **Repair Mode**).
+- **Refreshed v0.1.6 UI Design** — Glass sidebar & view headers, gradient accents, softer layered shadows, larger rounded cards & modals, refined tables, inputs & focus rings across every view, a polished **Light theme** (also follows *System default*), and a **Comfortable / Compact** density option (**Settings → Appearance → UI Density**) for an IDE/SSMS-style dense layout.
+- **100% Portable or Standard `.exe` Install** — Run directly out of any folder (`www/`, `backups/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`, `settings.json`) or install using the standalone Windows Setup Wizard **`DariusDB-Setup-0.1.6.exe`** (with automatic upgrade protection and built-in **Repair Mode**).
 - **Unified Apache + PHP (`8.2`/`8.3`/`8.4`) + MariaDB/MySQL (`:3306`) Web Stack** — Host local websites in `www/` at `http://localhost:8080/`, drag & drop project folders / `.zip` bundles / `.html` files (or click **`Deploy .zip`**), switch PHP versions inline on the Apache card, toggle MariaDB/MySQL cleanly on port `3306`, and copy hardened PHP PDO (`utf8mb4`) snippets in one click. Managed `etc/php/php.ini` is automatically **NTFS-hardlinked** into every `bin/php/<ver>/php.ini` (`PDO`, `pdo_mysql`, `mysqli`, `mysqlnd`, `gd`, `mbstring`, `openssl`, `curl`, `intl`, `fileinfo`, `zip`, `Zend OPcache`) so CLI tools like `php artisan serve` and `php artisan tinker` work out of the box without setting global `PHPRC`.
 - **Built-in Mailpit (`:8025` Web Inbox / `:1025` SMTP)** — Instant zero-download local email capture for PHP/Laravel/app testing right on the Dashboard below Redis.
 - **One-Click Start/Stop, Auto-Run Presets & Native System Tray** — Start All / Stop All (`F8` / `F9`), per-service Auto-Run pills & quick presets (*MySQL*, *MySQL + Apache*, *Use Running*), live PID & port-conflict detection, single-instance wake, close-to-tray, and right-click tray menu.
@@ -87,7 +88,7 @@ Manage **Apache Web Server (+ PHP 8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **
 - **Cloud Databases, Live Sync & Daily 2:00 AM Auto-Backup / Purge** — Connect **cPanel / Plesk / Hostinger (MySQL)**, **MonsterASP.NET / SmarterASP (MS SQL)**, **Supabase / Neon (PostgreSQL)**, **Aiven / TiDB / PlanetScale**, **AWS RDS / Azure SQL**, and **Redis Cloud** with URI/ADO.NET Quick Auto-Fill, SSL/TLS options, separated **Manual Sync**, **Daily Auto-Sync**, and **Daily 2:00 AM Auto-Backup** modals (with live Purge Date Guide & 7-day retention purge), plus **Sync & Auto-Schedule Trace Logs (`scheduler.log`)** and optional **Windows Task Scheduler** integration.
 - **Config Editor & Live Log Viewer** — Edit `httpd.conf`, `php.ini`, `my.ini`, `postgresql.conf`, `mssql.conf`, `redis.conf`, and `mailpit.conf` inside the app (or Notepad) with *Save & Restart*, plus auto-refreshing logs.
 - **Native Setup, Launcher, Repair, Updater & Uninstall Wizards**
-  - `DariusDB-Setup-0.1.5.exe` — self-contained Windows Setup Wizard with automatic in-place upgrade detection (e.g. `0.1.4 → 0.1.5`) and Repair Mode.
+  - `DariusDB-Setup-0.1.6.exe` — self-contained Windows Setup Wizard with automatic in-place upgrade detection (e.g. `0.1.5 → 0.1.6`) and Repair Mode.
   - `DariusDB-Launcher.exe` — verifies WebView2, sets `DARIUSDB_HOME`, supports `--minimized`, `--terminal`, `--start-all`, `--stop-all`, `--version`.
   - `DariusDB-Repair.exe` — standalone Win32 full-system Repair All wizard.
   - `DariusDB-Updater.exe` — native Win32 System Version Updater GUI & CLI (`--check`, `--silent`, `--token=PAT`) that detects installed version, checks GitHub (`version.json` + Releases + Commits) and local installers, and upgrades in-place while keeping `data/` and `www/` untouched.
@@ -101,14 +102,14 @@ Manage **Apache Web Server (+ PHP 8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **
 ## Quick Start
 
 ### Option 1: Install on Windows (Recommended)
-1. Download **`DariusDB-Setup-0.1.5.exe`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.5.exe` / `dist\DariusDB-Setup-0.1.5.exe`).
-2. Double-click **`DariusDB-Setup-0.1.5.exe`**, keep **`C:\DariusDB`** (default), and complete the Setup Wizard *(existing installs offer automatic in-place upgrade or Repair Mode while keeping `data/`, `www/`, `backups/`, and `etc/` safe)*.
-3. Launch **Darius DB (Lite Version 0.1.5)** from the Desktop or Start Menu.
+1. Download **`DariusDB-Setup-0.1.6.exe`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.6.exe` / `dist\DariusDB-Setup-0.1.6.exe`).
+2. Double-click **`DariusDB-Setup-0.1.6.exe`**, keep **`C:\DariusDB`** (default), and complete the Setup Wizard *(existing installs offer automatic in-place upgrade or Repair Mode while keeping `data/`, `www/`, `backups/`, and `etc/` safe)*.
+3. Launch **Darius DB (Lite Version 0.1.6)** from the Desktop or Start Menu.
 4. Open **Versions** (`Alt+4`) to download **Apache, PHP (8.2/8.3/8.4), MariaDB, MySQL, PostgreSQL, Redis, or Mailpit** (or start built-in **Apache**, **Mailpit**, and **MS SQL Server** right away), then click **Start All** (`F8`).
 5. Open **Database** (`Alt+2`) to browse tables, run multi-tab SQL with **`Tab`** autocomplete, pop out floating query tabs, or **right-click any database → New Database Diagram**!
 
 ### Option 2: Portable (No Install)
-1. Download **`DariusDB-0.1.5-portable-windows-amd64.zip`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or [**Google Drive**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or `dist\DariusDB-0.1.5-portable-windows-amd64.zip`) and extract into any folder, e.g. `C:\DariusDB\`.
+1. Download **`DariusDB-0.1.6-portable-windows-amd64.zip`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or [**Google Drive**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or `dist\DariusDB-0.1.6-portable-windows-amd64.zip`) and extract into any folder, e.g. `C:\DariusDB\`.
 2. Double-click **`DariusDB-Launcher.exe`** (or **`DariusDB.exe`**) — all portable folders (`www/`, `backups/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`) and `settings.json` are initialized cleanly beside the app.
 
 ---
@@ -190,7 +191,7 @@ C:\DariusDB\
 - Windows 10/11 (x64) with Microsoft Edge WebView2 (pre-installed on Windows 10/11)
 - [Go 1.24+](https://go.dev/dl/)
 - [Wails CLI v2](https://wails.io/): `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
-- *(Optional, for `DariusDB-Setup-0.1.5.exe`)* [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`
+- *(Optional, for `DariusDB-Setup-0.1.6.exe`)* [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`
 
 No C compiler (CGO) and no Node.js build step required!
 
@@ -213,12 +214,12 @@ wails build -clean -ldflags "-s -w"
 
 | | |
 |---|---|
-| **Application** | **Darius DB (Lite Version 0.1.5)** |
+| **Application** | **Darius DB (Lite Version 0.1.6)** |
 | **Creator / Author** | **Darius Cumpio** |
 | **Built By** | Darius Cumpio |
 | **Created Date** | November 19, 2026 |
 | **Year** | 2026 |
-| **Version** | `Lite Version 0.1.5` |
+| **Version** | `Lite Version 0.1.6` |
 | **Repository** | [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version) |
 | **Installer Download** | [https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) |
 | **License** | [MIT License](LICENSE) — Copyright © 2026 Darius Cumpio |

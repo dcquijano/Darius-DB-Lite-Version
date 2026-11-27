@@ -203,7 +203,7 @@ func TestBuiltInTerminal(t *testing.T) {
 	mgr := NewManager(p, st, nil)
 	term := NewTerminal(p, st, mgr, nil)
 
-	if !strings.Contains(term.Banner(), "Darius DB (Lite Version 0.1.5) Built-in Terminal") {
+	if !strings.Contains(term.Banner(), "Darius DB (Lite Version 0.1.6) Built-in Terminal") {
 		t.Fatalf("unexpected banner: %s", term.Banner())
 	}
 
@@ -1048,15 +1048,15 @@ func TestEnsureWwwIndexUpgradesToV5WithLogoAndPreservesCustom(t *testing.T) {
 	wwwDir := t.TempDir()
 	indexPath := filepath.Join(wwwDir, "index.html")
 
-	// 1. Fresh www/ gets v5 landing page with inline SVG favicon, Darius DB logo, and v0.1.5 title
+	// 1. Fresh www/ gets v5 landing page with inline SVG favicon, Darius DB logo, and v0.1.6 title
 	ensureWwwIndex(wwwDir)
 	b, err := os.ReadFile(indexPath)
 	if err != nil {
 		t.Fatalf("read generated index.html: %v", err)
 	}
 	s := string(b)
-	if !strings.Contains(s, "darius-www-v5") || !strings.Contains(s, "Lite Version 0.1.5") || !strings.Contains(s, `rel="icon"`) || !strings.Contains(s, "data:image/svg+xml") || !strings.Contains(s, "dariusLogoGrad") {
-		t.Fatalf("expected v5 index.html with 0.1.5 title, favicon, and brand SVG logo")
+	if !strings.Contains(s, "darius-www-v5") || !strings.Contains(s, "Lite Version 0.1.6") || !strings.Contains(s, `rel="icon"`) || !strings.Contains(s, "data:image/svg+xml") || !strings.Contains(s, "dariusLogoGrad") {
+		t.Fatalf("expected v5 index.html with 0.1.6 title, favicon, and brand SVG logo")
 	}
 
 	// 2. Older Darius DB v3/v4 page automatically upgrades to v5
@@ -1069,7 +1069,7 @@ func TestEnsureWwwIndexUpgradesToV5WithLogoAndPreservesCustom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), "darius-www-v5") || !strings.Contains(string(b), "Lite Version 0.1.5") || !strings.Contains(string(b), `rel="icon"`) {
+	if !strings.Contains(string(b), "darius-www-v5") || !strings.Contains(string(b), "Lite Version 0.1.6") || !strings.Contains(string(b), `rel="icon"`) {
 		t.Fatalf("expected older Darius DB landing page to upgrade to v5 with favicon")
 	}
 

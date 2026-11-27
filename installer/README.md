@@ -1,4 +1,4 @@
-# Darius DB (Lite Version 0.1.5) — Installer & Setup Guide
+# Darius DB (Lite Version 0.1.6) — Installer & Setup Guide
 
 Step-by-step instructions for installing, updating, repairing, uninstalling, and building **Darius DB** from this `installer/` folder.
 
@@ -8,14 +8,14 @@ Step-by-step instructions for installing, updating, repairing, uninstalling, and
 
 ## Option 1: Step-by-Step GUI Install (Recommended)
 
-Use **`DariusDB-Setup-0.1.5.exe`** right inside this folder (no admin rights required):
+Use **`DariusDB-Setup-0.1.6.exe`** right inside this folder (no admin rights required):
 
-1. **Double-click `DariusDB-Setup-0.1.5.exe`**.
+1. **Double-click `DariusDB-Setup-0.1.6.exe`**.
    - *(If Windows SmartScreen appears on an unsigned open-source build, click **More info → Run anyway**.)*
    - *(If Darius DB is already installed, Setup offers automatic **Upgrade** or **Repair Mode** while keeping `data/`, `www/`, `backups/`, and `etc/` untouched.)*
 2. **Accept License & Choose Destination:** Accept the MIT License, keep the default **`C:\DariusDB`** folder (or click **Browse...** to choose another directory), and pick optional **Desktop shortcut** / **Start with Windows** checkboxes.
 3. **Click Install:** Setup extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Repair.exe`, `DariusDB-Updater.exe`, `DariusDB-Uninstall.exe`, `darius.exe`, docs, and folders (`www/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`), creates Start Menu shortcuts, and adds `darius` to Windows `PATH`.
-4. **Click Finish** to launch **Darius DB (Lite Version 0.1.5)** immediately.
+4. **Click Finish** to launch **Darius DB (Lite Version 0.1.6)** immediately.
 5. **First-Run Inside Darius DB:**
    - Open **Versions** (`Alt+4`) to download **Apache, PHP (8.2/8.3/8.4), MariaDB, MySQL, PostgreSQL, Redis, or Mailpit** *(built-in Apache, Mailpit, and MS SQL Server work immediately)*.
    - Press **`F8`** (**Start All**) on **Dashboard** (`Alt+1`).
@@ -23,8 +23,8 @@ Use **`DariusDB-Setup-0.1.5.exe`** right inside this folder (no admin rights req
 
 > **Silent CLI Install / Repair:**
 > ```powershell
-> .\DariusDB-Setup-0.1.5.exe --silent --dir="C:\DariusDB" --autostart
-> .\DariusDB-Setup-0.1.5.exe --silent --repair
+> .\DariusDB-Setup-0.1.6.exe --silent --dir="C:\DariusDB" --autostart
+> .\DariusDB-Setup-0.1.6.exe --silent --repair
 > ```
 
 ---
@@ -85,7 +85,7 @@ powershell -ExecutionPolicy Bypass -File .\installer\uninstall.ps1 -Silent
 
 | File / Folder | Purpose |
 |---|---|
-| `DariusDB-Setup-0.1.5.exe` | **Main all-in-one Windows Setup Wizard** (double-click to install, upgrade, or repair) |
+| `DariusDB-Setup-0.1.6.exe` | **Main all-in-one Windows Setup Wizard** (double-click to install, upgrade, or repair) |
 | `DariusDB-Launcher.exe` | Verifies WebView2 runtime, sets `DARIUSDB_HOME`, supports `--minimized`, `--terminal`, `--start-all`, `--stop-all` |
 | `DariusDB-Updater.exe` | Standalone GUI & CLI updater (checks GitHub `version.json` / Releases / local setup) |
 | `DariusDB-Repair.exe` | Standalone full-system diagnostics & self-healing Repair All wizard |
@@ -94,7 +94,7 @@ powershell -ExecutionPolicy Bypass -File .\installer\uninstall.ps1 -Silent
 | `update.ps1` | PowerShell wrapper for in-place upgrades via `DariusDB-Updater.exe` or local/GitHub Setup |
 | `repair.ps1` | PowerShell wrapper for `DariusDB-Repair.exe` / `darius.exe repair` |
 | `uninstall.ps1` | PowerShell wrapper for `DariusDB-Uninstall.exe` |
-| `build-all.ps1` | Runs Go tests, builds all 6 `.exe` binaries, portable `.zip` (`..\dist\`), and `DariusDB-Setup-0.1.5.exe` |
+| `build-all.ps1` | Runs Go tests, builds all 6 `.exe` binaries, portable `.zip` (`..\dist\`), and `DariusDB-Setup-0.1.6.exe` |
 | `generate-version.ps1` | Auto-generates `..\version.json` changelog & build metadata from `git log` |
 | `DariusDB.iss` | Inno Setup 6 script used for Inno Setup packaging |
 | `bin/` | Pre-staged helper/resource folder used during packaging |

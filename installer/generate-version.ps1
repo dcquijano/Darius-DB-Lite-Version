@@ -54,7 +54,7 @@ try {
         $Version = ([string]$existing.version).Trim().TrimStart("v")
     }
     if (-not $Version) {
-        $Version = "0.1.5"
+        $Version = "0.1.6"
     }
 
     # 2. Resolve Build ID

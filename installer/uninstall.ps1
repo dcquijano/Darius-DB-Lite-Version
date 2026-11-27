@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Darius DB (Lite Version 0.1.5) Uninstall & Maintenance Wizard wrapper.
-  Created by Darius Cumpio - November 19, 2026 - v0.1.5
+  Darius DB (Lite Version 0.1.6) Uninstall & Maintenance Wizard wrapper.
+  Created by Darius Cumpio - November 19, 2026 - v0.1.6
 #>
 param(
     [string]$InstallDir = "",

@@ -8,8 +8,8 @@ import (
 )
 
 type EngineSettings struct {
-	Enabled        bool     `json:"enabled"`                  // included in "Start All"
-	Version        string   `json:"version"`                  // active installation (folder name in bin/<engine>)
+	Enabled        bool     `json:"enabled"` // included in "Start All"
+	Version        string   `json:"version"` // active installation (folder name in bin/<engine>)
 	Port           int      `json:"port"`
 	User           string   `json:"user"`                     // admin user used by the built-in browser
 	Password       string   `json:"password"`                 // admin password used by the built-in browser
@@ -28,7 +28,8 @@ type Settings struct {
 	CloseToTray       bool                       `json:"closeToTray"`
 	CatalogURL        string                     `json:"catalogUrl"`
 	GitHubToken       string                     `json:"githubToken,omitempty"`
-	Theme             string                     `json:"theme"` // system | dark | light
+	Theme             string                     `json:"theme"`             // system | dark | light
+	Density           string                     `json:"density,omitempty"` // comfortable | compact
 	CloudConnections  []CloudConnection          `json:"cloudConnections,omitempty"`
 	Schedules         []BackupSyncSchedule       `json:"schedules,omitempty"`
 }
@@ -49,6 +50,7 @@ func DefaultSettings() *Settings {
 		CloseToTray: true,
 		CatalogURL:  "",
 		Theme:       "system",
+		Density:     "comfortable",
 	}
 }
 

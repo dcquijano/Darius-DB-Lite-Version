@@ -27,8 +27,8 @@ import (
 
 const (
 	appShortName = "Darius DB"
-	appFullTitle = "Darius DB (Lite Version 0.1.5)"
-	appVersion   = "0.1.5"
+	appFullTitle = "Darius DB (Lite Version 0.1.6)"
+	appVersion   = "0.1.6"
 	appAuthor    = "Darius Cumpio"
 	defaultDir   = winui.DefaultInstallDir
 	uninstallKey = winui.UninstallRegKey
@@ -556,7 +556,7 @@ func buildWizardControls(hwnd syscall.Handle) {
 
 	// ---- Page 1: Welcome & License ----
 	wiz.p1Intro = createCtrl(0, "STATIC",
-		"Welcome to the Darius DB (Lite Version 0.1.5) Setup Wizard.\r\n"+
+		"Welcome to the Darius DB (Lite Version 0.1.6) Setup Wizard.\r\n"+
 			"Manage MariaDB, MySQL, PostgreSQL, MS SQL Server & Redis with built-in Terminal and Developer CLI.",
 		0, 22, 84, 505, 38, hwnd, 0, wiz.fontUI)
 	wiz.p1LicBox = createCtrl(wsExClientEdge, "EDIT", mitLicenseText,
@@ -613,15 +613,15 @@ func buildWizardControls(hwnd syscall.Handle) {
 		22, 144, 502, 176, hwnd, 0, wiz.fontMono)
 
 	// ---- Page 4: Completed ----
-	doneHeadline := "Darius DB (Lite Version 0.1.5) has been installed!"
+	doneHeadline := "Darius DB (Lite Version 0.1.6) has been installed!"
 	if wiz.repairMode {
-		doneHeadline = "Darius DB (Lite Version 0.1.5) has been repaired!"
+		doneHeadline = "Darius DB (Lite Version 0.1.6) has been repaired!"
 	}
 	wiz.p4DoneTitle = createCtrl(0, "STATIC", doneHeadline,
 		0, 22, 92, 500, 24, hwnd, 0, wiz.fontTitle)
 	wiz.p4Summary = createCtrl(0, "STATIC", "",
 		0, 22, 126, 500, 96, hwnd, 0, wiz.fontUI)
-	wiz.p4ChkLaunch = createCtrl(0, "BUTTON", "Launch Darius DB (Lite Version 0.1.5) now",
+	wiz.p4ChkLaunch = createCtrl(0, "BUTTON", "Launch Darius DB (Lite Version 0.1.6) now",
 		wsTabStop|bsAutoCheckBox, 26, 236, 460, 24, hwnd, idChkLaunch, wiz.fontBold)
 	wiz.p4ChkGuide = createCtrl(0, "BUTTON", "Open Step-by-Step User Guide (GUIDE.md)",
 		wsTabStop|bsAutoCheckBox, 26, 266, 460, 24, hwnd, idChkGuide, wiz.fontUI)
@@ -687,10 +687,10 @@ func showWizardPage(page int) {
 		}
 	case 3:
 		if wiz.repairMode {
-			setText(wiz.lblSubtitle, "Repairing Darius DB (Lite Version 0.1.5)...")
+			setText(wiz.lblSubtitle, "Repairing Darius DB (Lite Version 0.1.6)...")
 			setText(wiz.btnNext, "Repairing...")
 		} else {
-			setText(wiz.lblSubtitle, "Step 3 of 3 — Installing Darius DB (Lite Version 0.1.5)...")
+			setText(wiz.lblSubtitle, "Step 3 of 3 — Installing Darius DB (Lite Version 0.1.6)...")
 			setText(wiz.btnNext, "Installing...")
 		}
 		procEnableWindow.Call(uintptr(wiz.btnBack), 0)

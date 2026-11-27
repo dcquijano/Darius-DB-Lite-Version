@@ -84,8 +84,28 @@
     return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
   }
 
+  // Resolve the effective color scheme (dark | light) into data-scheme so the v0.1.6
+  // design layer can style light mode consistently, including "System default".
+  const schemeMedia = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
+  let themePref = "system";
+
+  function syncResolvedScheme() {
+    const resolved =
+      themePref === "light" || themePref === "dark" ? themePref : schemeMedia && schemeMedia.matches ? "light" : "dark";
+    document.documentElement.setAttribute("data-scheme", resolved);
+  }
+
+  if (schemeMedia) {
+    const onSchemeChange = () => {
+      if (themePref === "system") syncResolvedScheme();
+    };
+    if (schemeMedia.addEventListener) schemeMedia.addEventListener("change", onSchemeChange);
+    else if (schemeMedia.addListener) schemeMedia.addListener(onSchemeChange);
+  }
+
   function applyTheme(theme) {
     const root = document.documentElement;
+    themePref = theme === "dark" || theme === "light" ? theme : "system";
     if (theme === "dark") {
       root.setAttribute("data-theme", "dark");
       rt()?.WindowSetDarkTheme?.();
@@ -96,6 +116,11 @@
       root.removeAttribute("data-theme");
       rt()?.WindowSetSystemDefaultTheme?.();
     }
+    syncResolvedScheme();
+  }
+
+  function applyDensity(density) {
+    document.documentElement.setAttribute("data-density", density === "compact" ? "compact" : "comfortable");
   }
 
   function onEvent(name, cb) {
@@ -4420,6 +4445,7 @@
     $("setCloseToTray").checked = !!s.closeToTray;
     $("setStopOnExit").checked = !!s.stopOnExit;
     $("setTheme").value = s.theme || "system";
+    if ($("setDensity")) $("setDensity").value = s.density === "compact" ? "compact" : "comfortable";
     $("setCatalogUrl").value = s.catalogUrl || "";
 
     if (state.info) {
@@ -4490,12 +4516,14 @@
     next.closeToTray = $("setCloseToTray").checked;
     next.stopOnExit = $("setStopOnExit").checked;
     next.theme = $("setTheme").value;
+    next.density = $("setDensity") ? $("setDensity").value : next.density || "comfortable";
     next.catalogUrl = $("setCatalogUrl").value.trim();
 
     try {
       await api().SaveSettings(next);
       state.settings = next;
       applyTheme(next.theme);
+      applyDensity(next.density);
       toast("Settings saved", "ok");
     } catch (e) {
       toast(errMsg(e), "err");
@@ -6292,6 +6320,7 @@ try {
     // Settings events
     $("btnSaveSettings").onclick = saveSettingsForm;
     $("setTheme").onchange = () => applyTheme($("setTheme").value);
+    if ($("setDensity")) $("setDensity").onchange = () => applyDensity($("setDensity").value);
     $("btnRegisterPath").onclick = async () => {
       try {
         await api().RegisterCLIInPath();
@@ -6563,6 +6592,7 @@ try {
     }
     $("rootPathLabel").textContent = info.root;
     applyTheme(settings.theme);
+    applyDensity(settings.density);
 
     renderDashboard();
 

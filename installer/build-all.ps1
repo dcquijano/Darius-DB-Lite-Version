@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Builds Darius DB (Lite Version 0.1.5) GUI, Launcher, Uninstaller, Updater, CLI, Portable ZIP, and Standalone Setup .exe.
-  Created by Darius Cumpio - November 19, 2026 - v0.1.5
+  Builds Darius DB (Lite Version 0.1.6) GUI, Launcher, Uninstaller, Updater, CLI, Portable ZIP, and Standalone Setup .exe.
+  Created by Darius Cumpio - November 19, 2026 - v0.1.6
 #>
 param(
     [switch]$SkipTests,
@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$Version = "0.1.5"
+$Version = "0.1.6"
 if (Test-Path (Join-Path $RepoRoot "wails.json")) {
     try {
         $wj = Get-Content (Join-Path $RepoRoot "wails.json") -Raw -Encoding UTF8 | ConvertFrom-Json

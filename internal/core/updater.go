@@ -181,7 +181,7 @@ func getJSONNoCache(client *http.Client, rawURL, token, accept string, dest inte
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.5")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.6")
 	req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	req.Header.Set("Pragma", "no-cache")
 	if accept != "" {
@@ -248,13 +248,13 @@ func checkSystemUpdateForRepo(currentVersion, tok string, repo repoEndpoints) *S
 		LatestBuild:    CLIAppBuild,
 		HasUpdate:      false,
 		Channel:        "Lite Version",
-		ReleasedAt:     "2026-11-23",
+		ReleasedAt:     "2026-11-27",
 		Author:         CLIAppAuthor,
 		InstallerURL:   defaultDriveFolderURL,
 		RepoURL:        CLIAppRepo,
-		Announcement:   "Darius DB (Lite Version 0.1.5) — Full-Stack Web & Database Manager with Visual Step-by-Step Guides, Keyboard Shortcuts (F1 / F8 / F9), Cloud Auto-Sync & 2:00 AM Auto-Backup with dated Pull DB auto-naming, Multi-Tab SQL Browser, 1-Click Repair All, and auto-generated commit updates.",
+		Announcement:   "Darius DB (Lite Version 0.1.6) — Refreshed UI design (glass sidebar & headers, gradient accents, polished cards, tables & modals), improved Light theme, Comfortable / Compact density, ER Database Diagrams, floating SQL tabs with autocomplete, Cloud Auto-Sync & 2:00 AM Auto-Backup, and 1-Click Repair All.",
 		Changelog: []string{
-			"Released Lite Version 0.1.5 with automatic commit-generated version.json updates, Darius DB logo/favicon on www/index.html & Mailpit, reliable F8/F9 & Alt+Shift+S/X service shortcuts, Schedule Run/Backup 0%–100% progress modals, Visual Step-by-Step Guides with 22 screenshots, and optional dated Pull Cloud → Local DB auto-naming",
+			"Released Lite Version 0.1.6 with a refreshed design system across every view (glass sidebar & headers, gradient primary buttons, softer layered shadows, larger rounded cards & modals, refined tables, inputs & focus rings), a polished Light theme that also follows System default, and a new Comfortable / Compact UI density option in Settings → Appearance",
 		},
 		RecentCommits: []GitHubCommitInfo{},
 		CheckedAt:     time.Now().Format("2006-01-02 15:04:05"),
@@ -704,7 +704,7 @@ func ApplySystemUpdateFromURL(p *Paths, downloadURL string, tokens ...string) (s
 		if err != nil {
 			return "", err
 		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.5")
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Updater/0.1.6")
 		if strings.Contains(strings.ToLower(targetURL), "api.github.com/repos/") {
 			if strings.Contains(strings.ToLower(targetURL), "/contents/") {
 				req.Header.Set("Accept", "application/vnd.github.raw+json")

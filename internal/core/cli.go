@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	CLIAppTitle        = "Darius DB (Lite Version 0.1.5)"
-	CLIAppVersion      = "0.1.5"
+	CLIAppTitle        = "Darius DB (Lite Version 0.1.6)"
+	CLIAppVersion      = "0.1.6"
 	CLIAppAuthor       = "Darius Cumpio"
 	CLIAppCreated      = "November 19, 2026"
 	CLIAppRepo         = "https://github.com/dcquijano/Darius-DB-Lite-Version"
@@ -24,7 +24,7 @@ const (
 )
 
 // CLIAppBuild identifies the build timestamp (overridden via -ldflags at build time).
-var CLIAppBuild = "202611271020"
+var CLIAppBuild = "202611271110"
 
 // RunCLI executes a CLI subcommand and returns an process exit code.
 func RunCLI(root string, args []string) int {

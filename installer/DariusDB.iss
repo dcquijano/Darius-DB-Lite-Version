@@ -1,13 +1,13 @@
 ; Inno Setup 6 Script for Darius DB
-; Created by Darius Cumpio - November 19, 2026 - v0.1.5 (MIT License)
+; Created by Darius Cumpio - November 19, 2026 - v0.1.6 (MIT License)
 ;
 ; Build with:
 ;   ISCC.exe installer\DariusDB.iss
 ; or run:
 ;   powershell -ExecutionPolicy Bypass -File installer\build-all.ps1
 
-#define MyAppName      "Darius DB (Lite Version 0.1.5)"
-#define MyAppVersion   "0.1.5"
+#define MyAppName      "Darius DB (Lite Version 0.1.6)"
+#define MyAppVersion   "0.1.6"
 #define MyAppPublisher "Darius Cumpio"
 #define MyAppExeName   "DariusDB.exe"
 #define MyLauncherExe  "DariusDB-Launcher.exe"

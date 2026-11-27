@@ -23,8 +23,8 @@ import (
 
 const (
 	appShortName = "Darius DB"
-	appFullTitle = "Darius DB (Lite Version 0.1.5)"
-	appVersion   = "0.1.5"
+	appFullTitle = "Darius DB (Lite Version 0.1.6)"
+	appVersion   = "0.1.6"
 	appAuthor    = "Darius Cumpio"
 )
 
@@ -547,11 +547,11 @@ func buildRepairControls(hwnd syscall.Handle) {
 		22, 144, 524, 214, hwnd, 0, rw.fontMono)
 
 	// ---- Page 3: Complete ----
-	rw.p3DoneTitle = createCtrl(0, "STATIC", "Darius DB (Lite Version 0.1.5) Repair All Completed!",
+	rw.p3DoneTitle = createCtrl(0, "STATIC", "Darius DB (Lite Version 0.1.6) Repair All Completed!",
 		0, 22, 92, 524, 24, hwnd, 0, rw.fontTtl)
 	rw.p3Summary = createCtrl(0, "STATIC", "",
 		0, 22, 128, 524, 150, hwnd, 0, rw.fontUI)
-	rw.p3ChkLaunch = createCtrl(0, "BUTTON", "Launch Darius DB (Lite Version 0.1.5) now",
+	rw.p3ChkLaunch = createCtrl(0, "BUTTON", "Launch Darius DB (Lite Version 0.1.6) now",
 		wsTabStop|bsAutoCheckBox, 26, 294, 480, 24, hwnd, idChkLaunch, rw.fontBold)
 	setChecked(rw.p3ChkLaunch, !rw.noLaunch)
 

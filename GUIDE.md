@@ -39,6 +39,8 @@
 
 ## 2. How to Install Darius DB (Step by Step)
 
+> **Installer Folder Reference:** If you are installing directly from the repository's `installer\` folder, see [`installer/README.md`](installer/README.md) for a step-by-step guide to every `.exe` and `.ps1` script inside `installer\`.
+
 ### Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.5.exe`)
 
 1. Download **`DariusDB-Setup-0.1.5.exe`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.5.exe` or `dist\DariusDB-Setup-0.1.5.exe`).

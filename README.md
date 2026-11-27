@@ -7,6 +7,7 @@ Manage **Apache Web Server (+ PHP 8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **
 - **Repository:** [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version)
 - 📥 **Official Installer & Portable Download (Google Drive):** [**Download DariusDB-Setup-0.1.5.exe**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing)
 - 🖼️ **System Screenshots & Examples:** [**example/**](example/)
+- 🛠️ **Installer Folder Step-by-Step Guide:** [**installer/README.md**](installer/README.md)
 - 📖 **Full Step-by-Step Guide:** [**GUIDE.md**](GUIDE.md)
 
 ---

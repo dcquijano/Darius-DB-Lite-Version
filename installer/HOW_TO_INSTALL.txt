@@ -1,0 +1,103 @@
+================================================================================
+  DARIUS DB (LITE VERSION 0.1.5) - HOW TO INSTALL & MAINTAIN
+================================================================================
+
+Main Documentation : ..\README.md
+Full User Manual   : ..\GUIDE.md
+GitHub Repository  : https://github.com/dcquijano/Darius-DB-Lite-Version
+
+
+--------------------------------------------------------------------------------
+OPTION 1: STEP-BY-STEP GUI INSTALLER (RECOMMENDED FOR WINDOWS)
+--------------------------------------------------------------------------------
+
+No administrator rights are required.
+
+  1. Double-click:  DariusDB-Setup-0.1.5.exe
+
+     (Note: If Windows SmartScreen warns about an unsigned open-source app,
+      click "More info" -> "Run anyway".)
+     (Note: If Darius DB is already installed, Setup will offer automatic
+      In-Place Upgrade or Repair Mode while keeping data/, www/, backups/,
+      and etc/ untouched.)
+
+  2. Accept the MIT License Agreement.
+
+  3. Keep the default folder:  C:\DariusDB
+     (Or click "Browse..." to choose a different folder, and select optional
+      Desktop shortcut / Start with Windows options.)
+
+  4. Click "Install".
+     Setup automatically extracts the executables and docs, creates the
+     portable folders (www/, bin/, data/, etc/, logs/, tmp/), adds Start Menu
+     shortcuts, and registers "darius" CLI in your Windows User PATH.
+
+  5. Click "Finish" to open Darius DB (Lite Version 0.1.5).
+
+  6. First-Run Inside Darius DB:
+     - Open "Versions" (Alt+4) to download Apache, PHP (8.2/8.3/8.4),
+       MariaDB, MySQL, PostgreSQL, Redis, or Mailpit.
+       (Built-in Apache, Mailpit, and MS SQL Server work immediately.)
+     - Press F8 ("Start All") on the Dashboard (Alt+1).
+     - Open "Database" (Alt+2) to browse tables, run SQL with Tab
+       autocomplete, drag out floating query tabs, or right-click any
+       database -> "New Database Diagram".
+
+  Silent CLI Install / Repair:
+    .\DariusDB-Setup-0.1.5.exe --silent --dir="C:\DariusDB" --autostart
+    .\DariusDB-Setup-0.1.5.exe --silent --repair
+
+
+--------------------------------------------------------------------------------
+OPTION 2: INSTALL VIA POWERSHELL SCRIPT (install.ps1)
+--------------------------------------------------------------------------------
+
+Run from the repository root or inside the installer folder:
+
+  Interactive install:
+    powershell -ExecutionPolicy Bypass -File .\installer\install.ps1
+
+  Silent install to C:\DariusDB with Windows startup enabled:
+    powershell -ExecutionPolicy Bypass -File .\installer\install.ps1 -InstallDir "C:\DariusDB" -Silent -AutoStart
+
+  Force reinstall / update binaries over existing C:\DariusDB (keeps data/):
+    powershell -ExecutionPolicy Bypass -File .\installer\install.ps1 -InstallDir "C:\DariusDB" -Force -Silent
+
+
+--------------------------------------------------------------------------------
+UPDATE, REPAIR & UNINSTALL
+--------------------------------------------------------------------------------
+
+  Update in-place (keeps data/, www/, backups/, etc/, settings.json safe):
+    - Double-click:  DariusDB-Updater.exe
+    - Or PowerShell: powershell -ExecutionPolicy Bypass -File .\installer\update.ps1 -Silent
+
+  Repair All diagnostics (fixes folders, configs, stale locks, busy ports,
+  caches, Windows PATH, and php.ini hardlinks):
+    - Double-click:  DariusDB-Repair.exe
+    - Or PowerShell: powershell -ExecutionPolicy Bypass -File .\installer\repair.ps1 -Silent
+
+  Uninstall (prompts whether to KEEP or delete database data/ and etc/):
+    - Double-click:  DariusDB-Uninstall.exe
+    - Or PowerShell: powershell -ExecutionPolicy Bypass -File .\installer\uninstall.ps1 -Silent
+
+
+--------------------------------------------------------------------------------
+FILES IN THIS INSTALLER FOLDER
+--------------------------------------------------------------------------------
+
+  DariusDB-Setup-0.1.5.exe   All-in-one Windows Setup Wizard (Install/Upgrade/Repair)
+  DariusDB-Launcher.exe      Launcher (checks WebView2, sets DARIUSDB_HOME)
+  DariusDB-Updater.exe       GitHub & local in-place System Updater
+  DariusDB-Repair.exe        Standalone Full-System Repair All Wizard
+  DariusDB-Uninstall.exe     3-step Native Uninstaller & Repair Wizard
+  install.ps1                PowerShell installation script
+  update.ps1                 PowerShell update script
+  repair.ps1                 PowerShell repair script
+  uninstall.ps1              PowerShell uninstall script
+  build-all.ps1              Runs tests & builds all .exe, ZIP, and Setup packages
+  generate-version.ps1       Generates ..\version.json from git commits
+  DariusDB.iss               Inno Setup 6 packaging script
+  README.md                  GitHub Markdown version of this guide
+  HOW_TO_INSTALL.txt         Plain-text Notepad-ready version of this guide
+================================================================================

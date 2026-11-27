@@ -74,6 +74,9 @@ func NewManagerWithOptions(p *Paths, st *SettingsStore, onChange func(), skipAdo
 	}
 	m.ensureActiveVersions()
 	ensureWwwIndex(p.Www)
+	if dirExists(p.EngineBin("php")) {
+		_, _ = SyncManagedPHPIni(p)
+	}
 	if skipAdopt {
 		m.forceOffAll(false)
 	} else {

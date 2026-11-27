@@ -364,7 +364,11 @@ func EnsureConfig(p *Paths, engineID string) error {
 	case "apache":
 		return writeIfMissing(filepath.Join(p.EngineEtc("apache"), "httpd.conf"), apacheHttpdConf)
 	case "php":
-		return writeIfMissing(filepath.Join(p.EngineEtc("php"), "php.ini"), defaultPhpIni)
+		if err := writeIfMissing(filepath.Join(p.EngineEtc("php"), "php.ini"), defaultPhpIni); err != nil {
+			return err
+		}
+		_, err := SyncManagedPHPIni(p)
+		return err
 	case "mariadb":
 		cfg := filepath.Join(p.EngineEtc("mariadb"), "my.ini")
 		if b, err := os.ReadFile(cfg); err == nil && (strings.Contains(string(b), "innodb_buffer_pool_size = 128M") || strings.Contains(string(b), "skip-name-resolve")) {

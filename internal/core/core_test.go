@@ -1584,6 +1584,79 @@ func TestMSSQLPreloginAndBannerDetection(t *testing.T) {
 	}
 }
 
+func TestSyncManagedPHPIni(t *testing.T) {
+	root := t.TempDir()
+	p := NewPaths(root)
+
+	php1 := filepath.Join(p.EngineBin("php"), "php-8.4.4")
+	php2 := filepath.Join(p.EngineBin("php"), "php-8.3.10", "bin")
+	extPhp := filepath.Join(root, "external-php84")
+	for _, d := range []string{php1, php2, extPhp} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "php.exe"), []byte("stub"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	linked, err := SyncManagedPHPIni(p)
+	if err != nil {
+		t.Fatalf("SyncManagedPHPIni failed: %v", err)
+	}
+	if linked != 2 {
+		t.Fatalf("expected 2 managed PHP installations linked, got %d", linked)
+	}
+
+	etcIni := filepath.Join(p.EngineEtc("php"), "php.ini")
+	etcInfo, err := os.Stat(etcIni)
+	if err != nil {
+		t.Fatalf("expected etc php.ini to exist: %v", err)
+	}
+
+	for _, dir := range []string{php1, php2} {
+		binIni := filepath.Join(dir, "php.ini")
+		binInfo, err := os.Stat(binIni)
+		if err != nil {
+			t.Fatalf("expected %s to exist: %v", binIni, err)
+		}
+		if !os.SameFile(etcInfo, binInfo) {
+			t.Fatalf("expected %s to share hardlink inode with %s", binIni, etcIni)
+		}
+	}
+
+	// External non-DariusDB PHP directory must remain completely untouched
+	if fileExists(filepath.Join(extPhp, "php.ini")) {
+		t.Fatal("expected external PHP directory not to be modified")
+	}
+
+	// Modifying etc/php/php.ini immediately reflects through the hardlinked bin php.ini
+	updated := defaultPhpIni + "\n; hardlink-sync-check\n"
+	if err := os.WriteFile(etcIni, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(php1, "php.ini")); err != nil || !strings.Contains(string(b), "; hardlink-sync-check") {
+		t.Fatalf("expected hardlinked php.ini to reflect etc edit immediately, got err=%v", err)
+	}
+
+	// Second call is idempotent
+	if linked2, err := SyncManagedPHPIni(p); err != nil || linked2 != 0 {
+		t.Fatalf("expected second SyncManagedPHPIni to be no-op, got linked=%d err=%v", linked2, err)
+	}
+
+	// Repair restores a deleted bin/php/*/php.ini link
+	_ = os.Remove(filepath.Join(php1, "php.ini"))
+	st := LoadSettings(root)
+	mgr := NewManagerWithOptions(p, st, nil, true)
+	rep, err := mgr.RepairWithOptions(RepairOptions{Target: "php"})
+	if err != nil {
+		t.Fatalf("RepairWithOptions(php) failed: %v", err)
+	}
+	if !fileExists(filepath.Join(php1, "php.ini")) {
+		t.Fatalf("expected Repair to restore hardlinked php.ini, report=%+v", rep)
+	}
+}
+
 
 
 

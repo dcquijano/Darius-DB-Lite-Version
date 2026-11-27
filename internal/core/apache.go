@@ -667,6 +667,9 @@ func (a *apacheEngine) Prepare(ctx context.Context, p *Paths, inst Installation,
 	if err := writeIfMissing(a.ConfigFile(p, inst), apacheHttpdConf); err != nil {
 		return err
 	}
+	if dirExists(p.EngineBin("php")) {
+		_, _ = SyncManagedPHPIni(p)
+	}
 	if err := os.MkdirAll(p.Www, 0o755); err != nil {
 		return err
 	}
@@ -1296,6 +1299,9 @@ func findPHPExecutables() (phpCgi string, phpCli string, phpIni string) {
 	paths := NewPaths(root)
 	phpIni = filepath.Join(paths.EngineEtc("php"), "php.ini")
 	_ = writeIfMissing(phpIni, defaultPhpIni)
+	if dirExists(paths.EngineBin("php")) {
+		_, _ = SyncManagedPHPIni(paths)
+	}
 	dirs := []string{}
 	// Prioritize the active PHP version selected in Darius DB settings
 	activePhp := LoadSettings(root).Engine("php").Version

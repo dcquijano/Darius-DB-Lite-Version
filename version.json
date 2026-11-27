@@ -1,19 +1,21 @@
 {
   "name": "Darius DB (Lite Version 0.1.5)",
   "version": "0.1.5",
-  "build": "202611261423",
+  "build": "202611271020",
   "channel": "Lite Version",
   "releasedAt": "2026-11-26",
   "author": "Darius Cumpio",
-  "latestCommit": "7ff856d",
+  "latestCommit": "4f268e8",
   "generatedFromGit": true,
   "installerUrl": "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing",
   "directSetupUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-Setup-0.1.5.exe",
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.5/DariusDB-0.1.5-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.5.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Add Export dropdown to Database Diagram (PNG, JPEG, WebP, SVG, HTML, Mermaid); Fix flexbox clipping so Mailpit row renders cleanly below Redis; Add SSMS-style right-click context menu and interactive ER database diagram.",
+  "announcement": "Darius DB (Lite Version 0.1.5) — Latest updates: Polish README.md and GUIDE.md intro, features, quick start, and engine tables for 0.1.5; Update README, GUIDE, example gallery, and in-app visual guides with 0.1.5 screenshots; Add Export dropdown to Database Diagram (PNG, JPEG, WebP, SVG, HTML, Mermaid).",
   "changelog": [
+    "[4f268e8] Polish README.md and GUIDE.md intro, features, quick start, and engine tables for 0.1.5 (2026-11-26)",
+    "[85d1f96] Update README, GUIDE, example gallery, and in-app visual guides with 0.1.5 screenshots (2026-11-26)",
     "[7ff856d] Add Export dropdown to Database Diagram (PNG, JPEG, WebP, SVG, HTML, Mermaid) (2026-11-26)",
     "[7f4bd97] Fix flexbox clipping so Mailpit row renders cleanly below Redis (2026-11-26)",
     "[e989c9e] Add SSMS-style right-click context menu and interactive ER database diagram (2026-11-26)",
@@ -56,8 +58,6 @@
     "[7b7e96d] Update system screenshots in example/ for Lite Version 0.1.4 (2026-11-21)",
     "[fccafbb] Optimize database, table, and query data loading speed (2026-11-21)",
     "[435cf11] Add database/table count badges, resizable browser splitters, and column resizing (2026-11-21)",
-    "[574c61f] Fix MS SQL Error 4060 stale Cloud DB selection and missing profile fallback (2026-11-21)",
-    "[72f61ac] Remove hidden PowerShell shortcut dropper and use clean go:embed PE installer (2026-11-21)",
-    "[7efa46a] Display latest 10 GitHub pushes in Release Announcement (2026-11-21)"
+    "[574c61f] Fix MS SQL Error 4060 stale Cloud DB selection and missing profile fallback (2026-11-21)"
   ]
 }

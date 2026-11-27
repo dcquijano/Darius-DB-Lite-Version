@@ -336,8 +336,73 @@ smtp_port = 1025
 sendmail_from = dev@dariusdb.local
 `
 
+// SyncManagedPHPIni ensures etc/php/php.ini exists and hardlinks it (copying on cross-volume
+// setups) to php.ini inside every DariusDB-managed bin/php/* installation so running
+// bin/php/<ver>/php.exe directly from CLI (e.g. php artisan serve/tinker) automatically loads
+// DariusDB's managed php.ini without setting global PHPRC or touching external PHP installs.
+func SyncManagedPHPIni(paths *Paths) (int, error) {
+	if paths == nil || strings.TrimSpace(paths.Root) == "" {
+		return 0, nil
+	}
+	etcIni := filepath.Join(paths.EngineEtc("php"), "php.ini")
+	if err := writeIfMissing(etcIni, defaultPhpIni); err != nil {
+		return 0, err
+	}
+	etcInfo, err := os.Stat(etcIni)
+	if err != nil {
+		return 0, err
+	}
+	etcBytes, _ := os.ReadFile(etcIni)
+
+	entries, err := os.ReadDir(paths.EngineBin("php"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	linked := 0
+	var firstErr error
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		instDir := filepath.Join(paths.EngineBin("php"), e.Name())
+		for _, dir := range []string{instDir, filepath.Join(instDir, "bin")} {
+			if !fileExists(filepath.Join(dir, "php.exe")) {
+				continue
+			}
+			binIni := filepath.Join(dir, "php.ini")
+			if binInfo, statErr := os.Stat(binIni); statErr == nil {
+				if os.SameFile(etcInfo, binInfo) {
+					continue
+				}
+				if binInfo.Size() > 0 {
+					if oldBytes, rErr := os.ReadFile(binIni); rErr == nil && len(etcBytes) > 0 && string(oldBytes) != string(etcBytes) {
+						_ = os.WriteFile(binIni+".bak", oldBytes, 0o644)
+					}
+				}
+				_ = os.Remove(binIni)
+			}
+			if linkErr := os.Link(etcIni, binIni); linkErr == nil {
+				linked++
+			} else if len(etcBytes) > 0 {
+				if wErr := os.WriteFile(binIni, etcBytes, 0o644); wErr == nil {
+					linked++
+				} else if firstErr == nil {
+					firstErr = wErr
+				}
+			} else if firstErr == nil {
+				firstErr = linkErr
+			}
+		}
+	}
+	return linked, firstErr
+}
+
 func (p *phpEngine) Prepare(ctx context.Context, paths *Paths, inst Installation, s EngineSettings, logf func(string)) error {
-	if err := writeIfMissing(p.ConfigFile(paths, inst), defaultPhpIni); err != nil {
+	if _, err := SyncManagedPHPIni(paths); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(p.RouterFile(paths)), 0o755); err != nil {
@@ -361,6 +426,7 @@ func (p *phpEngine) Start(paths *Paths, inst Installation, s EngineSettings) (*S
 	if !fileExists(phpExe) {
 		return nil, errors.New("php.exe not found in " + inst.Dir)
 	}
+	_, _ = SyncManagedPHPIni(paths)
 	_ = os.MkdirAll(filepath.Dir(p.RouterFile(paths)), 0o755)
 	_ = os.WriteFile(p.RouterFile(paths), []byte(strings.ReplaceAll(defaultPhpRouter, "\n", "\r\n")), 0o644)
 

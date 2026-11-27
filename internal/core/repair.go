@@ -496,6 +496,11 @@ func (m *Manager) repairSingleEngine(id string, opts RepairOptions, usedPorts ma
 				add(cat, "Warning: could not verify etc/php/router.php", "warn")
 			}
 		}
+		if linked, linkErr := SyncManagedPHPIni(m.p); linkErr != nil {
+			add(cat, "Warning linking bin/php/*/php.ini -> etc/php/php.ini: "+linkErr.Error(), "warn")
+		} else if linked > 0 {
+			add(cat, fmt.Sprintf("Linked php.ini into %d managed PHP installation(s) -> etc/php/php.ini", linked), "fixed")
+		}
 
 	case "mariadb", "mysql":
 		if !running {
@@ -625,6 +630,9 @@ func (m *Manager) repairSingleEngine(id string, opts RepairOptions, usedPorts ma
 		} else if !running {
 			if repaired := m.repairCorruptConfigContent(id, cfgPath); repaired {
 				add(cat, "Repaired invalid directives in "+filepath.Base(cfgPath)+" (backed up original to .bak)", "fixed")
+				if id == "php" {
+					_, _ = SyncManagedPHPIni(m.p)
+				}
 			}
 		}
 	}

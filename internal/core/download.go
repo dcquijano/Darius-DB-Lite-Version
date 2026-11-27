@@ -634,6 +634,9 @@ func (d *Downloader) extract(ctx context.Context, engine, version, zipPath strin
 	if src != tmp {
 		os.RemoveAll(tmp)
 	}
+	if engine == "php" {
+		_, _ = SyncManagedPHPIni(d.p)
+	}
 	return nil
 }
 

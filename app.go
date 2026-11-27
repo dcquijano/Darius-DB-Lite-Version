@@ -400,7 +400,13 @@ func (a *App) SaveConfig(engine, content string) error {
 		return err
 	}
 	normalized := strings.ReplaceAll(strings.ReplaceAll(content, "\r\n", "\n"), "\n", "\r\n")
-	return os.WriteFile(path, []byte(normalized), 0o644)
+	if err := os.WriteFile(path, []byte(normalized), 0o644); err != nil {
+		return err
+	}
+	if engine == "php" {
+		_, _ = core.SyncManagedPHPIni(a.paths)
+	}
+	return nil
 }
 
 func (a *App) OpenConfigExternal(engine string) error {

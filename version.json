@@ -1,19 +1,20 @@
 {
   "name": "Darius DB (Lite Version 0.1.6)",
   "version": "0.1.6",
-  "build": "202611271246",
+  "build": "202611271408",
   "channel": "Lite Version",
   "releasedAt": "2026-11-27",
   "author": "Darius Cumpio",
-  "latestCommit": "d6fbce3",
+  "latestCommit": "f0e3f88",
   "generatedFromGit": true,
   "installerUrl": "https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing",
   "directSetupUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.6/DariusDB-Setup-0.1.6.exe",
   "directZipUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version/releases/download/v0.1.6/DariusDB-0.1.6-portable-windows-amd64.zip",
   "fallbackSetupUrl": "https://raw.githubusercontent.com/dcquijano/Darius-DB-Lite-Version/main/installer/DariusDB-Setup-0.1.6.exe",
   "repoUrl": "https://github.com/dcquijano/Darius-DB-Lite-Version",
-  "announcement": "Darius DB (Lite Version 0.1.6) — Latest updates: Optimize startup loading, status polling, and WebView2 UI rendering; Upgrade to Lite Version 0.1.6 with refreshed glass UI design, polished light theme, and Comfortable/Compact density; Add Notepad-friendly installer/HOW_TO_INSTALL.txt guide.",
+  "announcement": "Darius DB (Lite Version 0.1.6) — Latest updates: Make saved backup and export toasts clickable to open folder in Explorer; Optimize startup loading, status polling, and WebView2 UI rendering; Upgrade to Lite Version 0.1.6 with refreshed glass UI design, polished light theme, and Comfortable/Compact density.",
   "changelog": [
+    "[f0e3f88] Make saved backup and export toasts clickable to open folder in Explorer (2026-11-27)",
     "[d6fbce3] Optimize startup loading, status polling, and WebView2 UI rendering (2026-11-27)",
     "[8c831c8] Upgrade to Lite Version 0.1.6 with refreshed glass UI design, polished light theme, and Comfortable/Compact density (2026-11-27)",
     "[cf85cb7] Add Notepad-friendly installer/HOW_TO_INSTALL.txt guide (2026-11-27)",
@@ -57,7 +58,6 @@
     "[d8c2fb7] Add 1-click Repair All full-system repair and rebuild installers (build 202611211417) (2026-11-21)",
     "[2d88ef5] Add multi-tab SQL Browser and rebuild installers (build 202611211354) (2026-11-21)",
     "[2450738] Rebuild installers (build 202611211340) with DB/table count badges, splitters, and fast loading (2026-11-21)",
-    "[63c8a4c] Add Auto-Run toggle bar and Repair diagnostics screenshots to example/ (2026-11-21)",
-    "[eb5c796] Add Auto-Sync schedule, Windows 2 AM Task, snapshot purge, and backups folder screenshots (2026-11-21)"
+    "[63c8a4c] Add Auto-Run toggle bar and Repair diagnostics screenshots to example/ (2026-11-21)"
   ]
 }

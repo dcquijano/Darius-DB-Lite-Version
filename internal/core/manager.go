@@ -164,6 +164,11 @@ func (m *Manager) adopt() {
 					pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
 				}
 			}
+			if pid == 0 && id != "mssql" && inst.Dir != "" && !strings.EqualFold(filepath.Clean(inst.Dir), filepath.Clean(m.p.Root)) {
+				if pids := pidsInDir(inst.Dir); len(pids) > 0 {
+					pid = pids[0]
+				}
+			}
 			if pid > 0 && (processBelongsTo(pid, m.p.Root) || (id == "mssql" && processAlive(pid))) {
 				m.mu.Lock()
 				s := m.svc[id]
@@ -463,7 +468,11 @@ func (m *Manager) Start(id string) error {
 					if werr != nil {
 						msg += " (" + werr.Error() + ")"
 					}
-					s.state, s.message = StateError, msg+m.logTail(id)
+					tail := m.logTail(id)
+					if id == "mysql" && strings.Contains(tail, "MY-012960") {
+						tail += "\n\nTip: InnoDB redo log files are out of sync from an abrupt shutdown. Back up data/, try temporarily adding 'innodb_force_recovery = 1' (up to 6) in etc/mysql/my.ini to export databases, then re-initialize."
+					}
+					s.state, s.message = StateError, msg+tail
 				}
 				s.pid, s.cmd = 0, nil
 			})
@@ -600,7 +609,11 @@ func (m *Manager) Stop(id string) error {
 		}
 		waitFor(2*time.Second, func() bool { return (pid <= 0 || !processAlive(pid)) && !portInUse(es.Port) })
 	} else {
-		gone := waitFor(6*time.Second, func() bool {
+		stopTimeout := 10 * time.Second
+		if id == "mysql" || id == "mariadb" {
+			stopTimeout = 30 * time.Second
+		}
+		gone := waitFor(stopTimeout, func() bool {
 			return (pid <= 0 || !processAlive(pid)) && (id != "postgresql" || (!portInUse(es.Port) && !hasProcessInDir(inst.Dir)))
 		})
 		if !gone {

@@ -1,36 +1,39 @@
 {
   "apache": [
-    { "version": "2.4.66",      "url": "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.66-260223-win64-VS17.zip", "note": "Apache 2.4 Win64 VS17" },
-    { "version": "2.4.66-VS18", "url": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.66-260223-win64-VS18.zip", "note": "Apache 2.4 Win64 VS18" }
+    { "version": "2.4.71", "url": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.71-261112-Win64-VS18.zip", "note": "Apache 2.4 Win64 VS18" }
   ],
   "php": [
-    { "version": "8.4.4",  "url": "https://windows.php.net/downloads/releases/archives/php-8.4.4-Win32-vs17-x64.zip",  "note": "PHP 8.4 Latest (VS17 x64)" },
-    { "version": "8.3.17", "url": "https://windows.php.net/downloads/releases/archives/php-8.3.17-Win32-vs16-x64.zip", "note": "PHP 8.3 Active LTS (VS16 x64)" },
-    { "version": "8.2.27", "url": "https://windows.php.net/downloads/releases/archives/php-8.2.27-Win32-vs16-x64.zip", "note": "PHP 8.2 LTS (VS16 x64)" },
-    { "version": "8.1.31", "url": "https://windows.php.net/downloads/releases/archives/php-8.1.31-Win32-vs16-x64.zip", "note": "PHP 8.1 Legacy (VS16 x64)" }
+    { "version": "8.6.0",  "url": "https://windows.php.net/downloads/releases/php-8.6.0-Win32-vs18-x64.zip",  "note": "PHP 8.6 Latest (VS18 x64)" },
+    { "version": "8.5.13", "url": "https://windows.php.net/downloads/releases/php-8.5.13-Win32-vs17-x64.zip", "note": "PHP 8.5 Stable (VS17 x64)" },
+    { "version": "8.4.28", "url": "https://windows.php.net/downloads/releases/php-8.4.28-Win32-vs17-x64.zip", "note": "PHP 8.4 Active (VS17 x64)" },
+    { "version": "8.3.37", "url": "https://windows.php.net/downloads/releases/php-8.3.37-Win32-vs16-x64.zip", "note": "PHP 8.3 Security (VS16 x64)" },
+    { "version": "8.2.36", "url": "https://windows.php.net/downloads/releases/php-8.2.36-Win32-vs16-x64.zip", "note": "PHP 8.2 Security (VS16 x64)" },
+    { "version": "8.1.34", "url": "https://windows.php.net/downloads/releases/php-8.1.34-Win32-vs16-x64.zip", "note": "PHP 8.1 Legacy (VS16 x64)" }
   ],
   "mariadb": [
-    { "version": "13.0.2",   "url": "https://archive.mariadb.org/mariadb-13.0.2/winx64-packages/mariadb-13.0.2-winx64.zip",   "note": "Latest Stable" },
-    { "version": "12.3.4",   "url": "https://archive.mariadb.org/mariadb-12.3.4/winx64-packages/mariadb-12.3.4-winx64.zip",   "note": "LTS" },
-    { "version": "11.8.10",  "url": "https://archive.mariadb.org/mariadb-11.8.10/winx64-packages/mariadb-11.8.10-winx64.zip", "note": "LTS" },
-    { "version": "11.4.14",  "url": "https://archive.mariadb.org/mariadb-11.4.14/winx64-packages/mariadb-11.4.14-winx64.zip", "note": "LTS" },
-    { "version": "10.11.20", "url": "https://archive.mariadb.org/mariadb-10.11.20/winx64-packages/mariadb-10.11.20-winx64.zip", "note": "LTS" }
+    { "version": "13.1.2",  "url": "https://downloads.mariadb.org/rest-api/mariadb/13.1.2/mariadb-13.1.2-winx64.zip",   "note": "Latest Stable" },
+    { "version": "12.3.4",  "url": "https://downloads.mariadb.org/rest-api/mariadb/12.3.4/mariadb-12.3.4-winx64.zip",   "note": "LTS" },
+    { "version": "11.8.10", "url": "https://downloads.mariadb.org/rest-api/mariadb/11.8.10/mariadb-11.8.10-winx64.zip", "note": "LTS" },
+    { "version": "11.4.14", "url": "https://downloads.mariadb.org/rest-api/mariadb/11.4.14/mariadb-11.4.14-winx64.zip", "note": "LTS" }
   ],
   "mysql": [
-    { "version": "9.7.2",  "url": "https://cdn.mysql.com/Downloads/MySQL-9.7/mysql-9.7.2-winx64.zip",  "note": "Latest" },
-    { "version": "8.4.11", "url": "https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.11-winx64.zip", "note": "LTS" },
-    { "version": "8.0.46", "url": "https://cdn.mysql.com/Downloads/MySQL-8.0/mysql-8.0.46-winx64.zip", "note": "LTS" }
+    { "version": "26.10.0", "url": "https://cdn.mysql.com/Downloads/MySQL-26.10/mysql-26.10.0-winx64.zip", "note": "Latest" },
+    { "version": "9.7.4",   "url": "https://cdn.mysql.com/Downloads/MySQL-9.7/mysql-9.7.4-winx64.zip",     "note": "LTS" },
+    { "version": "9.7.2",   "url": "https://cdn.mysql.com/archives/mysql-9.7/mysql-9.7.2-winx64.zip",      "note": "Archived 9.7" },
+    { "version": "8.4.13",  "url": "https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.13-winx64.zip",    "note": "LTS" },
+    { "version": "8.0.46",  "url": "https://cdn.mysql.com/Downloads/MySQL-8.0/mysql-8.0.46-winx64.zip",    "note": "LTS" }
   ],
   "postgresql": [
-    { "version": "18.7",  "url": "https://get.enterprisedb.com/postgresql/postgresql-18.7-1-windows-x64-binaries.zip",  "note": "Latest" },
+    { "version": "19.0",  "url": "https://get.enterprisedb.com/postgresql/postgresql-19.0-1-windows-x64-binaries.zip",  "note": "Latest" },
+    { "version": "18.7",  "url": "https://get.enterprisedb.com/postgresql/postgresql-18.7-1-windows-x64-binaries.zip",  "note": "Stable" },
     { "version": "17.12", "url": "https://get.enterprisedb.com/postgresql/postgresql-17.12-1-windows-x64-binaries.zip", "note": "Stable" },
     { "version": "16.16", "url": "https://get.enterprisedb.com/postgresql/postgresql-16.16-1-windows-x64-binaries.zip", "note": "Stable" },
     { "version": "15.20", "url": "https://get.enterprisedb.com/postgresql/postgresql-15.20-1-windows-x64-binaries.zip", "note": "Stable" },
     { "version": "14.25", "url": "https://get.enterprisedb.com/postgresql/postgresql-14.25-1-windows-x64-binaries.zip", "note": "Stable" }
   ],
   "mssql": [
-    { "version": "17.0.1000.7", "url": "https://github.com/microsoft/go-sqlcmd/releases/download/v1.10.0/sqlcmd-windows-amd64.zip", "note": "SQL Server 2025 (17.x RTM)" },
-    { "version": "16.0.1000.6", "url": "https://github.com/microsoft/go-sqlcmd/releases/download/v1.10.0/sqlcmd-windows-amd64.zip", "note": "SQL Server 2022 (16.x RTM)" }
+    { "version": "17.0.1000.7", "url": "https://github.com/microsoft/go-sqlcmd/releases/download/v1.11.0/sqlcmd-windows-amd64.zip", "note": "SQL Server 2025 (17.x RTM)" },
+    { "version": "16.0.1000.6", "url": "https://github.com/microsoft/go-sqlcmd/releases/download/v1.11.0/sqlcmd-windows-amd64.zip", "note": "SQL Server 2022 (16.x RTM)" }
   ],
   "redis": [
     { "version": "8.10.3",   "url": "https://github.com/redis-windows/redis-windows/releases/download/8.10.3/Redis-8.10.3-Windows-x64-msys2.zip", "note": "Latest" },
@@ -40,7 +43,8 @@
     { "version": "5.0.14.1", "url": "https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.zip", "note": "Legacy Native" }
   ],
   "mailpit": [
-    { "version": "1.22.3", "url": "https://github.com/axllent/mailpit/releases/download/v1.22.3/mailpit-windows-amd64.zip", "note": "Latest Official" },
+    { "version": "1.34.0", "url": "https://github.com/axllent/mailpit/releases/download/v1.34.0/mailpit-windows-amd64.zip", "note": "Latest Official" },
+    { "version": "1.22.3", "url": "https://github.com/axllent/mailpit/releases/download/v1.22.3/mailpit-windows-amd64.zip", "note": "Stable" },
     { "version": "1.21.8", "url": "https://github.com/axllent/mailpit/releases/download/v1.21.8/mailpit-windows-amd64.zip", "note": "Stable" }
   ]
 }

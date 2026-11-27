@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1654,6 +1656,124 @@ func TestSyncManagedPHPIni(t *testing.T) {
 	}
 	if !fileExists(filepath.Join(php1, "php.ini")) {
 		t.Fatalf("expected Repair to restore hardlinked php.ini, report=%+v", rep)
+	}
+}
+
+func TestLoadCatalogHealsStaleURLsAndPreservesCustom(t *testing.T) {
+	root := t.TempDir()
+	p := NewPaths(root)
+	if err := p.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	stale := `{
+  "apache": [
+    { "version": "2.4.66", "url": "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.66-260223-win64-VS17.zip", "note": "Apache 2.4 Win64 VS17" }
+  ],
+  "mariadb": [
+    { "version": "13.0.2", "url": "https://archive.mariadb.org/mariadb-13.0.2/winx64-packages/mariadb-13.0.2-winx64.zip", "note": "Latest Stable" },
+    { "version": "11.4.14", "url": "https://archive.mariadb.org/mariadb-11.4.14/winx64-packages/mariadb-11.4.14-winx64.zip", "note": "LTS" }
+  ],
+  "mysql": [
+    { "version": "9.7.2", "url": "https://cdn.mysql.com/Downloads/MySQL-9.7/mysql-9.7.2-winx64.zip", "note": "Latest" },
+    { "version": "9.9.9", "url": "https://mirror.example.com/mysql-9.9.9-winx64.zip", "note": "Custom" }
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(root, "catalog.json"), []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cat := LoadCatalog(p)
+
+	// Dead Apache 2.4.66 entry should be pruned and replaced with 2.4.71
+	if len(cat["apache"]) == 0 || cat["apache"][0].Version != "2.4.71" {
+		t.Fatalf("expected healed apache catalog starting with 2.4.71, got %+v", cat["apache"])
+	}
+	for _, e := range cat["apache"] {
+		if e.Version == "2.4.66" {
+			t.Fatalf("expected dead apache 2.4.66 entry to be pruned, got %+v", cat["apache"])
+		}
+	}
+
+	// Dead MariaDB 13.0.2 should be pruned, 11.4.14 normalized to downloads.mariadb.org, 13.1.2 merged
+	for _, e := range cat["mariadb"] {
+		if e.Version == "13.0.2" {
+			t.Fatalf("expected dead mariadb 13.0.2 to be pruned, got %+v", cat["mariadb"])
+		}
+		if e.Version == "11.4.14" && !strings.HasPrefix(e.URL, "https://downloads.mariadb.org/") {
+			t.Fatalf("expected mariadb 11.4.14 URL healed to downloads.mariadb.org, got %s", e.URL)
+		}
+	}
+
+	// MySQL 9.7.2 should heal to archives URL, Custom 9.9.9 preserved, and 26.10.0 / 9.7.4 merged
+	found972, foundCustom := false, false
+	for _, e := range cat["mysql"] {
+		if e.Version == "9.7.2" {
+			found972 = true
+			if e.URL != "https://cdn.mysql.com/archives/mysql-9.7/mysql-9.7.2-winx64.zip" {
+				t.Fatalf("expected mysql 9.7.2 healed to archives URL, got %s", e.URL)
+			}
+		}
+		if e.Version == "9.9.9" {
+			foundCustom = true
+			if e.URL != "https://mirror.example.com/mysql-9.9.9-winx64.zip" {
+				t.Fatalf("expected Custom mysql URL preserved, got %s", e.URL)
+			}
+		}
+	}
+	if !found972 || !foundCustom {
+		t.Fatalf("expected both healed 9.7.2 and Custom 9.9.9 in mysql catalog: %+v", cat["mysql"])
+	}
+}
+
+func TestBuildDownloadCandidatesAndDownloadOnceRejectsHTML(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // ensure apache candidate builder doesn't hit network
+
+	mysqlCands := buildDownloadCandidates(ctx, "mysql", "9.7.2", "https://cdn.mysql.com/Downloads/MySQL-9.7/mysql-9.7.2-winx64.zip")
+	joined := strings.Join(mysqlCands, "\n")
+	if !strings.Contains(joined, "https://cdn.mysql.com/archives/mysql-9.7/mysql-9.7.2-winx64.zip") {
+		t.Fatalf("expected mysql archive fallback candidate, got %v", mysqlCands)
+	}
+	if !strings.Contains(joined, "https://downloads.mysql.com/archives/get/p/23/file/mysql-9.7.2-winx64.zip") {
+		t.Fatalf("expected downloads.mysql.com archive fallback candidate, got %v", mysqlCands)
+	}
+
+	phpCands := buildDownloadCandidates(ctx, "php", "8.4.28", "https://windows.php.net/downloads/releases/php-8.4.28-Win32-vs17-x64.zip")
+	if len(phpCands) < 2 || !strings.Contains(phpCands[1], "/downloads/releases/archives/") {
+		t.Fatalf("expected php archives fallback candidate, got %v", phpCands)
+	}
+
+	// Verify downloadOnce rejects HTML 200 pages and 404s cleanly
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/html":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte("<html>Not Found</html>"))
+		case "/404":
+			http.NotFound(w, r)
+		default:
+			w.Header().Set("Content-Type", "application/zip")
+			_, _ = w.Write([]byte("PK\x03\x04zipdata"))
+		}
+	}))
+	defer srv.Close()
+
+	p := NewPaths(t.TempDir())
+	_ = p.Ensure()
+	dl := NewDownloader(p, func(Progress) {}, nil)
+
+	if err := dl.downloadOnce(context.Background(), "mysql", "9.7.2", srv.URL+"/html", filepath.Join(p.Tmp, "a.zip")); err == nil || !strings.Contains(err.Error(), "HTML") {
+		t.Fatalf("expected HTML rejection error, got %v", err)
+	}
+	if err := dl.downloadOnce(context.Background(), "mysql", "9.7.2", srv.URL+"/404", filepath.Join(p.Tmp, "b.zip")); err == nil || !strings.Contains(err.Error(), "404") {
+		t.Fatalf("expected 404 error, got %v", err)
+	}
+	okDest := filepath.Join(p.Tmp, "ok.zip")
+	if err := dl.downloadOnce(context.Background(), "mysql", "9.7.2", srv.URL+"/ok.zip", okDest); err != nil {
+		t.Fatalf("expected valid zip download to succeed, got %v", err)
+	}
+	if !fileExists(okDest) {
+		t.Fatalf("expected downloaded file at %s", okDest)
 	}
 }
 

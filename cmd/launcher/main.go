@@ -3,12 +3,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"dariusdb/internal/winui"
 )
@@ -57,6 +59,7 @@ func main() {
 			openTerminal(root)
 			return
 		case "--stop-all":
+			gracefulStopViaCLI(root)
 			winui.KillProcessesInDir(filepath.Join(root, "bin"), uint32(os.Getpid()))
 			return
 		}
@@ -90,6 +93,20 @@ func main() {
 	if err := cmd.Start(); err != nil {
 		winui.MessageBox(appTitle, fmt.Sprintf("Failed to launch Darius DB:\n%v", err), winui.MBOK|winui.MBIconError)
 	}
+}
+
+func gracefulStopViaCLI(root string) {
+	cliExe := filepath.Join(root, "darius.exe")
+	if st, err := os.Stat(cliExe); err != nil || st.IsDir() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	c := exec.CommandContext(ctx, cliExe, "stop", "all")
+	c.Dir = root
+	c.Env = append(os.Environ(), "DARIUSDB_HOME="+root)
+	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	_ = c.Run()
 }
 
 func findAppExe(root string) string {

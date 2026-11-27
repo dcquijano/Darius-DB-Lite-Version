@@ -145,11 +145,42 @@ func (m *mysqlFamily) Start(p *Paths, inst Installation, s EngineSettings) (*Sta
 
 func (m *mysqlFamily) Stop(p *Paths, inst Installation, s EngineSettings) error {
 	db, err := openSQL(m.id, s, "")
-	if err != nil {
-		return err
+	if err == nil {
+		defer db.Close()
+		_, err = db.Exec("SHUTDOWN")
+		if err == nil {
+			return nil
+		}
+		low := strings.ToLower(err.Error())
+		if strings.Contains(low, "eof") || strings.Contains(low, "bad connection") ||
+			strings.Contains(low, "invalid connection") || strings.Contains(low, "connection reset") ||
+			strings.Contains(low, "broken pipe") {
+			return nil
+		}
 	}
-	defer db.Close()
-	_, err = db.Exec("SHUTDOWN")
+	// Fallback to mysqladmin / mariadb-admin shutdown before Manager resorts to process termination.
+	adminTool := filepath.Join(inst.Dir, "bin", "mysqladmin.exe")
+	if m.id == "mariadb" {
+		if ma := filepath.Join(inst.Dir, "bin", "mariadb-admin.exe"); fileExists(ma) {
+			adminTool = ma
+		}
+	}
+	if fileExists(adminTool) {
+		user := strings.TrimSpace(s.User)
+		if user == "" {
+			user = "root"
+		}
+		args := []string{"--protocol=tcp", "--host=127.0.0.1", "--port=" + strconv.Itoa(s.Port), "--user=" + user}
+		if s.Password != "" {
+			args = append(args, "--password="+s.Password)
+		}
+		args = append(args, "shutdown")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if runQuiet(ctx, nil, adminTool, args...) == nil {
+			return nil
+		}
+	}
 	return err
 }
 

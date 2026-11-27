@@ -519,6 +519,16 @@ func (m *Manager) repairSingleEngine(id string, opts RepairOptions, usedPorts ma
 			}
 			if ok {
 				dataDir := eng.DataDir(m.p, inst)
+				if id == "mysql" {
+					redoFiles, _ := filepath.Glob(filepath.Join(dataDir, "#innodb_redo", "#ib_redo*"))
+					for _, rf := range redoFiles {
+						if st, statErr := os.Stat(rf); statErr == nil && st.Size() == 0 {
+							if os.Remove(rf) == nil {
+								add(cat, "Removed 0-byte incomplete MySQL redo file ("+filepath.Base(rf)+")", "fixed")
+							}
+						}
+					}
+				}
 				if dirExists(dataDir) && !dirEmpty(dataDir) && !dirExists(filepath.Join(dataDir, "mysql")) {
 					bakDir := dataDir + ".incomplete." + time.Now().Format("20060102150405")
 					if os.Rename(dataDir, bakDir) == nil {

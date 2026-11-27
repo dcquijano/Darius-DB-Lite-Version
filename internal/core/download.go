@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -43,12 +45,62 @@ func LoadCatalog(p *Paths) Catalog {
 	if base == nil {
 		base = Catalog{}
 	}
+	embeddedByKey := map[string]CatalogEntry{}
+	for eng, entries := range base {
+		for i := range entries {
+			entries[i].URL = normalizeCatalogURL(eng, entries[i].Version, entries[i].URL)
+			embeddedByKey[eng+"@"+entries[i].Version] = entries[i]
+		}
+		base[eng] = entries
+	}
+	if p == nil {
+		return base
+	}
 	if b, err := os.ReadFile(filepath.Join(p.Root, "catalog.json")); err == nil {
 		var disk Catalog
 		if json.Unmarshal(b, &disk) == nil && len(disk) > 0 {
 			for eng, entries := range disk {
-				if len(entries) > 0 {
-					base[eng] = entries
+				if len(entries) == 0 {
+					continue
+				}
+				merged := make([]CatalogEntry, 0, len(entries)+len(base[eng]))
+				seen := map[string]bool{}
+				for _, e := range entries {
+					if e.Version == "" || e.URL == "" {
+						continue
+					}
+					isCustom := strings.EqualFold(strings.TrimSpace(e.Note), "Custom")
+					if !isCustom && isKnownDeadCatalogURL(eng, e.URL) {
+						// Replace known-dead URLs with embedded equivalent if available, otherwise skip.
+						if emb, ok := embeddedByKey[eng+"@"+e.Version]; ok {
+							e = emb
+						} else {
+							continue
+						}
+					}
+					e.URL = normalizeCatalogURL(eng, e.Version, e.URL)
+					if !isCustom {
+						if emb, ok := embeddedByKey[eng+"@"+e.Version]; ok && emb.URL != "" {
+							e.URL = emb.URL
+							if e.Note == "" {
+								e.Note = emb.Note
+							}
+						}
+					}
+					if !seen[e.Version] {
+						seen[e.Version] = true
+						merged = append(merged, e)
+					}
+				}
+				for _, emb := range base[eng] {
+					if !seen[emb.Version] {
+						seen[emb.Version] = true
+						merged = append(merged, emb)
+					}
+				}
+				if len(merged) > 0 {
+					sortCatalogEntries(merged)
+					base[eng] = merged
 				}
 			}
 		}
@@ -56,9 +108,49 @@ func LoadCatalog(p *Paths) Catalog {
 	return base
 }
 
+func sortCatalogEntries(list []CatalogEntry) {
+	sort.Slice(list, func(i, j int) bool {
+		return compareVersions(list[i].Version, list[j].Version) > 0
+	})
+}
+
+func isKnownDeadCatalogURL(engine, rawURL string) bool {
+	low := strings.ToLower(strings.TrimSpace(rawURL))
+	switch engine {
+	case "apache":
+		return strings.Contains(low, "apachelounge.com/download/") && strings.Contains(low, "httpd-2.4.66-260223")
+	case "mariadb":
+		return strings.Contains(low, "archive.mariadb.org/mariadb-13.0.") || strings.Contains(low, "archive.mariadb.org/mariadb-10.11.")
+	default:
+		return false
+	}
+}
+
+func normalizeCatalogURL(engine, version, rawURL string) string {
+	u := strings.TrimSpace(rawURL)
+	if u == "" {
+		return u
+	}
+	low := strings.ToLower(u)
+	switch engine {
+	case "mariadb":
+		if strings.HasPrefix(low, "http://downloads.mariadb.org/") {
+			u = "https://" + u[len("http://"):]
+		} else if strings.Contains(low, "archive.mariadb.org/mariadb-") && strings.HasSuffix(low, "-winx64.zip") && version != "" {
+			u = fmt.Sprintf("https://downloads.mariadb.org/rest-api/mariadb/%s/mariadb-%s-winx64.zip", version, version)
+		}
+	case "mysql":
+		if strings.EqualFold(u, "https://cdn.mysql.com/Downloads/MySQL-9.7/mysql-9.7.2-winx64.zip") {
+			u = "https://cdn.mysql.com/archives/mysql-9.7/mysql-9.7.2-winx64.zip"
+		}
+	}
+	return u
+}
+
 // RefreshCatalog discovers the newest engine versions from official upstream
-// APIs (MariaDB, PostgreSQL, Redis, GitHub repo catalog, and optional custom URL),
-// merges them into catalog.json, and returns the updated catalog.
+// APIs (Apache Lounge, PHP, MariaDB, MySQL, PostgreSQL, MS SQL, Redis, Mailpit,
+// plus GitHub repo catalog and optional custom URL), merges them into catalog.json,
+// and returns the updated catalog.
 func RefreshCatalog(p *Paths, customURL string) (Catalog, error) {
 	return RefreshCatalogWithToken(p, customURL, "")
 }
@@ -73,14 +165,19 @@ func RefreshCatalogWithToken(p *Paths, customURL, githubToken string) (Catalog, 
 		tokens = []string{""}
 	}
 
-	merge := func(engine string, entry CatalogEntry) {
+	merge := func(engine string, entry CatalogEntry, authoritative bool) {
 		if entry.Version == "" || entry.URL == "" {
 			return
 		}
+		entry.URL = normalizeCatalogURL(engine, entry.Version, entry.URL)
 		list := base[engine]
 		for i, existing := range list {
 			if existing.Version == entry.Version {
-				if entry.Note != "" && existing.Note == "" {
+				isCustom := strings.EqualFold(strings.TrimSpace(existing.Note), "Custom")
+				if authoritative && !isCustom {
+					list[i].URL = entry.URL
+				}
+				if entry.Note != "" && (existing.Note == "" || (authoritative && !isCustom)) {
 					list[i].Note = entry.Note
 				}
 				return
@@ -93,23 +190,24 @@ func RefreshCatalogWithToken(p *Paths, customURL, githubToken string) (Catalog, 
 	type catSource struct {
 		url    string
 		accept string
+		custom bool
 	}
 	sources := []catSource{
-		{defaultReleasesCatalogURL, ""},
-		{defaultReleasesCatalogAPIURL, "application/vnd.github.raw+json"},
-		{defaultRemoteCatalogURL, ""},
-		{defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json"},
+		{defaultReleasesCatalogURL, "", false},
+		{defaultReleasesCatalogAPIURL, "application/vnd.github.raw+json", false},
+		{defaultRemoteCatalogURL, "", false},
+		{defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json", false},
 	}
 	if tokens[0] != "" {
 		sources = []catSource{
-			{defaultReleasesCatalogAPIURL, "application/vnd.github.raw+json"},
-			{defaultReleasesCatalogURL, ""},
-			{defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json"},
-			{defaultRemoteCatalogURL, ""},
+			{defaultReleasesCatalogAPIURL, "application/vnd.github.raw+json", false},
+			{defaultReleasesCatalogURL, "", false},
+			{defaultRemoteCatalogAPIURL, "application/vnd.github.raw+json", false},
+			{defaultRemoteCatalogURL, "", false},
 		}
 	}
 	if strings.TrimSpace(customURL) != "" {
-		sources = append([]catSource{{strings.TrimSpace(customURL), ""}}, sources...)
+		sources = append([]catSource{{strings.TrimSpace(customURL), "", true}}, sources...)
 	}
 	fetchedCat := false
 	for _, tok := range tokens {
@@ -121,7 +219,10 @@ func RefreshCatalogWithToken(p *Paths, customURL, githubToken string) (Catalog, 
 			if _, err := getJSONNoCache(client, s.url, tok, s.accept, &rem); err == nil && len(rem) > 0 {
 				for eng, entries := range rem {
 					for _, e := range entries {
-						merge(eng, e)
+						if !s.custom && isKnownDeadCatalogURL(eng, e.URL) {
+							continue
+						}
+						merge(eng, e, s.custom)
 					}
 				}
 				fetchedCat = true
@@ -130,37 +231,120 @@ func RefreshCatalogWithToken(p *Paths, customURL, githubToken string) (Catalog, 
 		}
 	}
 
-	// 2. Live upstream discovery in parallel (MariaDB, PostgreSQL, Redis)
+	// 2. Live upstream discovery in parallel across all engines
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	safeMerge := func(engine string, entry CatalogEntry) {
 		mu.Lock()
-		merge(engine, entry)
+		merge(engine, entry, true)
 		mu.Unlock()
 	}
 
-	// MariaDB latest per active series
-	for _, series := range []struct{ id, note string }{
-		{"13.0", "Latest Stable"},
-		{"12.3", "LTS"},
-		{"11.8", "LTS"},
-		{"11.4", "LTS"},
-		{"10.11", "LTS"},
-	} {
-		wg.Add(1)
-		go func(ser, note string) {
-			defer wg.Done()
-			var resp struct {
-				Releases map[string]struct{} `json:"releases"`
-			}
-			if getJSON(client, "https://downloads.mariadb.org/rest-api/mariadb/"+ser+"/latest/", &resp) == nil {
-				for ver := range resp.Releases {
-					u := fmt.Sprintf("https://archive.mariadb.org/mariadb-%s/winx64-packages/mariadb-%s-winx64.zip", ver, ver)
-					safeMerge("mariadb", CatalogEntry{Version: ver, URL: u, Note: note})
+	// Apache Lounge latest Win64 build
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if entries := fetchApacheLoungeEntries(client); len(entries) > 0 {
+			mu.Lock()
+			kept := make([]CatalogEntry, 0, len(base["apache"]))
+			for _, e := range base["apache"] {
+				if strings.EqualFold(strings.TrimSpace(e.Note), "Custom") {
+					kept = append(kept, e)
 				}
 			}
-		}(series.id, series.note)
-	}
+			base["apache"] = kept
+			for _, e := range entries {
+				merge("apache", e, true)
+			}
+			mu.Unlock()
+		}
+	}()
+
+	// PHP Windows latest releases.json
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for _, e := range fetchPHPEntries(client) {
+			safeMerge("php", e)
+		}
+	}()
+
+	// MariaDB latest per active stable series
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var majorResp struct {
+			MajorReleases []struct {
+				ReleaseID     string `json:"release_id"`
+				ReleaseStatus string `json:"release_status"`
+				SupportType   string `json:"release_support_type"`
+			} `json:"major_releases"`
+		}
+		seriesList := []struct{ id, note string }{
+			{"13.1", "Latest Stable"},
+			{"12.3", "LTS"},
+			{"11.8", "LTS"},
+			{"11.4", "LTS"},
+		}
+		if getJSON(client, "https://downloads.mariadb.org/rest-api/mariadb/", &majorResp) == nil && len(majorResp.MajorReleases) > 0 {
+			discovered := make([]struct{ id, note string }, 0, len(majorResp.MajorReleases))
+			for _, mr := range majorResp.MajorReleases {
+				if strings.EqualFold(mr.ReleaseStatus, "RC") || strings.EqualFold(mr.ReleaseStatus, "Alpha") || strings.EqualFold(mr.ReleaseStatus, "Beta") {
+					continue
+				}
+				if mr.ReleaseID == "" || strings.HasPrefix(mr.ReleaseID, "10.11") {
+					continue
+				}
+				note := "Stable"
+				if len(discovered) == 0 {
+					note = "Latest Stable"
+				} else if strings.Contains(strings.ToLower(mr.SupportType), "long term") {
+					note = "LTS"
+				}
+				discovered = append(discovered, struct{ id, note string }{mr.ReleaseID, note})
+			}
+			if len(discovered) > 0 {
+				seriesList = discovered
+			}
+		}
+		var mwg sync.WaitGroup
+		for _, series := range seriesList {
+			mwg.Add(1)
+			go func(ser, note string) {
+				defer mwg.Done()
+				var resp struct {
+					Releases map[string]struct {
+						Files []struct {
+							FileName        string `json:"file_name"`
+							FileDownloadURL string `json:"file_download_url"`
+						} `json:"files"`
+					} `json:"releases"`
+				}
+				if getJSON(client, "https://downloads.mariadb.org/rest-api/mariadb/"+ser+"/latest/", &resp) == nil {
+					for ver, rel := range resp.Releases {
+						dlURL := fmt.Sprintf("https://downloads.mariadb.org/rest-api/mariadb/%s/mariadb-%s-winx64.zip", ver, ver)
+						for _, f := range rel.Files {
+							if strings.EqualFold(f.FileName, fmt.Sprintf("mariadb-%s-winx64.zip", ver)) && f.FileDownloadURL != "" {
+								dlURL = normalizeCatalogURL("mariadb", ver, f.FileDownloadURL)
+								break
+							}
+						}
+						safeMerge("mariadb", CatalogEntry{Version: ver, URL: dlURL, Note: note})
+					}
+				}
+			}(series.id, series.note)
+		}
+		mwg.Wait()
+	}()
+
+	// MySQL active cycles via endoflife.date + verified CDN/archive URLs
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for _, e := range fetchMySQLEntries(client) {
+			safeMerge("mysql", e)
+		}
+	}()
 
 	// PostgreSQL supported versions
 	wg.Add(1)
@@ -179,10 +363,38 @@ func RefreshCatalogWithToken(p *Paths, customURL, githubToken string) (Catalog, 
 				ver := fmt.Sprintf("%d.%d", pg.Major, pg.LatestMinor)
 				u := fmt.Sprintf("https://get.enterprisedb.com/postgresql/postgresql-%s-1-windows-x64-binaries.zip", ver)
 				note := "Stable"
-				if pg.Major >= 18 {
+				if pg.Major >= 19 {
 					note = "Latest"
 				}
 				safeMerge("postgresql", CatalogEntry{Version: ver, URL: u, Note: note})
+			}
+		}
+	}()
+
+	// MS SQL go-sqlcmd latest GitHub release
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var rels []struct {
+			Assets []struct {
+				Name               string `json:"name"`
+				BrowserDownloadURL string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+		if getJSON(client, "https://api.github.com/repos/microsoft/go-sqlcmd/releases?per_page=2", &rels) == nil {
+			for _, r := range rels {
+				for _, a := range r.Assets {
+					if a.Name == "sqlcmd-windows-amd64.zip" && a.BrowserDownloadURL != "" {
+						mu.Lock()
+						for i, existing := range base["mssql"] {
+							if !strings.EqualFold(strings.TrimSpace(existing.Note), "Custom") {
+								base["mssql"][i].URL = a.BrowserDownloadURL
+							}
+						}
+						mu.Unlock()
+						return
+					}
+				}
 			}
 		}
 	}()
@@ -247,14 +459,179 @@ func RefreshCatalogWithToken(p *Paths, customURL, githubToken string) (Catalog, 
 
 	// Sort each engine's versions newest-first
 	for eng, list := range base {
-		sort.Slice(list, func(i, j int) bool {
-			return compareVersions(list[i].Version, list[j].Version) > 0
-		})
+		sortCatalogEntries(list)
 		base[eng] = list
 	}
 
 	_ = SaveCatalog(p, base)
 	return base, nil
+}
+
+var reApacheLoungeWin64 = regexp.MustCompile(`href="(/download/(VS\d+)/binaries/(httpd-(\d+\.\d+\.\d+)-[^"]*?-Win64-[^"]*?\.zip))"`)
+
+func fetchApacheLoungeEntries(client *http.Client) []CatalogEntry {
+	req, err := http.NewRequest("GET", "https://www.apachelounge.com/download/", nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Lite/0.1.6")
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return nil
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+	if err != nil {
+		return nil
+	}
+	matches := reApacheLoungeWin64.FindAllStringSubmatch(string(b), -1)
+	seen := map[string]bool{}
+	var out []CatalogEntry
+	for _, m := range matches {
+		path, vs, ver := m[1], m[2], m[4]
+		u := "https://www.apachelounge.com" + path
+		if seen[u] {
+			continue
+		}
+		seen[u] = true
+		out = append(out, CatalogEntry{
+			Version: ver,
+			URL:     u,
+			Note:    fmt.Sprintf("Apache 2.4 Win64 %s", vs),
+		})
+	}
+	return out
+}
+
+func fetchPHPEntries(client *http.Client) []CatalogEntry {
+	var raw map[string]json.RawMessage
+	if getJSON(client, "https://windows.php.net/downloads/releases/releases.json", &raw) != nil {
+		return nil
+	}
+	var out []CatalogEntry
+	for branch, payload := range raw {
+		if compareVersions(branch, "8.1") < 0 {
+			continue
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(payload, &fields) != nil {
+			continue
+		}
+		var ver string
+		if b, ok := fields["version"]; ok {
+			_ = json.Unmarshal(b, &ver)
+		}
+		if ver == "" {
+			continue
+		}
+		var zipPath, vsLabel string
+		for k, v := range fields {
+			if strings.HasPrefix(k, "ts-vs") && strings.HasSuffix(k, "-x64") {
+				var build struct {
+					Zip struct {
+						Path string `json:"path"`
+					} `json:"zip"`
+				}
+				if json.Unmarshal(v, &build) == nil && build.Zip.Path != "" {
+					zipPath = build.Zip.Path
+					parts := strings.Split(k, "-")
+					if len(parts) >= 2 {
+						vsLabel = strings.ToUpper(parts[1])
+					}
+					break
+				}
+			}
+		}
+		if zipPath == "" {
+			continue
+		}
+		note := fmt.Sprintf("PHP %s (%s x64)", branch, vsLabel)
+		out = append(out, CatalogEntry{
+			Version: ver,
+			URL:     "https://windows.php.net/downloads/releases/" + zipPath,
+			Note:    note,
+		})
+	}
+	return out
+}
+
+func fetchMySQLEntries(client *http.Client) []CatalogEntry {
+	var cycles []struct {
+		Cycle  string      `json:"cycle"`
+		Latest string      `json:"latest"`
+		LTS    interface{} `json:"lts"`
+	}
+	if getJSON(client, "https://endoflife.date/api/mysql.json", &cycles) != nil {
+		return nil
+	}
+	var out []CatalogEntry
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	first := true
+	for _, c := range cycles {
+		ver := strings.TrimSpace(c.Latest)
+		cycle := strings.TrimSpace(c.Cycle)
+		if ver == "" || cycle == "" || compareVersions(cycle, "8.0") < 0 {
+			continue
+		}
+		// Keep Innovation/LTS series (26.x, 9.7+, 8.4, 8.0); skip expired 8.1-8.3 / 9.0-9.6 series
+		if compareVersions(cycle, "8.0") > 0 && compareVersions(cycle, "8.4") < 0 {
+			continue
+		}
+		if compareVersions(cycle, "9.0") >= 0 && compareVersions(cycle, "9.7") < 0 {
+			continue
+		}
+		isLTS := false
+		switch v := c.LTS.(type) {
+		case bool:
+			isLTS = v
+		case string:
+			isLTS = v != ""
+		}
+		note := "Stable"
+		if first {
+			note = "Latest"
+			first = false
+		} else if isLTS {
+			note = "LTS"
+		}
+		wg.Add(1)
+		go func(cycle, ver, note string) {
+			defer wg.Done()
+			primary := fmt.Sprintf("https://cdn.mysql.com/Downloads/MySQL-%s/mysql-%s-winx64.zip", cycle, ver)
+			archive := fmt.Sprintf("https://cdn.mysql.com/archives/mysql-%s/mysql-%s-winx64.zip", cycle, ver)
+			chosen := ""
+			if headOK(client, primary) {
+				chosen = primary
+			} else if headOK(client, archive) {
+				chosen = archive
+			}
+			if chosen != "" {
+				mu.Lock()
+				out = append(out, CatalogEntry{Version: ver, URL: chosen, Note: note})
+				mu.Unlock()
+			}
+		}(cycle, ver, note)
+	}
+	wg.Wait()
+	return out
+}
+
+func headOK(client *http.Client, rawURL string) bool {
+	req, err := http.NewRequest("HEAD", rawURL, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Lite/0.1.6")
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == 200
 }
 
 // AddCustomCatalogEntry saves a user-provided version and download URL into catalog.json.
@@ -478,13 +855,95 @@ func (d *Downloader) finish(engine, version string) {
 	}
 }
 
-func (d *Downloader) download(ctx context.Context, engine, version, url, dest string) error {
+var downloadHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   15 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 20 * time.Second,
+		IdleConnTimeout:       60 * time.Second,
+	},
+}
+
+func (d *Downloader) download(ctx context.Context, engine, version, rawURL, dest string) error {
+	candidates := buildDownloadCandidates(ctx, engine, version, rawURL)
+	var lastErr error
+	for _, u := range candidates {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		err := d.downloadOnce(ctx, engine, version, u, dest)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+	return lastErr
+}
+
+func buildDownloadCandidates(ctx context.Context, engine, version, rawURL string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(u string) {
+		u = strings.TrimSpace(u)
+		if u == "" || seen[u] {
+			return
+		}
+		seen[u] = true
+		out = append(out, u)
+	}
+
+	norm := normalizeCatalogURL(engine, version, rawURL)
+	add(rawURL)
+	add(norm)
+
+	ver := strings.TrimSpace(version)
+	switch engine {
+	case "mysql":
+		majMin := versionPrefix(ver, 2)
+		if ver != "" && majMin != "" {
+			add(fmt.Sprintf("https://cdn.mysql.com/archives/mysql-%s/mysql-%s-winx64.zip", majMin, ver))
+			add(fmt.Sprintf("https://downloads.mysql.com/archives/get/p/23/file/mysql-%s-winx64.zip", ver))
+			add(fmt.Sprintf("https://cdn.mysql.com/Downloads/MySQL-%s/mysql-%s-winx64.zip", majMin, ver))
+		}
+	case "php":
+		if strings.Contains(norm, "windows.php.net/downloads/releases/") {
+			if strings.Contains(norm, "/downloads/releases/archives/") {
+				add(strings.Replace(norm, "/downloads/releases/archives/", "/downloads/releases/", 1))
+			} else {
+				add(strings.Replace(norm, "/downloads/releases/", "/downloads/releases/archives/", 1))
+			}
+		}
+	case "mariadb":
+		if ver != "" {
+			add(fmt.Sprintf("https://downloads.mariadb.org/rest-api/mariadb/%s/mariadb-%s-winx64.zip", ver, ver))
+			add(fmt.Sprintf("https://dlm.mariadb.com/rest-api/mariadb/%s/mariadb-%s-winx64.zip", ver, ver))
+			add(fmt.Sprintf("https://archive.mariadb.org/mariadb-%s/winx64-packages/mariadb-%s-winx64.zip", ver, ver))
+		}
+	case "apache":
+		if ctx.Err() == nil {
+			probeClient := &http.Client{Timeout: 8 * time.Second}
+			for _, e := range fetchApacheLoungeEntries(probeClient) {
+				add(e.URL)
+			}
+		}
+	}
+	return out
+}
+
+func (d *Downloader) downloadOnce(ctx context.Context, engine, version, url, dest string) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DariusDB-Lite/0.1.6")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}

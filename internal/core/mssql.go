@@ -339,7 +339,7 @@ func autoProvisionSqlcmd(root string) string {
 		return destExe
 	}
 	client := &http.Client{Timeout: 60 * time.Second}
-	req, err := http.NewRequest("GET", "https://github.com/microsoft/go-sqlcmd/releases/download/v1.10.0/sqlcmd-windows-amd64.zip", nil)
+	req, err := http.NewRequest("GET", "https://github.com/microsoft/go-sqlcmd/releases/download/v1.11.0/sqlcmd-windows-amd64.zip", nil)
 	if err != nil {
 		return ""
 	}

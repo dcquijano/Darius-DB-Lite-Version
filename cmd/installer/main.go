@@ -249,8 +249,9 @@ type installOptions struct {
 }
 
 type installResult struct {
-	installedComponents []string
-	warnings            []string
+	installedPrereqs []string
+	installedEngines []string
+	warnings         []string
 }
 
 // ---------------------------------------------------------------- Win32 Wizard GUI
@@ -265,12 +266,12 @@ const (
 	wsTabStop     = 0x00010000
 	wsBorder      = 0x00800000
 	wsVScroll     = 0x00200000
-	wsDisabled    = 0x08000000
 
 	wsExClientEdge = 0x00000200
 
 	ssIcon       = 0x00000003
 	ssEtchedHorz = 0x00000010
+	ssNoPrefix   = 0x00000080 // prevents Win32 STATIC from eating '&' characters
 
 	bsPushButton   = 0x00000000
 	bsDefPushBtn   = 0x00000001
@@ -304,7 +305,6 @@ const (
 	pbmSetPos     = wmUser + 2
 
 	emSetSel      = 0x00B1
-	emReplaceSel  = 0x00C2
 	emScrollCaret = 0x00B7
 
 	swHide = 0
@@ -330,8 +330,9 @@ const (
 	idChkPrereqVCRedist = 411
 	idChkPrereqLocalDB  = 412
 	idBtnPresetLite     = 420
-	idBtnPresetRec      = 421
+	idBtnPresetWeb      = 421
 	idBtnPresetAll      = 422
+	idBtnPresetOffline  = 423
 	idChkEngineBase     = 430 // 430..437
 
 	idChkLaunch = 501
@@ -363,10 +364,8 @@ var (
 	procPostQuitMessage      = user32.NewProc("PostQuitMessage")
 	procGetSystemMetrics     = user32.NewProc("GetSystemMetrics")
 	procCreateIconFromResEx  = user32.NewProc("CreateIconFromResourceEx")
-	procInvalidateRect       = user32.NewProc("InvalidateRect")
 	procCreateFontW          = gdi32.NewProc("CreateFontW")
 	procSetBkMode            = gdi32.NewProc("SetBkMode")
-	procSetTextColor         = gdi32.NewProc("SetTextColor")
 	procGetSysColorBrush     = user32.NewProc("GetSysColorBrush")
 )
 
@@ -409,7 +408,6 @@ type wizardState struct {
 	fontTitle    syscall.Handle
 	fontBold     syscall.Handle
 	fontUI       syscall.Handle
-	fontSmall    syscall.Handle
 	fontMono     syscall.Handle
 	page         int // 1..5
 	installing   bool
@@ -443,18 +441,19 @@ type wizardState struct {
 	p2ChkFixPorts syscall.Handle
 	p2ChkResetCfg syscall.Handle
 
-	// Page 3: Requirements & Components
+	// Page 3: System Requirements & Database Components
+	p3Banner        syscall.Handle
 	p3LblPrereqs    syscall.Handle
 	p3BtnRecheck    syscall.Handle
 	p3ChkPrereqs    [3]syscall.Handle
-	p3StPrereqs     [3]syscall.Handle
 	p3DivMid        syscall.Handle
 	p3LblEngines    syscall.Handle
-	p3BtnPresetLite syscall.Handle
-	p3BtnPresetRec  syscall.Handle
-	p3BtnPresetAll  syscall.Handle
 	p3ChkEngines    [8]syscall.Handle
-	p3LblSummary    syscall.Handle
+	p3BtnPresetLite syscall.Handle
+	p3BtnPresetWeb  syscall.Handle
+	p3BtnPresetAll  syscall.Handle
+	p3BtnPresetOff  syscall.Handle
+	p3SummaryLabel  syscall.Handle
 
 	// Page 4: Installing Progress
 	p4Status   syscall.Handle
@@ -472,15 +471,15 @@ type wizardState struct {
 	btnNext   syscall.Handle
 	btnCancel syscall.Handle
 
-	mu            sync.Mutex
-	env           setupEnvSnapshot
-	envLoaded     bool
-	envInitDone   bool
-	stepMsg       string
-	stepPct       int
-	logQueue      []string
-	errText       string
-	lastResult    installResult
+	mu          sync.Mutex
+	env         setupEnvSnapshot
+	envLoaded   bool
+	envInitDone bool
+	stepMsg     string
+	stepPct     int
+	logQueue    []string
+	errText     string
+	lastResult  installResult
 }
 
 var wiz = &wizardState{finalDir: defaultDir}
@@ -488,6 +487,12 @@ var wiz = &wizardState{finalDir: defaultDir}
 func u16(s string) *uint16 {
 	p, _ := windows.UTF16PtrFromString(s)
 	return p
+}
+
+// escapeButtonAmpersands doubles single '&' in Win32 BUTTON labels so they display literally
+// instead of being consumed as keyboard accelerator mnemonics.
+func escapeButtonAmpersands(s string) string {
+	return strings.ReplaceAll(s, "&", "&&")
 }
 
 func makeIcon(size uintptr) syscall.Handle {
@@ -516,6 +521,11 @@ func makeFont(height int32, weight int32, face string) syscall.Handle {
 }
 
 func createCtrl(exStyle uint32, class, text string, style uint32, x, y, w, h int, parent syscall.Handle, id uintptr, font syscall.Handle) syscall.Handle {
+	if strings.EqualFold(class, "STATIC") && (style&(ssIcon|ssEtchedHorz)) == 0 {
+		style |= ssNoPrefix
+	} else if strings.EqualFold(class, "BUTTON") {
+		text = escapeButtonAmpersands(text)
+	}
 	hwnd, _, _ := procCreateWindowExW.Call(
 		uintptr(exStyle),
 		uintptr(unsafe.Pointer(u16(class))),
@@ -552,7 +562,14 @@ func setText(h syscall.Handle, s string) {
 	procSetWindowTextW.Call(uintptr(h), uintptr(unsafe.Pointer(u16(s))))
 }
 
+func setButtonText(h syscall.Handle, s string) {
+	setText(h, escapeButtonAmpersands(s))
+}
+
 func getText(h syscall.Handle) string {
+	if h == 0 {
+		return ""
+	}
 	n, _, _ := procGetWindowTextLengthW.Call(uintptr(h))
 	buf := make([]uint16, n+2)
 	procGetWindowTextW.Call(uintptr(h), uintptr(unsafe.Pointer(&buf[0])), n+1)
@@ -560,11 +577,17 @@ func getText(h syscall.Handle) string {
 }
 
 func isChecked(h syscall.Handle) bool {
+	if h == 0 {
+		return false
+	}
 	r, _, _ := procSendMessageW.Call(uintptr(h), bmGetCheck, 0, 0)
 	return r == bstChecked
 }
 
 func setChecked(h syscall.Handle, checked bool) {
+	if h == 0 {
+		return
+	}
 	v := uintptr(0)
 	if checked {
 		v = bstChecked
@@ -600,7 +623,6 @@ func runWizardGUI() {
 	wiz.fontTitle = makeFont(-18, 700, "Segoe UI")
 	wiz.fontBold = makeFont(-13, 600, "Segoe UI")
 	wiz.fontUI = makeFont(-13, 400, "Segoe UI")
-	wiz.fontSmall = makeFont(-12, 400, "Segoe UI")
 	wiz.fontMono = makeFont(-12, 400, "Consolas")
 
 	clsName := u16("DariusDBSetupWizard")
@@ -615,7 +637,7 @@ func runWizardGUI() {
 	}
 	procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 
-	const winW, winH = 600, 510
+	const winW, winH = 620, 510
 	scrW, _, _ := procGetSystemMetrics.Call(0)
 	scrH, _, _ := procGetSystemMetrics.Call(1)
 	posX := (int(scrW) - winW) / 2
@@ -650,20 +672,20 @@ func buildWizardControls(hwnd syscall.Handle) {
 	if wiz.hIcon48 != 0 {
 		procSendMessageW.Call(uintptr(icoCtrl), stmSetIcon, uintptr(wiz.hIcon48), 0)
 	}
-	wiz.lblTitle = createCtrl(0, "STATIC", appFullTitle+" Setup", wsVisible, 78, 14, 495, 24, hwnd, 0, wiz.fontTitle)
-	wiz.lblSubtitle = createCtrl(0, "STATIC", "Created by Darius Cumpio · MIT Open Source", wsVisible, 78, 40, 495, 20, hwnd, 0, wiz.fontUI)
-	createCtrl(0, "STATIC", "", wsVisible|ssEtchedHorz, 0, 70, 600, 2, hwnd, 0, 0)
+	wiz.lblTitle = createCtrl(0, "STATIC", appFullTitle+" Setup", wsVisible, 78, 14, 510, 24, hwnd, 0, wiz.fontTitle)
+	wiz.lblSubtitle = createCtrl(0, "STATIC", "Created by Darius Cumpio · MIT Open Source", wsVisible, 78, 40, 510, 20, hwnd, 0, wiz.fontUI)
+	createCtrl(0, "STATIC", "", wsVisible|ssEtchedHorz, 0, 70, 620, 2, hwnd, 0, 0)
 
 	// ---- Page 1: Welcome & License ----
 	wiz.p1Intro = createCtrl(0, "STATIC",
 		"Welcome to the Darius DB (Lite Version 0.1.6) Setup Wizard.\r\n"+
-			"Manage Apache, PHP, MariaDB, MySQL, PostgreSQL, MS SQL Server, Redis & Mailpit with Developer CLI.",
-		0, 22, 84, 540, 38, hwnd, 0, wiz.fontUI)
+			"Manage MariaDB, MySQL, PostgreSQL, MS SQL, Redis, Apache, PHP & Mailpit with built-in CLI.",
+		0, 22, 84, 566, 38, hwnd, 0, wiz.fontUI)
 	wiz.p1LicBox = createCtrl(wsExClientEdge, "EDIT", mitLicenseText,
 		wsBorder|wsVScroll|esMultiline|esAutoVScroll|esReadOnly,
-		22, 128, 540, 236, hwnd, 0, wiz.fontMono)
+		22, 130, 566, 232, hwnd, 0, wiz.fontMono)
 	wiz.p1Accept = createCtrl(0, "BUTTON", "I accept the terms in the MIT License Agreement",
-		wsTabStop|bsAutoCheckBox, 22, 376, 500, 22, hwnd, idChkAccept, wiz.fontBold)
+		wsTabStop|bsAutoCheckBox, 22, 372, 500, 24, hwnd, idChkAccept, wiz.fontBold)
 	setChecked(wiz.p1Accept, true)
 
 	// ---- Page 2: Destination & Options ----
@@ -672,91 +694,92 @@ func buildWizardControls(hwnd syscall.Handle) {
 		dirLabel = "Existing Installation Folder (locked for Repair — double install disabled):"
 	}
 	wiz.p2LblDir = createCtrl(0, "STATIC", dirLabel,
-		0, 22, 88, 520, 20, hwnd, 0, wiz.fontBold)
+		0, 22, 88, 560, 20, hwnd, 0, wiz.fontBold)
 	wiz.p2EditDir = createCtrl(wsExClientEdge, "EDIT", wiz.finalDir,
-		wsTabStop|wsBorder|esAutoHScroll, 22, 114, 434, 26, hwnd, idEditDir, wiz.fontUI)
+		wsTabStop|wsBorder|esAutoHScroll, 22, 112, 458, 26, hwnd, idEditDir, wiz.fontUI)
 	wiz.p2BtnBrw = createCtrl(0, "BUTTON", "Browse...",
-		wsTabStop|bsPushButton, 464, 113, 98, 28, hwnd, idBtnBrowse, wiz.fontUI)
+		wsTabStop|bsPushButton, 488, 111, 100, 28, hwnd, idBtnBrowse, wiz.fontUI)
 	if wiz.repairMode {
 		enableCtrl(wiz.p2EditDir, false)
 		enableCtrl(wiz.p2BtnBrw, false)
 	}
 
 	wiz.p2LblOpt = createCtrl(0, "STATIC", "Shortcuts & Developer Integration:",
-		0, 22, 156, 520, 18, hwnd, 0, wiz.fontBold)
+		0, 22, 152, 560, 20, hwnd, 0, wiz.fontBold)
 	wiz.p2ChkDesk = createCtrl(0, "BUTTON", "Create / Repair Desktop shortcut",
-		wsTabStop|bsAutoCheckBox, 26, 182, 520, 22, hwnd, idChkDesktop, wiz.fontUI)
+		wsTabStop|bsAutoCheckBox, 26, 178, 550, 22, hwnd, idChkDesktop, wiz.fontUI)
 	wiz.p2ChkMenu = createCtrl(0, "BUTTON", "Create / Repair Start Menu shortcuts (Darius DB, Terminal, Repair All, Uninstall)",
-		wsTabStop|bsAutoCheckBox, 26, 208, 535, 22, hwnd, idChkStartMnu, wiz.fontUI)
+		wsTabStop|bsAutoCheckBox, 26, 204, 550, 22, hwnd, idChkStartMnu, wiz.fontUI)
 	wiz.p2ChkPath = createCtrl(0, "BUTTON", "Add 'darius' CLI & DB tools to Windows PATH (Visual Studio & VS Code)",
-		wsTabStop|bsAutoCheckBox, 26, 234, 535, 22, hwnd, idChkPath, wiz.fontUI)
+		wsTabStop|bsAutoCheckBox, 26, 230, 550, 22, hwnd, idChkPath, wiz.fontUI)
 	wiz.p2ChkBoot = createCtrl(0, "BUTTON", "Start Darius DB automatically when Windows signs in (minimized to tray)",
-		wsTabStop|bsAutoCheckBox, 26, 260, 535, 22, hwnd, idChkBoot, wiz.fontUI)
+		wsTabStop|bsAutoCheckBox, 26, 256, 550, 22, hwnd, idChkBoot, wiz.fontUI)
 	wiz.p2ChkFixPorts = createCtrl(0, "BUTTON", "Repair All: Auto-reassign ports blocked by external programs & run deep LocalDB fix",
-		wsTabStop|bsAutoCheckBox, 26, 294, 535, 22, hwnd, idChkFixPorts, wiz.fontUI)
+		wsTabStop|bsAutoCheckBox, 26, 286, 555, 22, hwnd, idChkFixPorts, wiz.fontUI)
 	wiz.p2ChkResetCfg = createCtrl(0, "BUTTON", "Reset engine configuration files (etc/*) to clean defaults (backs up to .bak)",
-		wsTabStop|bsAutoCheckBox, 26, 320, 535, 22, hwnd, idChkResetCfg, wiz.fontUI)
+		wsTabStop|bsAutoCheckBox, 26, 312, 555, 22, hwnd, idChkResetCfg, wiz.fontUI)
 	setChecked(wiz.p2ChkDesk, true)
 	setChecked(wiz.p2ChkMenu, true)
 	setChecked(wiz.p2ChkPath, true)
 	setChecked(wiz.p2ChkFixPorts, wiz.fixPorts)
 	setChecked(wiz.p2ChkResetCfg, wiz.resetConfigs)
 
-	// ---- Page 3: Requirements & Components ----
-	wiz.p3LblPrereqs = createCtrl(0, "STATIC", "System Requirements (auto-detected on this PC):",
-		0, 22, 82, 430, 20, hwnd, 0, wiz.fontBold)
+	// ---- Page 3: System Requirements & Database Components ----
+	wiz.p3Banner = createCtrl(0, "STATIC", "Checking system requirements and local offline bundle...",
+		0, 22, 80, 566, 20, hwnd, 0, wiz.fontUI)
+	wiz.p3LblPrereqs = createCtrl(0, "STATIC", "System Requirements (Detected on this PC):",
+		0, 22, 106, 450, 20, hwnd, 0, wiz.fontBold)
 	wiz.p3BtnRecheck = createCtrl(0, "BUTTON", "Re-check",
-		wsTabStop|bsPushButton, 474, 79, 88, 24, hwnd, idBtnRecheck, wiz.fontSmall)
+		wsTabStop|bsPushButton, 488, 102, 100, 24, hwnd, idBtnRecheck, wiz.fontUI)
 
-	prereqLabels := [3]string{
-		"Microsoft Edge WebView2 Runtime",
-		"Visual C++ 2015-2026 Redistributable (x64)",
-		"SQL Server Express LocalDB",
+	prereqInitLabels := [3]string{
+		"Microsoft Edge WebView2 Runtime — checking...",
+		"Visual C++ 2015–2026 Redistributable (x64) — checking...",
+		"SQL Server Express LocalDB — checking...",
 	}
 	prereqIDs := [3]uintptr{idChkPrereqWebView2, idChkPrereqVCRedist, idChkPrereqLocalDB}
 	for i := 0; i < 3; i++ {
-		y := 108 + i*24
-		wiz.p3ChkPrereqs[i] = createCtrl(0, "BUTTON", prereqLabels[i],
-			wsTabStop|bsAutoCheckBox, 26, y, 298, 20, hwnd, prereqIDs[i], wiz.fontUI)
-		wiz.p3StPrereqs[i] = createCtrl(0, "STATIC", "Checking...",
-			0, 330, y+2, 232, 18, hwnd, 0, wiz.fontSmall)
+		y := 130 + i*24
+		wiz.p3ChkPrereqs[i] = createCtrl(0, "BUTTON", prereqInitLabels[i],
+			wsTabStop|bsAutoCheckBox, 26, y, 562, 21, hwnd, prereqIDs[i], wiz.fontUI)
 		enableCtrl(wiz.p3ChkPrereqs[i], false)
 	}
 
-	wiz.p3DivMid = createCtrl(0, "STATIC", "", ssEtchedHorz, 22, 184, 540, 2, hwnd, 0, 0)
-
-	wiz.p3LblEngines = createCtrl(0, "STATIC", "Optional Engines (uncheck all for fast Lite install):",
-		0, 22, 194, 300, 20, hwnd, 0, wiz.fontBold)
-	wiz.p3BtnPresetLite = createCtrl(0, "BUTTON", "Lite (None)",
-		wsTabStop|bsPushButton, 326, 191, 74, 23, hwnd, idBtnPresetLite, wiz.fontSmall)
-	wiz.p3BtnPresetRec = createCtrl(0, "BUTTON", "Web + DB",
-		wsTabStop|bsPushButton, 406, 191, 76, 23, hwnd, idBtnPresetRec, wiz.fontSmall)
-	wiz.p3BtnPresetAll = createCtrl(0, "BUTTON", "Select All",
-		wsTabStop|bsPushButton, 488, 191, 74, 23, hwnd, idBtnPresetAll, wiz.fontSmall)
+	wiz.p3DivMid = createCtrl(0, "STATIC", "", ssEtchedHorz, 22, 206, 566, 2, hwnd, 0, 0)
+	wiz.p3LblEngines = createCtrl(0, "STATIC", "Database & Web Engines to Pre-Install (Optional — uncheck all for fast Lite install):",
+		0, 22, 214, 566, 20, hwnd, 0, wiz.fontBold)
 
 	for i, meta := range setupEngineOrder {
 		col := i / 4
 		row := i % 4
-		x := 26 + col*270
-		y := 222 + row*24
-		wiz.p3ChkEngines[i] = createCtrl(0, "BUTTON", fmt.Sprintf("%s (%s)", meta.label, meta.hint),
-			wsTabStop|bsAutoCheckBox, x, y, 264, 20, hwnd, uintptr(idChkEngineBase+i), wiz.fontUI)
+		x := 26 + col*284
+		y := 240 + row*26
+		wiz.p3ChkEngines[i] = createCtrl(0, "BUTTON", fmt.Sprintf("%s (~%d MB)", meta.label, meta.defaultSizeMB),
+			wsTabStop|bsAutoCheckBox, x, y, 278, 22, hwnd, uintptr(idChkEngineBase+i), wiz.fontUI)
 	}
 
-	wiz.p3LblSummary = createCtrl(wsExClientEdge, "EDIT",
-		"Detecting installed Windows requirements and local offline packages...",
-		wsBorder|esMultiline|esReadOnly,
-		22, 326, 540, 76, hwnd, 0, wiz.fontSmall)
+	wiz.p3BtnPresetLite = createCtrl(0, "BUTTON", "Lite Only (None)",
+		wsTabStop|bsPushButton, 22, 350, 132, 25, hwnd, idBtnPresetLite, wiz.fontUI)
+	wiz.p3BtnPresetWeb = createCtrl(0, "BUTTON", "Web + MariaDB",
+		wsTabStop|bsPushButton, 162, 350, 132, 25, hwnd, idBtnPresetWeb, wiz.fontUI)
+	wiz.p3BtnPresetAll = createCtrl(0, "BUTTON", "Select All",
+		wsTabStop|bsPushButton, 302, 350, 108, 25, hwnd, idBtnPresetAll, wiz.fontUI)
+	wiz.p3BtnPresetOff = createCtrl(0, "BUTTON", "Offline Bundle",
+		wsTabStop|bsPushButton, 418, 350, 132, 25, hwnd, idBtnPresetOffline, wiz.fontUI)
+
+	wiz.p3SummaryLabel = createCtrl(0, "STATIC",
+		"Mode: Fast Lite Install (no extra downloads — install engines anytime in Versions)",
+		0, 22, 384, 566, 22, hwnd, 0, wiz.fontBold)
 
 	// ---- Page 4: Installing... ----
 	wiz.p4Status = createCtrl(0, "STATIC", "Preparing installation...",
-		0, 22, 86, 540, 20, hwnd, 0, wiz.fontBold)
+		0, 22, 86, 566, 22, hwnd, 0, wiz.fontBold)
 	wiz.p4Progress = createCtrl(0, "msctls_progress32", "",
-		0, 22, 112, 540, 24, hwnd, 0, 0)
+		0, 22, 112, 566, 24, hwnd, 0, 0)
 	procSendMessageW.Call(uintptr(wiz.p4Progress), pbmSetRange32, 0, 100)
 	wiz.p4LogBox = createCtrl(wsExClientEdge, "EDIT", "",
 		wsBorder|wsVScroll|esMultiline|esAutoVScroll|esReadOnly,
-		22, 146, 540, 256, hwnd, 0, wiz.fontMono)
+		22, 146, 566, 256, hwnd, 0, wiz.fontMono)
 
 	// ---- Page 5: Completed ----
 	doneHeadline := "Darius DB (Lite Version 0.1.6) has been installed!"
@@ -764,21 +787,20 @@ func buildWizardControls(hwnd syscall.Handle) {
 		doneHeadline = "Darius DB (Lite Version 0.1.6) has been repaired!"
 	}
 	wiz.p5DoneTitle = createCtrl(0, "STATIC", doneHeadline,
-		0, 22, 90, 540, 26, hwnd, 0, wiz.fontTitle)
-	wiz.p5Summary = createCtrl(wsExClientEdge, "EDIT", "",
-		wsBorder|wsVScroll|esMultiline|esAutoVScroll|esReadOnly,
-		22, 124, 540, 184, hwnd, 0, wiz.fontUI)
+		0, 22, 90, 566, 26, hwnd, 0, wiz.fontTitle)
+	wiz.p5Summary = createCtrl(0, "STATIC", "",
+		0, 22, 124, 566, 158, hwnd, 0, wiz.fontUI)
 	wiz.p5ChkLaunch = createCtrl(0, "BUTTON", "Launch Darius DB (Lite Version 0.1.6) now",
-		wsTabStop|bsAutoCheckBox, 26, 322, 500, 24, hwnd, idChkLaunch, wiz.fontBold)
+		wsTabStop|bsAutoCheckBox, 26, 294, 520, 24, hwnd, idChkLaunch, wiz.fontBold)
 	wiz.p5ChkGuide = createCtrl(0, "BUTTON", "Open Step-by-Step User Guide (GUIDE.md)",
-		wsTabStop|bsAutoCheckBox, 26, 352, 500, 24, hwnd, idChkGuide, wiz.fontUI)
+		wsTabStop|bsAutoCheckBox, 26, 324, 520, 24, hwnd, idChkGuide, wiz.fontUI)
 	setChecked(wiz.p5ChkLaunch, true)
 
 	// Bottom divider & navigation buttons
-	createCtrl(0, "STATIC", "", wsVisible|ssEtchedHorz, 0, 414, 600, 2, hwnd, 0, 0)
-	wiz.btnBack = createCtrl(0, "BUTTON", "< Back", wsVisible|wsTabStop|bsPushButton, 284, 428, 90, 30, hwnd, idBtnBack, wiz.fontUI)
-	wiz.btnNext = createCtrl(0, "BUTTON", "Next >", wsVisible|wsTabStop|bsDefPushBtn, 380, 428, 96, 30, hwnd, idBtnNext, wiz.fontBold)
-	wiz.btnCancel = createCtrl(0, "BUTTON", "Cancel", wsVisible|wsTabStop|bsPushButton, 482, 428, 90, 30, hwnd, idBtnCancel, wiz.fontUI)
+	createCtrl(0, "STATIC", "", wsVisible|ssEtchedHorz, 0, 414, 620, 2, hwnd, 0, 0)
+	wiz.btnBack = createCtrl(0, "BUTTON", "< Back", wsVisible|wsTabStop|bsPushButton, 294, 428, 92, 30, hwnd, idBtnBack, wiz.fontUI)
+	wiz.btnNext = createCtrl(0, "BUTTON", "Next >", wsVisible|wsTabStop|bsDefPushBtn, 394, 428, 96, 30, hwnd, idBtnNext, wiz.fontBold)
+	wiz.btnCancel = createCtrl(0, "BUTTON", "Cancel", wsVisible|wsTabStop|bsPushButton, 498, 428, 92, 30, hwnd, idBtnCancel, wiz.fontUI)
 
 	if wiz.repairMode {
 		setText(wiz.lblTitle, appFullTitle+" Repair")
@@ -787,7 +809,7 @@ func buildWizardControls(hwnd syscall.Handle) {
 		showWizardPage(1)
 	}
 
-	// Start prerequisite & offline pack detection asynchronously right away so Page 3 opens instantly.
+	// Probe requirements & offline bundle asynchronously so the wizard opens immediately with zero UI lag.
 	startAsyncEnvProbe(hwnd, false)
 }
 
@@ -798,10 +820,7 @@ func startAsyncEnvProbe(hwnd syscall.Handle, forceRecheck bool) {
 	}
 	if forceRecheck {
 		enableCtrl(wiz.p3BtnRecheck, false)
-		for i := 0; i < 3; i++ {
-			setText(wiz.p3StPrereqs[i], "Checking...")
-		}
-		setText(wiz.p3LblSummary, "Re-checking Windows requirements and local offline packages...")
+		setText(wiz.p3Banner, "Re-checking system requirements and local offline bundle...")
 	}
 	go func(targetDir string, recheck bool) {
 		if recheck {
@@ -827,6 +846,13 @@ func applyEnvSnapshotToUI() {
 
 	enableCtrl(wiz.p3BtnRecheck, true)
 
+	if snap.HasOfflinePack {
+		setText(wiz.p3Banner, fmt.Sprintf("Offline bundle detected (%d engine(s), %d runtime(s)) — installs with zero internet!",
+			snap.OfflineEngineCount, snap.OfflinePrereqCount))
+	} else {
+		setText(wiz.p3Banner, "Online mode — select engines to download during setup, or uncheck all for a fast Lite install.")
+	}
+
 	cliPrereqSet := map[string]bool{}
 	for _, id := range wiz.cliPrereqs {
 		cliPrereqSet[id] = true
@@ -838,8 +864,7 @@ func applyEnvSnapshotToUI() {
 
 	for i := 0; i < 3; i++ {
 		info := snap.Prereqs[i]
-		setText(wiz.p3StPrereqs[i], formatPrereqStatusBadge(info))
-		procInvalidateRect.Call(uintptr(wiz.p3StPrereqs[i]), 0, 1)
+		setButtonText(wiz.p3ChkPrereqs[i], formatPrereqCheckboxLabel(info))
 		if info.Status.Installed {
 			setChecked(wiz.p3ChkPrereqs[i], false)
 			enableCtrl(wiz.p3ChkPrereqs[i], false)
@@ -849,11 +874,7 @@ func applyEnvSnapshotToUI() {
 				if len(cliPrereqSet) > 0 {
 					setChecked(wiz.p3ChkPrereqs[i], cliPrereqSet[info.Status.ID])
 				} else {
-					// Auto-check missing WebView2 (GUI requirement) and VC++ x64 (engine requirement).
-					// Keep SQL LocalDB optional unless bundled offline next to Setup.
-					autoCheck := info.Status.ID == core.PrereqIDWebView2 ||
-						info.Status.ID == core.PrereqIDVCRedistX64 ||
-						(info.Status.ID == core.PrereqIDMSSQLLocalDB && info.OfflinePath != "")
+					autoCheck := info.Status.ID == core.PrereqIDWebView2 || info.OfflinePath != ""
 					setChecked(wiz.p3ChkPrereqs[i], autoCheck)
 				}
 			}
@@ -862,12 +883,11 @@ func applyEnvSnapshotToUI() {
 
 	for i := 0; i < len(snap.Engines) && i < len(wiz.p3ChkEngines); i++ {
 		spec := snap.Engines[i]
-		setText(wiz.p3ChkEngines[i], formatEngineCheckboxLabel(spec))
+		setButtonText(wiz.p3ChkEngines[i], formatEngineCheckboxLabel(spec))
 		if initial {
 			if len(cliEngineSet) > 0 {
 				setChecked(wiz.p3ChkEngines[i], cliEngineSet[spec.ID])
 			} else if !wiz.repairMode && spec.OfflinePath != "" {
-				// If running from an Offline Bundle Pack, pre-select bundled engines for 1-click offline install.
 				setChecked(wiz.p3ChkEngines[i], true)
 			} else {
 				setChecked(wiz.p3ChkEngines[i], false)
@@ -875,90 +895,40 @@ func applyEnvSnapshotToUI() {
 		}
 	}
 
-	updateComponentsSummary()
+	if initial && (len(cliEngineSet) > 0 || (!wiz.repairMode && snap.OfflineEngineCount > 0)) {
+		syncPrereqCouplingFromEngines()
+	}
+	showCtrl(wiz.p3BtnPresetOff, wiz.page == 3 && snap.OfflineEngineCount > 0)
+	updateSelectionSummary()
 }
 
-func updateComponentsSummary() {
+func syncPrereqCouplingFromEngines() {
 	wiz.mu.Lock()
 	loaded := wiz.envLoaded
 	snap := wiz.env
 	wiz.mu.Unlock()
-
 	if !loaded {
 		return
 	}
-
-	var selPrereqs []string
-	for i := 0; i < 3; i++ {
-		if !snap.Prereqs[i].Status.Installed && isChecked(wiz.p3ChkPrereqs[i]) {
-			selPrereqs = append(selPrereqs, prereqDisplayLabel(snap.Prereqs[i].Status.ID))
+	needVC := false
+	needLocalDB := false
+	for i, meta := range setupEngineOrder {
+		if !isChecked(wiz.p3ChkEngines[i]) {
+			continue
+		}
+		if meta.needsVCRedist {
+			needVC = true
+		}
+		if meta.needsLocalDB {
+			needLocalDB = true
 		}
 	}
-
-	var selEngines []string
-	needsVC := false
-	needsLocalDB := false
-	hasOnlineDownload := false
-	for i := 0; i < len(snap.Engines) && i < len(wiz.p3ChkEngines); i++ {
-		if isChecked(wiz.p3ChkEngines[i]) {
-			spec := snap.Engines[i]
-			name := spec.Label
-			if spec.Version != "" {
-				name += " " + spec.Version
-			}
-			if spec.OfflinePath != "" {
-				name += " [Offline]"
-			} else {
-				hasOnlineDownload = true
-			}
-			selEngines = append(selEngines, name)
-			if spec.NeedsVCRedist {
-				needsVC = true
-			}
-			if spec.NeedsLocalDB {
-				needsLocalDB = true
-			}
-		}
+	if needVC && !snap.Prereqs[1].Status.Installed {
+		setChecked(wiz.p3ChkPrereqs[1], true)
 	}
-	for i := 0; i < 3; i++ {
-		if !snap.Prereqs[i].Status.Installed && isChecked(wiz.p3ChkPrereqs[i]) && snap.Prereqs[i].OfflinePath == "" {
-			hasOnlineDownload = true
-		}
+	if needLocalDB && !snap.Prereqs[2].Status.Installed {
+		setChecked(wiz.p3ChkPrereqs[2], true)
 	}
-
-	var lines []string
-	if snap.HasOfflinePack {
-		lines = append(lines, "Offline bundle detected ("+snap.OfflineRoot+") — items marked [Offline] install with zero internet.")
-	}
-	if len(selPrereqs) == 0 && len(selEngines) == 0 {
-		lines = append(lines, "Mode: Fast Lite / Offline Install — installs core Darius DB only (~25 MB).")
-		lines = append(lines, "Built-in Apache & Mailpit work immediately; download any DB engine anytime inside Versions (Alt+4).")
-	} else {
-		var parts []string
-		if len(selPrereqs) > 0 {
-			parts = append(parts, "Requirements: "+strings.Join(selPrereqs, ", "))
-		}
-		if len(selEngines) > 0 {
-			parts = append(parts, "Engines: "+strings.Join(selEngines, ", "))
-		}
-		modeNote := "Offline install (no internet required)"
-		if hasOnlineDownload {
-			modeNote = "Downloads selected online components during Setup"
-		}
-		lines = append(lines, modeNote+" — "+strings.Join(parts, " | "))
-	}
-
-	if needsVC && !snap.Prereqs[1].Status.Installed && !isChecked(wiz.p3ChkPrereqs[1]) {
-		lines = append(lines, "Tip: Check Visual C++ x64 above — required to run MySQL, PostgreSQL, PHP, and Apache.")
-	}
-	if needsLocalDB && !snap.Prereqs[2].Status.Installed && !isChecked(wiz.p3ChkPrereqs[2]) {
-		lines = append(lines, "Tip: Check SQL Server LocalDB above if you want a local MS SQL instance on this PC.")
-	}
-	if !snap.Prereqs[0].Status.Installed && !isChecked(wiz.p3ChkPrereqs[0]) {
-		lines = append(lines, "Warning: WebView2 Runtime is missing — Darius DB desktop GUI needs WebView2 to open.")
-	}
-
-	setText(wiz.p3LblSummary, strings.Join(lines, "\r\n"))
 }
 
 func applyComponentPreset(mode string) {
@@ -969,36 +939,85 @@ func applyComponentPreset(mode string) {
 	if !loaded {
 		return
 	}
-	switch mode {
-	case "lite":
-		for i := 0; i < 3; i++ {
-			setChecked(wiz.p3ChkPrereqs[i], false)
-		}
-		for i := 0; i < len(wiz.p3ChkEngines); i++ {
+	for i, meta := range setupEngineOrder {
+		switch mode {
+		case "lite":
 			setChecked(wiz.p3ChkEngines[i], false)
-		}
-	case "recommended":
-		if !snap.Prereqs[0].Status.Installed {
-			setChecked(wiz.p3ChkPrereqs[0], true)
-		}
-		if !snap.Prereqs[1].Status.Installed {
-			setChecked(wiz.p3ChkPrereqs[1], true)
-		}
-		setChecked(wiz.p3ChkPrereqs[2], false)
-		for i := 0; i < len(snap.Engines) && i < len(wiz.p3ChkEngines); i++ {
-			setChecked(wiz.p3ChkEngines[i], snap.Engines[i].Recommended)
-		}
-	case "all":
-		for i := 0; i < 3; i++ {
-			if !snap.Prereqs[i].Status.Installed {
-				setChecked(wiz.p3ChkPrereqs[i], true)
-			}
-		}
-		for i := 0; i < len(wiz.p3ChkEngines); i++ {
+		case "web":
+			setChecked(wiz.p3ChkEngines[i], meta.recommended)
+		case "all":
 			setChecked(wiz.p3ChkEngines[i], true)
+		case "offline":
+			hasOff := i < len(snap.Engines) && snap.Engines[i].OfflinePath != ""
+			setChecked(wiz.p3ChkEngines[i], hasOff)
 		}
 	}
-	updateComponentsSummary()
+	if mode == "lite" {
+		if !snap.Prereqs[1].Status.Installed {
+			setChecked(wiz.p3ChkPrereqs[1], false)
+		}
+		if !snap.Prereqs[2].Status.Installed {
+			setChecked(wiz.p3ChkPrereqs[2], false)
+		}
+	} else {
+		syncPrereqCouplingFromEngines()
+	}
+	updateSelectionSummary()
+}
+
+func updateSelectionSummary() {
+	wiz.mu.Lock()
+	loaded := wiz.envLoaded
+	snap := wiz.env
+	wiz.mu.Unlock()
+	if !loaded {
+		return
+	}
+	prereqs, engines := collectSelectedPrereqsAndEngines()
+	if len(prereqs) == 0 && len(engines) == 0 {
+		setText(wiz.p3SummaryLabel, "Mode: Fast Lite Install (no extra downloads — install engines anytime in Versions)")
+		return
+	}
+
+	onlineMB := 0
+	offlineCount := 0
+	for _, id := range engines {
+		for _, spec := range snap.Engines {
+			if spec.ID == id {
+				if spec.OfflinePath != "" {
+					offlineCount++
+				} else {
+					onlineMB += spec.DefaultSizeMB
+				}
+				break
+			}
+		}
+	}
+	for _, pid := range prereqs {
+		foundOff := false
+		for i := 0; i < 3; i++ {
+			if snap.Prereqs[i].Status.ID == pid && snap.Prereqs[i].OfflinePath != "" {
+				foundOff = true
+				break
+			}
+		}
+		if foundOff {
+			offlineCount++
+		} else {
+			onlineMB += prereqApproxDownloadMB(pid)
+		}
+	}
+
+	if onlineMB == 0 && offlineCount > 0 {
+		setText(wiz.p3SummaryLabel, fmt.Sprintf("Mode: Offline Install — %d engine(s), %d runtime(s) ready from local bundle (0 MB download)",
+			len(engines), len(prereqs)))
+	} else if offlineCount > 0 {
+		setText(wiz.p3SummaryLabel, fmt.Sprintf("Selected: %d engine(s), %d runtime(s) — %d offline + ~%d MB online download",
+			len(engines), len(prereqs), offlineCount, onlineMB))
+	} else {
+		setText(wiz.p3SummaryLabel, fmt.Sprintf("Selected: %d engine(s), %d runtime(s) — ~%d MB online download during setup",
+			len(engines), len(prereqs), onlineMB))
+	}
 }
 
 func showWizardPage(page int) {
@@ -1014,14 +1033,14 @@ func showWizardPage(page int) {
 	}
 	showCtrl(wiz.p2ChkFixPorts, page == 2 && wiz.repairMode)
 	showCtrl(wiz.p2ChkResetCfg, page == 2 && wiz.repairMode)
+
 	// Page 3 controls
 	p3Ctrls := []syscall.Handle{
-		wiz.p3LblPrereqs, wiz.p3BtnRecheck,
+		wiz.p3Banner, wiz.p3LblPrereqs, wiz.p3BtnRecheck,
 		wiz.p3ChkPrereqs[0], wiz.p3ChkPrereqs[1], wiz.p3ChkPrereqs[2],
-		wiz.p3StPrereqs[0], wiz.p3StPrereqs[1], wiz.p3StPrereqs[2],
 		wiz.p3DivMid, wiz.p3LblEngines,
-		wiz.p3BtnPresetLite, wiz.p3BtnPresetRec, wiz.p3BtnPresetAll,
-		wiz.p3LblSummary,
+		wiz.p3BtnPresetLite, wiz.p3BtnPresetWeb, wiz.p3BtnPresetAll,
+		wiz.p3SummaryLabel,
 	}
 	for i := range wiz.p3ChkEngines {
 		p3Ctrls = append(p3Ctrls, wiz.p3ChkEngines[i])
@@ -1029,6 +1048,11 @@ func showWizardPage(page int) {
 	for _, h := range p3Ctrls {
 		showCtrl(h, page == 3)
 	}
+	wiz.mu.Lock()
+	hasOffEng := wiz.envLoaded && wiz.env.OfflineEngineCount > 0
+	wiz.mu.Unlock()
+	showCtrl(wiz.p3BtnPresetOff, page == 3 && hasOffEng)
+
 	// Page 4 controls
 	for _, h := range []syscall.Handle{wiz.p4Status, wiz.p4Progress, wiz.p4LogBox} {
 		showCtrl(h, page == 4)
@@ -1042,36 +1066,38 @@ func showWizardPage(page int) {
 	case 1:
 		setText(wiz.lblSubtitle, "Step 1 of 4 — Welcome & MIT License Agreement")
 		enableCtrl(wiz.btnBack, false)
-		setText(wiz.btnNext, "Next >")
+		setButtonText(wiz.btnNext, "Next >")
 		enableCtrl(wiz.btnNext, isChecked(wiz.p1Accept))
 	case 2:
 		if wiz.repairMode {
-			setText(wiz.lblSubtitle, "Maintenance Mode (Step 1 of 2) — Repair Options")
+			setText(wiz.lblSubtitle, "Maintenance Mode — Repair All Darius DB Components")
 			enableCtrl(wiz.btnBack, false)
+			enableCtrl(wiz.btnNext, true)
+			setButtonText(wiz.btnNext, "Repair All")
 		} else {
 			setText(wiz.lblSubtitle, "Step 2 of 4 — Choose Install Location & Options")
 			enableCtrl(wiz.btnBack, true)
+			enableCtrl(wiz.btnNext, true)
+			setButtonText(wiz.btnNext, "Next >")
 		}
-		enableCtrl(wiz.btnNext, true)
-		setText(wiz.btnNext, "Next >")
 	case 3:
 		if wiz.repairMode {
-			setText(wiz.lblSubtitle, "Maintenance Mode (Step 2 of 2) — System Requirements & Components")
-			setText(wiz.btnNext, "Repair All")
+			setText(wiz.lblSubtitle, "Maintenance Mode (Step 2 of 2) — System Requirements & Database Components")
+			setButtonText(wiz.btnNext, "Repair All")
 		} else {
-			setText(wiz.lblSubtitle, "Step 3 of 4 — System Requirements & Optional Components")
-			setText(wiz.btnNext, "Install")
+			setText(wiz.lblSubtitle, "Step 3 of 4 — System Requirements & Database Components")
+			setButtonText(wiz.btnNext, "Install")
 		}
 		enableCtrl(wiz.btnBack, true)
 		enableCtrl(wiz.btnNext, true)
-		updateComponentsSummary()
+		updateSelectionSummary()
 	case 4:
 		if wiz.repairMode {
 			setText(wiz.lblSubtitle, "Repairing Darius DB (Lite Version 0.1.6)...")
-			setText(wiz.btnNext, "Repairing...")
+			setButtonText(wiz.btnNext, "Repairing...")
 		} else {
-			setText(wiz.lblSubtitle, "Step 4 of 4 — Installing Darius DB (Lite Version 0.1.6)...")
-			setText(wiz.btnNext, "Installing...")
+			setText(wiz.lblSubtitle, "Step 4 of 4 — Installing Darius DB & Selected Components...")
+			setButtonText(wiz.btnNext, "Installing...")
 		}
 		enableCtrl(wiz.btnBack, false)
 		enableCtrl(wiz.btnNext, false)
@@ -1082,24 +1108,27 @@ func showWizardPage(page int) {
 		res := wiz.lastResult
 		wiz.mu.Unlock()
 
-		var b strings.Builder
-		fmt.Fprintf(&b, "Installed Folder:   %s\r\n", wiz.finalDir)
-		fmt.Fprintf(&b, "Created By:         %s (November 19, 2026)\r\n", appAuthor)
-		fmt.Fprintf(&b, "Developer CLI:      'darius' command ready for Visual Studio & VS Code\r\n")
-		fmt.Fprintf(&b, "Repair / Uninstall: Windows Settings > Apps > Installed Apps\r\n")
-		if len(res.installedComponents) > 0 {
-			fmt.Fprintf(&b, "\r\nPre-installed Components:\r\n  • %s\r\n", strings.Join(res.installedComponents, "\r\n  • "))
-		} else {
-			fmt.Fprintf(&b, "\r\nInstall Mode:       Fast Lite (download any engine anytime in Versions)\r\n")
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "Installed Folder:   %s\r\n", wiz.finalDir)
+		fmt.Fprintf(&sb, "Created By:         %s (November 19, 2026)\r\n", appAuthor)
+		fmt.Fprintf(&sb, "Developer CLI:      'darius' command ready for Visual Studio & VS Code\r\n")
+		if len(res.installedPrereqs) > 0 {
+			fmt.Fprintf(&sb, "Runtimes Installed: %s\r\n", strings.Join(res.installedPrereqs, ", "))
+		}
+		if len(res.installedEngines) > 0 {
+			fmt.Fprintf(&sb, "Engines Ready:      %s\r\n", strings.Join(res.installedEngines, ", "))
+		} else if !wiz.repairMode {
+			fmt.Fprintf(&sb, "Database Engines:   Lite mode — open Versions (Alt+4) anytime to download engines\r\n")
 		}
 		if len(res.warnings) > 0 {
-			fmt.Fprintf(&b, "\r\nNotices (you can retry anytime inside Darius DB > Versions):\r\n  ! %s\r\n", strings.Join(res.warnings, "\r\n  ! "))
+			fmt.Fprintf(&sb, "Note (%d skipped):   You can retry skipped components anytime in Versions (Alt+4)\r\n", len(res.warnings))
 		}
-		setText(wiz.p5Summary, b.String())
+		fmt.Fprintf(&sb, "Repair / Uninstall: Windows Settings > Apps > Installed Apps")
+		setText(wiz.p5Summary, sb.String())
 		showCtrl(wiz.btnBack, false)
 		showCtrl(wiz.btnCancel, false)
 		enableCtrl(wiz.btnNext, true)
-		setText(wiz.btnNext, "Finish")
+		setButtonText(wiz.btnNext, "Finish")
 	}
 }
 
@@ -1136,12 +1165,11 @@ func collectSelectedPrereqsAndEngines() (prereqs []string, engines []string) {
 	return prereqs, engines
 }
 
-func startAsyncInstall() {
+func validateInstallDirChoice() (string, bool) {
 	dir := strings.TrimSpace(getText(wiz.p2EditDir))
 	if dir == "" {
 		dir = defaultDir
 	}
-	// Block double-installing if not in repair mode and folder already has DariusDB.exe
 	if !wiz.repairMode && fileExists(filepath.Join(dir, "DariusDB.exe")) {
 		winui.MessageBox(
 			appFullTitle+" Setup — Already Installed",
@@ -1151,9 +1179,20 @@ func startAsyncInstall() {
 			),
 			winui.MBOK|winui.MBIconWarning,
 		)
+		return "", false
+	}
+	return dir, true
+}
+
+func startAsyncInstall() {
+	dir, ok := validateInstallDirChoice()
+	if !ok {
 		return
 	}
-	prereqs, engines := collectSelectedPrereqsAndEngines()
+	var prereqs, engines []string
+	if !wiz.repairMode {
+		prereqs, engines = collectSelectedPrereqsAndEngines()
+	}
 
 	wiz.finalDir = dir
 	opts := installOptions{
@@ -1213,25 +1252,6 @@ func wizardWndProc(hwnd syscall.Handle, message uint32, wParam, lParam uintptr) 
 
 	case wmCtlColorStat:
 		procSetBkMode.Call(wParam, 1) // TRANSPARENT
-		ctrl := syscall.Handle(lParam)
-		for i := 0; i < 3; i++ {
-			if ctrl == wiz.p3StPrereqs[i] {
-				wiz.mu.Lock()
-				loaded := wiz.envLoaded
-				installed := wiz.env.Prereqs[i].Status.Installed
-				wiz.mu.Unlock()
-				if loaded {
-					if installed {
-						procSetTextColor.Call(wParam, 0x00107C10) // RGB(16, 124, 16) green
-					} else if i == 2 {
-						procSetTextColor.Call(wParam, 0x000E4092) // RGB(146, 64, 14) amber (optional LocalDB)
-					} else {
-						procSetTextColor.Call(wParam, 0x001C1CB9) // RGB(185, 28, 28) red (missing required)
-					}
-				}
-				break
-			}
-		}
 		br, _, _ := procGetSysColorBrush.Call(colorBtnFace)
 		return br
 
@@ -1254,23 +1274,17 @@ func wizardWndProc(hwnd syscall.Handle, message uint32, wParam, lParam uintptr) 
 			startAsyncEnvProbe(hwnd, true)
 		case id == idBtnPresetLite:
 			applyComponentPreset("lite")
-		case id == idBtnPresetRec:
-			applyComponentPreset("recommended")
+		case id == idBtnPresetWeb:
+			applyComponentPreset("web")
 		case id == idBtnPresetAll:
 			applyComponentPreset("all")
+		case id == idBtnPresetOffline:
+			applyComponentPreset("offline")
 		case id >= idChkPrereqWebView2 && id <= idChkPrereqLocalDB:
-			updateComponentsSummary()
+			updateSelectionSummary()
 		case id >= idChkEngineBase && id < idChkEngineBase+len(setupEngineOrder):
-			engIdx := id - idChkEngineBase
-			if isChecked(wiz.p3ChkEngines[engIdx]) && setupEngineOrder[engIdx].needsVCRedist {
-				wiz.mu.Lock()
-				vcMissing := wiz.envLoaded && !wiz.env.Prereqs[1].Status.Installed
-				wiz.mu.Unlock()
-				if vcMissing {
-					setChecked(wiz.p3ChkPrereqs[1], true)
-				}
-			}
-			updateComponentsSummary()
+			syncPrereqCouplingFromEngines()
+			updateSelectionSummary()
 		case id == idBtnBack:
 			switch wiz.page {
 			case 2:
@@ -1283,7 +1297,11 @@ func wizardWndProc(hwnd syscall.Handle, message uint32, wParam, lParam uintptr) 
 			case 1:
 				showWizardPage(2)
 			case 2:
-				showWizardPage(3)
+				if wiz.repairMode {
+					startAsyncInstall()
+				} else if _, ok := validateInstallDirChoice(); ok {
+					showWizardPage(3)
+				}
 			case 3:
 				startAsyncInstall()
 			case 5:
@@ -1421,8 +1439,9 @@ func performInstall(ctx context.Context, opts installOptions, reportStep func(pc
 	}
 
 	if hasExtra {
-		installed, warnings := installSelectedComponents(ctx, opts, dirPct+1, 80, step, status)
-		result.installedComponents = installed
+		instPrereqs, instEngines, warnings := installSelectedComponents(ctx, opts, dirPct+1, 80, step, status)
+		result.installedPrereqs = instPrereqs
+		result.installedEngines = instEngines
 		result.warnings = warnings
 	}
 

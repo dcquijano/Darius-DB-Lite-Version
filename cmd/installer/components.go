@@ -17,12 +17,13 @@ type setupEngineSpec struct {
 	Label         string
 	Version       string
 	URL           string
-	Hint          string
+	DefaultSizeMB int
 	NeedsVCRedist bool
 	NeedsLocalDB  bool
 	Recommended   bool
 	OfflinePath   string
 	OfflineIsDir  bool
+	OfflineSizeMB int
 }
 
 type setupPrereqInfo struct {
@@ -31,29 +32,31 @@ type setupPrereqInfo struct {
 }
 
 type setupEnvSnapshot struct {
-	Prereqs        [3]setupPrereqInfo // 0: WebView2, 1: VC++ x64, 2: SQL LocalDB
-	Engines        []setupEngineSpec
-	OfflineDirs    []string
-	HasOfflinePack bool
-	OfflineRoot    string
+	Prereqs             [3]setupPrereqInfo // 0: WebView2, 1: VC++ x64, 2: SQL LocalDB
+	Engines             []setupEngineSpec
+	OfflineDirs         []string
+	HasOfflinePack      bool
+	OfflineRoot         string
+	OfflineEngineCount  int
+	OfflinePrereqCount  int
 }
 
 var setupEngineOrder = []struct {
 	id            string
 	label         string
-	hint          string
+	defaultSizeMB int
 	needsVCRedist bool
 	needsLocalDB  bool
 	recommended   bool
 }{
-	{id: "mariadb", label: "MariaDB", hint: "Recommended SQL", recommended: true},
-	{id: "mysql", label: "MySQL", hint: "Needs VC++ x64", needsVCRedist: true},
-	{id: "postgresql", label: "PostgreSQL", hint: "Needs VC++ x64", needsVCRedist: true},
-	{id: "mssql", label: "MS SQL Tools", hint: "sqlcmd CLI", needsLocalDB: true},
-	{id: "php", label: "PHP", hint: "Needs VC++ x64", needsVCRedist: true, recommended: true},
-	{id: "apache", label: "Apache", hint: "Built-in ready", needsVCRedist: true, recommended: true},
-	{id: "redis", label: "Redis", hint: "In-memory cache"},
-	{id: "mailpit", label: "Mailpit", hint: "Built-in ready"},
+	{id: "mariadb", label: "MariaDB", defaultSizeMB: 75, recommended: true},
+	{id: "mysql", label: "MySQL", defaultSizeMB: 250, needsVCRedist: true},
+	{id: "postgresql", label: "PostgreSQL", defaultSizeMB: 230, needsVCRedist: true},
+	{id: "mssql", label: "MS SQL CLI", defaultSizeMB: 15, needsLocalDB: true},
+	{id: "redis", label: "Redis", defaultSizeMB: 12},
+	{id: "apache", label: "Apache Web", defaultSizeMB: 12, needsVCRedist: true, recommended: true},
+	{id: "php", label: "PHP", defaultSizeMB: 32, needsVCRedist: true, recommended: true},
+	{id: "mailpit", label: "Mailpit", defaultSizeMB: 10},
 }
 
 func discoverOfflineDirs(explicitDir, selfExe, installDir string) []string {
@@ -114,9 +117,12 @@ func probeSetupEnvironment(explicitOfflineDir, selfExe, installDir string) setup
 			Status:      prereqs[i],
 			OfflinePath: offPath,
 		}
-		if offPath != "" && !snap.HasOfflinePack {
-			snap.HasOfflinePack = true
-			snap.OfflineRoot = filepath.Dir(offPath)
+		if offPath != "" {
+			snap.OfflinePrereqCount++
+			if !snap.HasOfflinePack {
+				snap.HasOfflinePack = true
+				snap.OfflineRoot = filepath.Dir(offPath)
+			}
 		}
 	}
 
@@ -129,7 +135,7 @@ func probeSetupEnvironment(explicitOfflineDir, selfExe, installDir string) setup
 		spec := setupEngineSpec{
 			ID:            meta.id,
 			Label:         meta.label,
-			Hint:          meta.hint,
+			DefaultSizeMB: meta.defaultSizeMB,
 			NeedsVCRedist: meta.needsVCRedist,
 			NeedsLocalDB:  meta.needsLocalDB,
 			Recommended:   meta.recommended,
@@ -141,9 +147,11 @@ func probeSetupEnvironment(explicitOfflineDir, selfExe, installDir string) setup
 		if dirPath, ver, ok := core.FindOfflineEngineDir(meta.id, spec.Version, offlineDirs); ok {
 			spec.OfflinePath = dirPath
 			spec.OfflineIsDir = true
+			spec.OfflineSizeMB = calcPathSizeMB(dirPath, meta.defaultSizeMB)
 			if ver != "" {
 				spec.Version = ver
 			}
+			snap.OfflineEngineCount++
 			if !snap.HasOfflinePack {
 				snap.HasOfflinePack = true
 				snap.OfflineRoot = filepath.Dir(filepath.Dir(dirPath))
@@ -151,9 +159,11 @@ func probeSetupEnvironment(explicitOfflineDir, selfExe, installDir string) setup
 		} else if zipPath, ver, ok := core.FindOfflineEngineArchive(meta.id, spec.Version, offlineDirs); ok {
 			spec.OfflinePath = zipPath
 			spec.OfflineIsDir = false
+			spec.OfflineSizeMB = calcPathSizeMB(zipPath, meta.defaultSizeMB)
 			if ver != "" {
 				spec.Version = ver
 			}
+			snap.OfflineEngineCount++
 			if !snap.HasOfflinePack {
 				snap.HasOfflinePack = true
 				snap.OfflineRoot = filepath.Dir(zipPath)
@@ -164,42 +174,79 @@ func probeSetupEnvironment(explicitOfflineDir, selfExe, installDir string) setup
 	return snap
 }
 
-func formatPrereqStatusBadge(info setupPrereqInfo) string {
-	st := info.Status
-	if st.Installed {
-		if st.Version != "" {
-			return fmt.Sprintf("[Installed] v%s", st.Version)
+func calcPathSizeMB(path string, fallbackMB int) int {
+	st, err := os.Stat(path)
+	if err != nil {
+		return fallbackMB
+	}
+	if !st.IsDir() {
+		mb := int((st.Size() + 512*1024) / (1024 * 1024))
+		if mb < 1 {
+			mb = 1
 		}
-		return "[Installed]"
+		return mb
 	}
-	suffix := ""
-	if info.OfflinePath != "" {
-		suffix = " (Offline ready)"
-	}
-	switch st.ID {
+	return fallbackMB
+}
+
+func formatPrereqCheckboxLabel(info setupPrereqInfo) string {
+	var name, usedBy string
+	approxMB := 0
+	switch info.Status.ID {
 	case core.PrereqIDWebView2:
-		return "[Missing] Required for GUI" + suffix
+		name = "Microsoft Edge WebView2 Runtime"
+		usedBy = "Required for GUI"
+		approxMB = 2
 	case core.PrereqIDVCRedistX64:
-		return "[Missing] MySQL/PG/PHP/Apache" + suffix
+		name = "Visual C++ 2015–2026 Redistributable (x64)"
+		usedBy = "For MySQL / PostgreSQL / Apache / PHP"
+		approxMB = 25
 	case core.PrereqIDMSSQLLocalDB:
-		return "[Missing] Optional (MS SQL)" + suffix
+		name = "SQL Server Express LocalDB"
+		usedBy = "For local MS SQL Server"
+		approxMB = 55
 	default:
-		return "[Missing]" + suffix
+		name = info.Status.Name
+		usedBy = "Required runtime"
 	}
+	if info.Status.Installed {
+		return fmt.Sprintf("%s — Installed ✓", name)
+	}
+	if info.OfflinePath != "" {
+		return fmt.Sprintf("%s — Missing ⚠ [Offline Ready — %s]", name, usedBy)
+	}
+	return fmt.Sprintf("%s — Missing ⚠ (~%d MB download — %s)", name, approxMB, usedBy)
 }
 
 func formatEngineCheckboxLabel(spec setupEngineSpec) string {
 	ver := spec.Version
-	if ver != "" {
-		ver = " " + ver
-	}
 	if spec.OfflinePath != "" {
-		return fmt.Sprintf("%s%s [Offline]", spec.Label, ver)
+		mb := spec.OfflineSizeMB
+		if mb <= 0 {
+			mb = spec.DefaultSizeMB
+		}
+		if ver != "" {
+			return fmt.Sprintf("%s %s [Offline %d MB]", spec.Label, ver, mb)
+		}
+		return fmt.Sprintf("%s [Offline %d MB]", spec.Label, mb)
 	}
-	if spec.Hint != "" {
-		return fmt.Sprintf("%s%s (%s)", spec.Label, ver, spec.Hint)
+	if ver != "" {
+		return fmt.Sprintf("%s %s (~%d MB)", spec.Label, ver, spec.DefaultSizeMB)
 	}
-	return spec.Label + ver
+	return fmt.Sprintf("%s (~%d MB)", spec.Label, spec.DefaultSizeMB)
+}
+
+func prereqApproxDownloadMB(id string) int {
+	switch id {
+	case core.PrereqIDWebView2:
+		return 2
+	case core.PrereqIDVCRedistX64:
+		return 25
+	case core.PrereqIDMSSQLLocalDB:
+		return 55
+	default:
+		return 10
+	}
 }
 
 func parsePrereqSelectionArg(raw string) []string {
@@ -278,10 +325,10 @@ func installSelectedComponents(
 	basePct, endPct int,
 	step func(pct int, msg string),
 	status func(pct int, msg string),
-) (installed []string, warnings []string) {
+) (installedPrereqs []string, installedEngines []string, warnings []string) {
 	total := len(opts.prereqs) + len(opts.engines)
 	if total == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if step == nil {
 		step = func(int, string) {}
@@ -336,7 +383,7 @@ func installSelectedComponents(
 			step(hi, "WARNING: "+w)
 			continue
 		}
-		installed = append(installed, label)
+		installedPrereqs = append(installedPrereqs, label)
 		step(hi, label+" ready")
 	}
 
@@ -364,7 +411,7 @@ func installSelectedComponents(
 		// Skip gracefully if this exact version is already installed in bin/<engine>.
 		if ver != "" && dirExistsLocal(filepath.Join(paths.EngineBin(engID), engID+"-"+ver)) {
 			step(hi, fmt.Sprintf("%s %s already installed (kept)", strings.ToUpper(engID), ver))
-			installed = append(installed, fmt.Sprintf("%s %s", engID, ver))
+			installedEngines = append(installedEngines, fmt.Sprintf("%s %s", engID, ver))
 			continue
 		}
 
@@ -378,7 +425,7 @@ func installSelectedComponents(
 			if err != nil {
 				if strings.Contains(strings.ToLower(err.Error()), "already installed") {
 					step(hi, fmt.Sprintf("%s %s already installed (kept)", engID, ver))
-					installed = append(installed, fmt.Sprintf("%s %s", engID, ver))
+					installedEngines = append(installedEngines, fmt.Sprintf("%s %s", engID, ver))
 				} else {
 					w := fmt.Sprintf("%s %s (offline dir): %v", engID, ver, err)
 					warnings = append(warnings, w)
@@ -386,7 +433,7 @@ func installSelectedComponents(
 				}
 				continue
 			}
-			installed = append(installed, name)
+			installedEngines = append(installedEngines, name)
 			step(hi, name+" installed (offline)")
 			continue
 		}
@@ -418,7 +465,7 @@ func installSelectedComponents(
 			if err != nil {
 				if strings.Contains(strings.ToLower(err.Error()), "already installed") {
 					step(hi, fmt.Sprintf("%s %s already installed (kept)", engID, ver))
-					installed = append(installed, fmt.Sprintf("%s %s", engID, ver))
+					installedEngines = append(installedEngines, fmt.Sprintf("%s %s", engID, ver))
 				} else {
 					w := fmt.Sprintf("%s %s (offline zip): %v", engID, ver, err)
 					warnings = append(warnings, w)
@@ -426,7 +473,7 @@ func installSelectedComponents(
 				}
 				continue
 			}
-			installed = append(installed, engID+"-"+actualVer)
+			installedEngines = append(installedEngines, engID+"-"+actualVer)
 			step(hi, fmt.Sprintf("%s-%s installed (offline)", engID, actualVer))
 			continue
 		}
@@ -448,7 +495,7 @@ func installSelectedComponents(
 		if err := dl.InstallSync(ctx, engID, ver, dlURL); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "already installed") {
 				step(hi, fmt.Sprintf("%s %s already installed (kept)", engID, ver))
-				installed = append(installed, fmt.Sprintf("%s %s", engID, ver))
+				installedEngines = append(installedEngines, fmt.Sprintf("%s %s", engID, ver))
 			} else {
 				w := fmt.Sprintf("%s %s: %v", engID, ver, err)
 				warnings = append(warnings, w)
@@ -456,11 +503,11 @@ func installSelectedComponents(
 			}
 			continue
 		}
-		installed = append(installed, engID+"-"+ver)
+		installedEngines = append(installedEngines, engID+"-"+ver)
 		step(hi, fmt.Sprintf("%s-%s installed", engID, ver))
 	}
 
-	return installed, warnings
+	return installedPrereqs, installedEngines, warnings
 }
 
 func prereqDisplayLabel(id string) string {

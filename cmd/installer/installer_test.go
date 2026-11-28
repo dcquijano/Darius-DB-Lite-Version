@@ -80,12 +80,32 @@ func TestDiscoverOfflineDirsAndProbeEnvironment(t *testing.T) {
 	}
 	foundMariaOffline := false
 	for _, e := range snap.Engines {
-		if e.ID == "mariadb" && e.OfflinePath != "" && strings.Contains(formatEngineCheckboxLabel(e), "[Offline]") {
+		if e.ID == "mariadb" && e.OfflinePath != "" && strings.Contains(formatEngineCheckboxLabel(e), "[Offline ") {
 			foundMariaOffline = true
 		}
 	}
 	if !foundMariaOffline {
-		t.Fatalf("expected mariadb to be detected as [Offline] in snapshot: %+v", snap.Engines)
+		t.Fatalf("expected mariadb to be detected as [Offline X MB] in snapshot: %+v", snap.Engines)
+	}
+	if snap.OfflineEngineCount != 1 || snap.OfflinePrereqCount != 1 {
+		t.Fatalf("expected 1 offline engine and 1 offline prereq, got eng=%d pre=%d", snap.OfflineEngineCount, snap.OfflinePrereqCount)
+	}
+
+	// Verify checkbox label formatting and Win32 ampersand escaping
+	instLabel := formatPrereqCheckboxLabel(setupPrereqInfo{
+		Status: core.PrereqStatus{ID: core.PrereqIDWebView2, Installed: true},
+	})
+	if !strings.Contains(instLabel, "Installed ✓") {
+		t.Fatalf("expected Installed ✓ label, got %q", instLabel)
+	}
+	missLabel := formatPrereqCheckboxLabel(setupPrereqInfo{
+		Status: core.PrereqStatus{ID: core.PrereqIDVCRedistX64, Installed: false},
+	})
+	if !strings.Contains(missLabel, "Missing ⚠") || !strings.Contains(missLabel, "~25 MB") {
+		t.Fatalf("expected Missing ⚠ (~25 MB) label, got %q", missLabel)
+	}
+	if got := escapeButtonAmpersands("CLI & DB tools"); got != "CLI && DB tools" {
+		t.Fatalf("expected escaped Win32 ampersand, got %q", got)
 	}
 }
 
@@ -127,12 +147,12 @@ func TestInstallSelectedComponentsOffline(t *testing.T) {
 	}
 
 	var logs []string
-	installed, warnings := installSelectedComponents(context.Background(), opts, 35, 80, func(_ int, msg string) {
+	instPrereqs, instEngines, warnings := installSelectedComponents(context.Background(), opts, 35, 80, func(_ int, msg string) {
 		logs = append(logs, msg)
 	}, nil)
 
-	if len(installed) != 2 {
-		t.Fatalf("expected 2 offline engines installed (mariadb, redis), got installed=%v warnings=%v logs=%v", installed, warnings, logs)
+	if len(instPrereqs) != 0 || len(instEngines) != 2 {
+		t.Fatalf("expected 0 prereqs and 2 offline engines installed (mariadb, redis), got prereqs=%v engines=%v warnings=%v logs=%v", instPrereqs, instEngines, warnings, logs)
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "postgresql") {
 		t.Fatalf("expected 1 warning for missing offline postgresql, got %v", warnings)

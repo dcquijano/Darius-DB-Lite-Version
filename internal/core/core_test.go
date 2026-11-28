@@ -2012,6 +2012,94 @@ func TestOfflineEngineArchiveAndDirInstall(t *testing.T) {
 	}
 }
 
+func TestFinalizeTableDetailsAndSyntheticDDL(t *testing.T) {
+	defStatus := "'present'"
+	pg := &TableDetails{
+		Engine:   "postgresql",
+		Database: "fleet",
+		Schema:   "public",
+		Table:    "driver_attendance",
+		Kind:     "BASE TABLE",
+		Columns: []TableColumnDetail{
+			{Name: "id", DataType: "bigint", Nullable: false, IsAutoIncrement: true},
+			{Name: "driver_id", DataType: "bigint", Nullable: false},
+			{Name: "status", DataType: "varchar(32)", Nullable: false, DefaultVal: &defStatus},
+			{Name: "badge_code", DataType: "varchar(64)", Nullable: true},
+		},
+		OutgoingForeignKeys: []ForeignKeyInfo{
+			{
+				ConstraintName: "fk_att_driver",
+				FromTable:      "driver_attendance",
+				FromColumn:     "driver_id",
+				ToTable:        "drivers",
+				ToColumn:       "id",
+				UpdateRule:     "CASCADE",
+				DeleteRule:     "SET NULL",
+			},
+		},
+		Indexes: []TableIndexInfo{
+			{Name: "driver_attendance_pkey", Columns: []string{"id"}, IsPrimary: true, IsUnique: true, IndexType: "btree"},
+			{Name: "uq_badge", Columns: []string{"badge_code"}, IsUnique: true, IndexType: "btree"},
+			{Name: "idx_driver_status", Columns: []string{"driver_id", "status"}, IndexType: "btree"},
+		},
+	}
+
+	finalizeTableDetails(pg)
+
+	if len(pg.PrimaryKey) != 1 || pg.PrimaryKey[0] != "id" {
+		t.Fatalf("expected PrimaryKey=[id], got %v", pg.PrimaryKey)
+	}
+	if !pg.Columns[0].IsPrimaryKey {
+		t.Fatal("expected id column marked IsPrimaryKey")
+	}
+	if !pg.Columns[1].IsForeignKey {
+		t.Fatal("expected driver_id column marked IsForeignKey")
+	}
+	if !pg.Columns[3].IsUnique {
+		t.Fatal("expected badge_code column marked IsUnique from single-col unique index")
+	}
+	for _, needle := range []string{
+		`CREATE TABLE "public"."driver_attendance"`,
+		`PRIMARY KEY ("id")`,
+		`CONSTRAINT "fk_att_driver" FOREIGN KEY ("driver_id") REFERENCES "public"."drivers" ("id") ON UPDATE CASCADE ON DELETE SET NULL`,
+		`CREATE UNIQUE INDEX "uq_badge" ON "public"."driver_attendance" ("badge_code");`,
+		`CREATE INDEX "idx_driver_status" ON "public"."driver_attendance" ("driver_id", "status");`,
+	} {
+		if !strings.Contains(pg.CreateDDL, needle) {
+			t.Fatalf("expected PostgreSQL synthetic DDL to contain %q, got:\n%s", needle, pg.CreateDDL)
+		}
+	}
+
+	// Verify MS SQL bracket quoting + IDENTITY(1,1)
+	ms := &TableDetails{
+		Engine:   "mssql",
+		Database: "fleet",
+		Schema:   "dbo",
+		Table:    "driver_attendance",
+		Columns: []TableColumnDetail{
+			{Name: "id", DataType: "int", Nullable: false, IsPrimaryKey: true, IsAutoIncrement: true},
+			{Name: "driver_id", DataType: "int", Nullable: false},
+		},
+		OutgoingForeignKeys: []ForeignKeyInfo{
+			{
+				ConstraintName: "FK_att_driver",
+				FromTable:      "driver_attendance",
+				FromColumn:     "driver_id",
+				ToTable:        "drivers",
+				ToColumn:       "id",
+				UpdateRule:     "NO_ACTION",
+				DeleteRule:     "CASCADE",
+			},
+		},
+	}
+	finalizeTableDetails(ms)
+	if !strings.Contains(ms.CreateDDL, "CREATE TABLE [dbo].[driver_attendance]") ||
+		!strings.Contains(ms.CreateDDL, "[id] int IDENTITY(1,1) NOT NULL") ||
+		!strings.Contains(ms.CreateDDL, "REFERENCES [dbo].[drivers] ([id]) ON DELETE CASCADE") {
+		t.Fatalf("unexpected MS SQL synthetic DDL:\n%s", ms.CreateDDL)
+	}
+}
+
 
 
 

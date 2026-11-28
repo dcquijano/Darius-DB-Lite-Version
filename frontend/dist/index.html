@@ -349,7 +349,7 @@
             <div class="editor-box" id="sqlEditorBox">
               <div class="editor-bar">
                 <span class="chip" id="sqlActiveDb">No DB selected</span>
-                <span class="chip accent" id="sqlActiveTable" hidden></span>
+                <span class="chip accent clickable" id="sqlActiveTable" title="Click to toggle Rows / Structure &amp; Keys" hidden></span>
                 <div class="spacer"></div>
                 <span class="hint">Tab to suggest · Ctrl+Enter to run</span>
                 <button class="btn xs accent" id="btnRowCreate" title="Create / Insert a new row in the selected table"
@@ -377,6 +377,12 @@
             </div>
             <div class="result-box" id="sqlResultBox">
               <div class="result-meta-bar">
+                <div class="result-view-toggle" id="sqlResultViewToggle" role="tablist" hidden>
+                  <button type="button" class="rvt-btn active" data-sql-view="rows" role="tab" aria-selected="true"
+                    title="View query rows">📊 Rows</button>
+                  <button type="button" class="rvt-btn" data-sql-view="structure" role="tab" aria-selected="false"
+                    title="Inspect Columns, Primary &amp; Foreign Keys, Related Entities, Indexes, Properties &amp; DDL">🔑 Structure &amp; Keys</button>
+                </div>
                 <div class="result-meta-text" id="sqlMeta">Ready</div>
                 <div class="spacer"></div>
                 <input type="search" id="sqlRowFilter" class="input xs" placeholder="Filter visible rows..."

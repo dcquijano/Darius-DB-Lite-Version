@@ -897,6 +897,548 @@ type DatabaseDiagramData struct {
 	ForeignKeys []ForeignKeyInfo `json:"foreignKeys"`
 }
 
+type TableColumnDetail struct {
+	Name            string  `json:"name"`
+	DataType        string  `json:"dataType"`
+	Nullable        bool    `json:"nullable"`
+	DefaultVal      *string `json:"defaultVal,omitempty"`
+	IsPrimaryKey    bool    `json:"isPrimaryKey"`
+	IsAutoIncrement bool    `json:"isAutoIncrement"`
+	IsUnique        bool    `json:"isUnique,omitempty"`
+	IsForeignKey    bool    `json:"isForeignKey,omitempty"`
+	Extra           string  `json:"extra,omitempty"`
+	Comment         string  `json:"comment,omitempty"`
+	Collation       string  `json:"collation,omitempty"`
+}
+
+type TableIndexInfo struct {
+	Name      string   `json:"name"`
+	Columns   []string `json:"columns"`
+	IsUnique  bool     `json:"isUnique"`
+	IsPrimary bool     `json:"isPrimary"`
+	IndexType string   `json:"indexType,omitempty"`
+}
+
+type TableProperties struct {
+	StorageEngine string `json:"storageEngine,omitempty"`
+	Collation     string `json:"collation,omitempty"`
+	RowCount      int64  `json:"rowCount"`
+	DataBytes     int64  `json:"dataBytes"`
+	IndexBytes    int64  `json:"indexBytes"`
+	AutoIncrement string `json:"autoIncrement,omitempty"`
+	CreatedAt     string `json:"createdAt,omitempty"`
+	UpdatedAt     string `json:"updatedAt,omitempty"`
+	Comment       string `json:"comment,omitempty"`
+	Owner         string `json:"owner,omitempty"`
+}
+
+type TableDetails struct {
+	Engine              string              `json:"engine"`
+	Database            string              `json:"database"`
+	Schema              string              `json:"schema"`
+	Table               string              `json:"table"`
+	Kind                string              `json:"kind"`
+	Columns             []TableColumnDetail `json:"columns"`
+	PrimaryKey          []string            `json:"primaryKey"`
+	OutgoingForeignKeys []ForeignKeyInfo    `json:"outgoingForeignKeys"`
+	IncomingForeignKeys []ForeignKeyInfo    `json:"incomingForeignKeys"`
+	Indexes             []TableIndexInfo    `json:"indexes"`
+	Properties          TableProperties     `json:"properties"`
+	CreateDDL           string              `json:"createDdl"`
+}
+
+// GetTableDetails returns complete structure metadata for a single table or view:
+// columns, primary key, outgoing & incoming foreign keys, indexes, storage properties, and DDL.
+func GetTableDetails(engine string, s EngineSettings, dbName, tableName string) (*TableDetails, error) {
+	dbName = strings.TrimSpace(dbName)
+	schema, table := splitSchemaTable(engine, dbName, tableName)
+	if table == "" {
+		return nil, errors.New("table name is required")
+	}
+	if engine == "mssql" {
+		return mssqlGetTableDetails(s, dbName, schema, table)
+	}
+	if !isMy(engine) && engine != "postgresql" {
+		return nil, fmt.Errorf("table details are not supported for %s", engine)
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		out, err := tableDetailsOnceWithPool(engine, s, dbName, schema, table)
+		if err == nil {
+			return out, nil
+		}
+		lastErr = err
+		if attempt == 0 && isTransientConnErr(err) {
+			evictSQLPool(engine, s, dbName)
+			continue
+		}
+		return nil, err
+	}
+	return nil, lastErr
+}
+
+func tableDetailsOnceWithPool(engine string, s EngineSettings, dbName, schema, table string) (*TableDetails, error) {
+	db, err := pooledSQL(engine, s, dbName)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &TableDetails{
+		Engine:              engine,
+		Database:            dbName,
+		Schema:              schema,
+		Table:               table,
+		Kind:                "BASE TABLE",
+		Columns:             []TableColumnDetail{},
+		PrimaryKey:          []string{},
+		OutgoingForeignKeys: []ForeignKeyInfo{},
+		IncomingForeignKeys: []ForeignKeyInfo{},
+		Indexes:             []TableIndexInfo{},
+	}
+
+	if isMy(engine) {
+		// 1. Columns
+		cRows, err := db.Query(`SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY,
+				COALESCE(EXTRA, ''), COALESCE(COLUMN_COMMENT, ''), COALESCE(COLLATION_NAME, '')
+			FROM information_schema.COLUMNS
+			WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+			ORDER BY ORDINAL_POSITION`, schema, table)
+		if err != nil {
+			return nil, err
+		}
+		for cRows.Next() {
+			var col TableColumnDetail
+			var isNull, colKey string
+			var def sql.NullString
+			if err := cRows.Scan(&col.Name, &col.DataType, &isNull, &def, &colKey, &col.Extra, &col.Comment, &col.Collation); err != nil {
+				cRows.Close()
+				return nil, err
+			}
+			if def.Valid {
+				v := def.String
+				col.DefaultVal = &v
+			}
+			col.Nullable = strings.EqualFold(isNull, "YES")
+			col.IsPrimaryKey = strings.EqualFold(colKey, "PRI")
+			col.IsUnique = strings.EqualFold(colKey, "UNI")
+			col.IsAutoIncrement = strings.Contains(strings.ToLower(col.Extra), "auto_increment")
+			out.Columns = append(out.Columns, col)
+		}
+		if err := cRows.Err(); err != nil {
+			cRows.Close()
+			return nil, err
+		}
+		cRows.Close()
+
+		// 2. Outgoing foreign keys (this table -> referenced parent tables)
+		outFkRows, err := db.Query(`SELECT k.CONSTRAINT_NAME, k.TABLE_NAME, k.COLUMN_NAME,
+				k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME,
+				COALESCE(r.UPDATE_RULE, ''), COALESCE(r.DELETE_RULE, '')
+			FROM information_schema.KEY_COLUMN_USAGE k
+			LEFT JOIN information_schema.REFERENTIAL_CONSTRAINTS r
+				ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND r.TABLE_NAME = k.TABLE_NAME
+			WHERE k.TABLE_SCHEMA = ? AND k.TABLE_NAME = ? AND k.REFERENCED_TABLE_NAME IS NOT NULL
+			ORDER BY k.CONSTRAINT_NAME, k.ORDINAL_POSITION`, schema, table)
+		if err == nil {
+			for outFkRows.Next() {
+				var fk ForeignKeyInfo
+				if err := outFkRows.Scan(&fk.ConstraintName, &fk.FromTable, &fk.FromColumn, &fk.ToTable, &fk.ToColumn, &fk.UpdateRule, &fk.DeleteRule); err == nil {
+					out.OutgoingForeignKeys = append(out.OutgoingForeignKeys, fk)
+				}
+			}
+			outFkRows.Close()
+		}
+
+		// 3. Incoming foreign keys (child tables -> this table)
+		inFkRows, err := db.Query(`SELECT k.CONSTRAINT_NAME, k.TABLE_NAME, k.COLUMN_NAME,
+				k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME,
+				COALESCE(r.UPDATE_RULE, ''), COALESCE(r.DELETE_RULE, '')
+			FROM information_schema.KEY_COLUMN_USAGE k
+			LEFT JOIN information_schema.REFERENTIAL_CONSTRAINTS r
+				ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND r.TABLE_NAME = k.TABLE_NAME
+			WHERE k.REFERENCED_TABLE_SCHEMA = ? AND k.REFERENCED_TABLE_NAME = ?
+			ORDER BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.ORDINAL_POSITION`, schema, table)
+		if err == nil {
+			for inFkRows.Next() {
+				var fk ForeignKeyInfo
+				if err := inFkRows.Scan(&fk.ConstraintName, &fk.FromTable, &fk.FromColumn, &fk.ToTable, &fk.ToColumn, &fk.UpdateRule, &fk.DeleteRule); err == nil {
+					out.IncomingForeignKeys = append(out.IncomingForeignKeys, fk)
+				}
+			}
+			inFkRows.Close()
+		}
+
+		// 4. Indexes
+		idxRows, err := db.Query(`SELECT INDEX_NAME, COALESCE(COLUMN_NAME, ''), NON_UNIQUE, COALESCE(INDEX_TYPE, '')
+			FROM information_schema.STATISTICS
+			WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+			ORDER BY CASE WHEN INDEX_NAME = 'PRIMARY' THEN 0 ELSE 1 END, INDEX_NAME, SEQ_IN_INDEX`, schema, table)
+		if err == nil {
+			idxByName := map[string]int{}
+			for idxRows.Next() {
+				var idxName, colName, idxType string
+				var nonUnique int
+				if err := idxRows.Scan(&idxName, &colName, &nonUnique, &idxType); err != nil {
+					continue
+				}
+				pos, ok := idxByName[idxName]
+				if !ok {
+					pos = len(out.Indexes)
+					idxByName[idxName] = pos
+					out.Indexes = append(out.Indexes, TableIndexInfo{
+						Name:      idxName,
+						Columns:   []string{},
+						IsUnique:  nonUnique == 0,
+						IsPrimary: strings.EqualFold(idxName, "PRIMARY"),
+						IndexType: idxType,
+					})
+				}
+				if colName != "" {
+					out.Indexes[pos].Columns = append(out.Indexes[pos].Columns, colName)
+				}
+			}
+			idxRows.Close()
+		}
+
+		// 5. Table properties
+		var tblType, engName, coll, autoInc, createdAt, updatedAt, comment string
+		var rowCnt, dataLen, idxLen int64
+		if err := db.QueryRow(`SELECT COALESCE(TABLE_TYPE, 'BASE TABLE'), COALESCE(ENGINE, ''), COALESCE(TABLE_COLLATION, ''),
+				COALESCE(TABLE_ROWS, 0), COALESCE(DATA_LENGTH, 0), COALESCE(INDEX_LENGTH, 0),
+				COALESCE(CAST(AUTO_INCREMENT AS CHAR), ''),
+				COALESCE(DATE_FORMAT(CREATE_TIME, '%Y-%m-%d %H:%i:%s'), ''),
+				COALESCE(DATE_FORMAT(UPDATE_TIME, '%Y-%m-%d %H:%i:%s'), ''),
+				COALESCE(TABLE_COMMENT, '')
+			FROM information_schema.TABLES
+			WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`, schema, table).
+			Scan(&tblType, &engName, &coll, &rowCnt, &dataLen, &idxLen, &autoInc, &createdAt, &updatedAt, &comment); err == nil {
+			if tblType != "" {
+				out.Kind = tblType
+			}
+			out.Properties = TableProperties{
+				StorageEngine: engName,
+				Collation:     coll,
+				RowCount:      rowCnt,
+				DataBytes:     dataLen,
+				IndexBytes:    idxLen,
+				AutoIncrement: autoInc,
+				CreatedAt:     createdAt,
+				UpdatedAt:     updatedAt,
+				Comment:       comment,
+			}
+		}
+
+		// 6. Native SHOW CREATE TABLE / VIEW DDL (supports both 2-col table and 4-col view responses)
+		showSQL := "SHOW CREATE TABLE " + quoteIdent(engine, schema) + "." + quoteIdent(engine, table)
+		if ddlRows, derr := db.Query(showSQL); derr == nil {
+			if cols, cerr := ddlRows.Columns(); cerr == nil && len(cols) >= 2 && ddlRows.Next() {
+				raw := make([]sql.RawBytes, len(cols))
+				ptrs := make([]interface{}, len(cols))
+				for i := range raw {
+					ptrs[i] = &raw[i]
+				}
+				if ddlRows.Scan(ptrs...) == nil {
+					out.CreateDDL = string(raw[1])
+				}
+			}
+			ddlRows.Close()
+		}
+
+		finalizeTableDetails(out)
+		return out, nil
+	}
+
+	// PostgreSQL
+	// 1. Columns
+	cRows, err := db.Query(`SELECT a.attname,
+			format_type(a.atttypid, a.atttypmod),
+			CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END,
+			pg_get_expr(d.adbin, d.adrelid),
+			CASE WHEN EXISTS (
+				SELECT 1 FROM pg_index i
+				WHERE i.indrelid = a.attrelid AND i.indisprimary AND a.attnum = ANY(i.indkey)
+			) THEN 'PRI' ELSE '' END,
+			CASE WHEN a.attidentity = 'a' THEN 'GENERATED ALWAYS AS IDENTITY'
+				 WHEN a.attidentity = 'd' THEN 'GENERATED BY DEFAULT AS IDENTITY'
+				 WHEN COALESCE(pg_get_expr(d.adbin, d.adrelid), '') LIKE 'nextval(%' THEN 'serial / nextval'
+				 ELSE '' END,
+			COALESCE(col_description(a.attrelid, a.attnum), ''),
+			COALESCE(coll.collname, '')
+		FROM pg_attribute a
+		JOIN pg_class cl ON cl.oid = a.attrelid
+		JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+		LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+		LEFT JOIN pg_collation coll ON coll.oid = a.attcollation AND a.attcollation <> 0
+		WHERE ns.nspname = $1 AND cl.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped
+		ORDER BY a.attnum`, schema, table)
+	if err != nil {
+		return nil, err
+	}
+	for cRows.Next() {
+		var col TableColumnDetail
+		var isNull, colKey string
+		var def sql.NullString
+		if err := cRows.Scan(&col.Name, &col.DataType, &isNull, &def, &colKey, &col.Extra, &col.Comment, &col.Collation); err != nil {
+			cRows.Close()
+			return nil, err
+		}
+		if def.Valid {
+			v := def.String
+			col.DefaultVal = &v
+		}
+		col.Nullable = strings.EqualFold(isNull, "YES")
+		col.IsPrimaryKey = strings.EqualFold(colKey, "PRI")
+		col.IsAutoIncrement = col.Extra != ""
+		out.Columns = append(out.Columns, col)
+	}
+	if err := cRows.Err(); err != nil {
+		cRows.Close()
+		return nil, err
+	}
+	cRows.Close()
+
+	// 2. Outgoing foreign keys
+	pgFKBase := `SELECT c.conname,
+			CASE WHEN n1.nspname = 'public' THEN c1.relname ELSE n1.nspname || '.' || c1.relname END,
+			a1.attname,
+			CASE WHEN n2.nspname = 'public' THEN c2.relname ELSE n2.nspname || '.' || c2.relname END,
+			a2.attname,
+			CASE c.confupdtype WHEN 'c' THEN 'CASCADE' WHEN 'n' THEN 'SET NULL' WHEN 'd' THEN 'SET DEFAULT' WHEN 'r' THEN 'RESTRICT' ELSE 'NO ACTION' END,
+			CASE c.confdeltype WHEN 'c' THEN 'CASCADE' WHEN 'n' THEN 'SET NULL' WHEN 'd' THEN 'SET DEFAULT' WHEN 'r' THEN 'RESTRICT' ELSE 'NO ACTION' END
+		FROM pg_constraint c
+		JOIN pg_class c1 ON c1.oid = c.conrelid
+		JOIN pg_namespace n1 ON n1.oid = c1.relnamespace
+		JOIN pg_class c2 ON c2.oid = c.confrelid
+		JOIN pg_namespace n2 ON n2.oid = c2.relnamespace
+		CROSS JOIN LATERAL unnest(c.conkey, c.confkey) WITH ORDINALITY AS u(att1, att2, ord)
+		JOIN pg_attribute a1 ON a1.attrelid = c1.oid AND a1.attnum = u.att1
+		JOIN pg_attribute a2 ON a2.attrelid = c2.oid AND a2.attnum = u.att2
+		WHERE c.contype = 'f'`
+
+	if outRows, oerr := db.Query(pgFKBase+` AND n1.nspname = $1 AND c1.relname = $2 ORDER BY c.conname, u.ord`, schema, table); oerr == nil {
+		for outRows.Next() {
+			var fk ForeignKeyInfo
+			if outRows.Scan(&fk.ConstraintName, &fk.FromTable, &fk.FromColumn, &fk.ToTable, &fk.ToColumn, &fk.UpdateRule, &fk.DeleteRule) == nil {
+				out.OutgoingForeignKeys = append(out.OutgoingForeignKeys, fk)
+			}
+		}
+		outRows.Close()
+	}
+
+	// 3. Incoming foreign keys
+	if inRows, ierr := db.Query(pgFKBase+` AND n2.nspname = $1 AND c2.relname = $2 ORDER BY 2, c.conname, u.ord`, schema, table); ierr == nil {
+		for inRows.Next() {
+			var fk ForeignKeyInfo
+			if inRows.Scan(&fk.ConstraintName, &fk.FromTable, &fk.FromColumn, &fk.ToTable, &fk.ToColumn, &fk.UpdateRule, &fk.DeleteRule) == nil {
+				out.IncomingForeignKeys = append(out.IncomingForeignKeys, fk)
+			}
+		}
+		inRows.Close()
+	}
+
+	// 4. Indexes
+	if idxRows, ierr := db.Query(`SELECT ic.relname,
+			ix.indisunique,
+			ix.indisprimary,
+			am.amname,
+			COALESCE((
+				SELECT string_agg(pg_get_indexdef(ix.indexrelid, k, true), E'\x1f' ORDER BY k)
+				FROM generate_series(1, CASE WHEN ix.indnkeyatts > 0 THEN ix.indnkeyatts ELSE ix.indnatts END) AS k
+			), '')
+		FROM pg_index ix
+		JOIN pg_class t ON t.oid = ix.indrelid
+		JOIN pg_namespace ns ON ns.oid = t.relnamespace
+		JOIN pg_class ic ON ic.oid = ix.indexrelid
+		JOIN pg_am am ON am.oid = ic.relam
+		WHERE ns.nspname = $1 AND t.relname = $2
+		ORDER BY ix.indisprimary DESC, ix.indisunique DESC, ic.relname`, schema, table); ierr == nil {
+		for idxRows.Next() {
+			var idx TableIndexInfo
+			var colsRaw string
+			if idxRows.Scan(&idx.Name, &idx.IsUnique, &idx.IsPrimary, &idx.IndexType, &colsRaw) == nil {
+				if colsRaw != "" {
+					idx.Columns = strings.Split(colsRaw, "\x1f")
+				} else {
+					idx.Columns = []string{}
+				}
+				out.Indexes = append(out.Indexes, idx)
+			}
+		}
+		idxRows.Close()
+	}
+
+	// 5. Table properties & optional view definition
+	var kind, owner, comment, viewDef string
+	var rowCnt, dataBytes, idxBytes int64
+	if err := db.QueryRow(`SELECT CASE WHEN c.relkind IN ('v', 'm') THEN 'VIEW' ELSE 'BASE TABLE' END,
+			COALESCE(pg_get_userbyid(c.relowner), ''),
+			COALESCE(NULLIF(c.reltuples, -1)::bigint, 0),
+			CASE WHEN c.relkind = 'v' THEN 0 ELSE COALESCE(pg_table_size(c.oid), 0) END,
+			CASE WHEN c.relkind = 'v' THEN 0 ELSE COALESCE(pg_indexes_size(c.oid), 0) END,
+			COALESCE(obj_description(c.oid, 'pg_class'), ''),
+			CASE WHEN c.relkind IN ('v', 'm') THEN COALESCE(pg_get_viewdef(c.oid, true), '') ELSE '' END
+		FROM pg_class c
+		JOIN pg_namespace ns ON ns.oid = c.relnamespace
+		WHERE ns.nspname = $1 AND c.relname = $2`, schema, table).
+		Scan(&kind, &owner, &rowCnt, &dataBytes, &idxBytes, &comment, &viewDef); err == nil {
+		if kind != "" {
+			out.Kind = kind
+		}
+		out.Properties = TableProperties{
+			StorageEngine: "PostgreSQL",
+			Owner:         owner,
+			RowCount:      rowCnt,
+			DataBytes:     dataBytes,
+			IndexBytes:    idxBytes,
+			Comment:       comment,
+		}
+		if viewDef != "" {
+			out.CreateDDL = fmt.Sprintf("CREATE OR REPLACE VIEW %s AS\n%s", qualifiedTable(engine, schema, table), strings.TrimSpace(viewDef))
+		}
+	}
+
+	finalizeTableDetails(out)
+	return out, nil
+}
+
+// finalizeTableDetails normalizes column key flags (PK, FK, Unique), ordered PrimaryKey slice,
+// and generates a synthetic CREATE TABLE DDL when the engine does not supply native DDL.
+func finalizeTableDetails(d *TableDetails) {
+	if d == nil {
+		return
+	}
+	fkColSet := map[string]bool{}
+	for _, fk := range d.OutgoingForeignKeys {
+		fkColSet[strings.ToLower(fk.FromColumn)] = true
+	}
+	uniqSingleCol := map[string]bool{}
+	pkOrdered := []string{}
+	for _, idx := range d.Indexes {
+		if idx.IsPrimary && len(idx.Columns) > 0 && len(pkOrdered) == 0 {
+			pkOrdered = append(pkOrdered, idx.Columns...)
+		}
+		if idx.IsUnique && !idx.IsPrimary && len(idx.Columns) == 1 {
+			uniqSingleCol[strings.ToLower(strings.Trim(idx.Columns[0], `"`))] = true
+		}
+	}
+	pkSet := map[string]bool{}
+	for _, c := range pkOrdered {
+		pkSet[strings.ToLower(strings.Trim(c, `"`))] = true
+	}
+	for i := range d.Columns {
+		low := strings.ToLower(d.Columns[i].Name)
+		if fkColSet[low] {
+			d.Columns[i].IsForeignKey = true
+		}
+		if uniqSingleCol[low] {
+			d.Columns[i].IsUnique = true
+		}
+		if pkSet[low] {
+			d.Columns[i].IsPrimaryKey = true
+		} else if d.Columns[i].IsPrimaryKey && len(pkOrdered) == 0 {
+			pkOrdered = append(pkOrdered, d.Columns[i].Name)
+		}
+	}
+	d.PrimaryKey = pkOrdered
+	if strings.TrimSpace(d.CreateDDL) == "" {
+		d.CreateDDL = buildSyntheticCreateTableDDL(d)
+	}
+}
+
+func buildSyntheticCreateTableDDL(d *TableDetails) string {
+	if d == nil || len(d.Columns) == 0 {
+		return ""
+	}
+	qCol := func(c string) string {
+		if d.Engine == "mssql" {
+			return mssqlBracket(c)
+		}
+		return quoteIdent(d.Engine, c)
+	}
+	qTbl := qualifiedTable(d.Engine, d.Schema, d.Table)
+	var lines []string
+	for _, col := range d.Columns {
+		var parts []string
+		parts = append(parts, "  "+qCol(col.Name), col.DataType)
+		if col.IsAutoIncrement && d.Engine == "mssql" {
+			parts = append(parts, "IDENTITY(1,1)")
+		}
+		if !col.Nullable {
+			parts = append(parts, "NOT NULL")
+		}
+		if col.DefaultVal != nil && strings.TrimSpace(*col.DefaultVal) != "" {
+			parts = append(parts, "DEFAULT "+*col.DefaultVal)
+		}
+		lines = append(lines, strings.Join(parts, " "))
+	}
+	if len(d.PrimaryKey) > 0 {
+		pkCols := make([]string, len(d.PrimaryKey))
+		for i, c := range d.PrimaryKey {
+			pkCols[i] = qCol(strings.Trim(c, `"`))
+		}
+		lines = append(lines, fmt.Sprintf("  PRIMARY KEY (%s)", strings.Join(pkCols, ", ")))
+	}
+
+	// Group multi-column outgoing foreign keys by constraint name
+	type fkGroup struct {
+		name       string
+		fromCols   []string
+		toTable    string
+		toCols     []string
+		updateRule string
+		deleteRule string
+	}
+	var fkGroups []*fkGroup
+	fkByName := map[string]*fkGroup{}
+	for _, fk := range d.OutgoingForeignKeys {
+		g, ok := fkByName[fk.ConstraintName]
+		if !ok {
+			g = &fkGroup{
+				name:       fk.ConstraintName,
+				toTable:    fk.ToTable,
+				updateRule: fk.UpdateRule,
+				deleteRule: fk.DeleteRule,
+			}
+			fkByName[fk.ConstraintName] = g
+			fkGroups = append(fkGroups, g)
+		}
+		g.fromCols = append(g.fromCols, qCol(fk.FromColumn))
+		g.toCols = append(g.toCols, qCol(fk.ToColumn))
+	}
+	for _, g := range fkGroups {
+		refSchema, refTbl := splitSchemaTable(d.Engine, d.Database, g.toTable)
+		refQual := qualifiedTable(d.Engine, refSchema, refTbl)
+		clause := fmt.Sprintf("  CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s (%s)",
+			qCol(g.name), strings.Join(g.fromCols, ", "), refQual, strings.Join(g.toCols, ", "))
+		if u := strings.TrimSpace(g.updateRule); u != "" && !strings.EqualFold(u, "NO ACTION") && !strings.EqualFold(u, "NO_ACTION") {
+			clause += " ON UPDATE " + strings.ReplaceAll(u, "_", " ")
+		}
+		if del := strings.TrimSpace(g.deleteRule); del != "" && !strings.EqualFold(del, "NO ACTION") && !strings.EqualFold(del, "NO_ACTION") {
+			clause += " ON DELETE " + strings.ReplaceAll(del, "_", " ")
+		}
+		lines = append(lines, clause)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "CREATE TABLE %s (\n%s\n);", qTbl, strings.Join(lines, ",\n"))
+	for _, idx := range d.Indexes {
+		if idx.IsPrimary || len(idx.Columns) == 0 {
+			continue
+		}
+		uniq := ""
+		if idx.IsUnique {
+			uniq = "UNIQUE "
+		}
+		cols := make([]string, len(idx.Columns))
+		for i, c := range idx.Columns {
+			cols[i] = qCol(strings.Trim(c, `"`))
+		}
+		fmt.Fprintf(&b, "\nCREATE %sINDEX %s ON %s (%s);", uniq, qCol(idx.Name), qTbl, strings.Join(cols, ", "))
+	}
+	return b.String()
+}
+
 // GetDatabaseDiagram returns all tables, columns, and foreign key relationships for dbName
 // in a minimal batch of metadata queries suitable for rendering an interactive ER diagram.
 func GetDatabaseDiagram(engine string, s EngineSettings, dbName string) (*DatabaseDiagramData, error) {

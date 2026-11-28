@@ -1389,3 +1389,220 @@ ORDER BY 2, fk.name, fkc.constraint_column_id;`
 	}
 	return out, nil
 }
+
+func mssqlGetTableDetails(s EngineSettings, dbName, schema, table string) (*TableDetails, error) {
+	escObj := strings.ReplaceAll("["+strings.ReplaceAll(schema, "]", "]]")+"].["+strings.ReplaceAll(table, "]", "]]")+"]", "'", "''")
+	out := &TableDetails{
+		Engine:              "mssql",
+		Database:            dbName,
+		Schema:              schema,
+		Table:               table,
+		Kind:                "BASE TABLE",
+		Columns:             []TableColumnDetail{},
+		PrimaryKey:          []string{},
+		OutgoingForeignKeys: []ForeignKeyInfo{},
+		IncomingForeignKeys: []ForeignKeyInfo{},
+		Indexes:             []TableIndexInfo{},
+	}
+
+	// 1. Columns
+	colQ := fmt.Sprintf(`SET NOCOUNT ON;
+DECLARE @obj INT = OBJECT_ID(N'%s');
+SELECT c.name,
+       t.name + CASE
+         WHEN t.name IN ('varchar','char','varbinary','binary')
+           THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length AS VARCHAR(16)) END + ')'
+         WHEN t.name IN ('nvarchar','nchar')
+           THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length / 2 AS VARCHAR(16)) END + ')'
+         WHEN t.name IN ('decimal','numeric')
+           THEN '(' + CAST(c.precision AS VARCHAR(16)) + ',' + CAST(c.scale AS VARCHAR(16)) + ')'
+         ELSE ''
+       END,
+       CASE WHEN c.is_nullable = 1 THEN 'YES' ELSE 'NO' END,
+       dc.definition,
+       CASE WHEN EXISTS (
+         SELECT 1 FROM sys.index_columns ic
+         INNER JOIN sys.indexes ix ON ix.object_id = ic.object_id AND ix.index_id = ic.index_id
+         WHERE ic.object_id = c.object_id AND ic.column_id = c.column_id AND ix.is_primary_key = 1
+       ) THEN '1' ELSE '0' END,
+       CASE WHEN c.is_identity = 1 THEN '1' ELSE '0' END,
+       ISNULL(c.collation_name, ''),
+       ISNULL(CAST(ep.value AS NVARCHAR(4000)), '')
+FROM sys.columns c
+INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
+LEFT JOIN sys.default_constraints dc ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id
+LEFT JOIN sys.extended_properties ep ON ep.major_id = c.object_id AND ep.minor_id = c.column_id AND ep.name = N'MS_Description'
+WHERE c.object_id = @obj
+ORDER BY c.column_id;`, escObj)
+
+	res, err := mssqlRunQuery(s, dbName, colQ)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range res.Rows {
+		name := valAt(r, 0)
+		if name == "" {
+			continue
+		}
+		var defPtr *string
+		if len(r) > 3 && r[3] != nil {
+			v := *r[3]
+			defPtr = &v
+		}
+		isIdentity := valAt(r, 5) == "1"
+		extra := ""
+		if isIdentity {
+			extra = "IDENTITY"
+		}
+		out.Columns = append(out.Columns, TableColumnDetail{
+			Name:            name,
+			DataType:        valAt(r, 1),
+			Nullable:        strings.EqualFold(valAt(r, 2), "YES"),
+			DefaultVal:      defPtr,
+			IsPrimaryKey:    valAt(r, 4) == "1",
+			IsAutoIncrement: isIdentity,
+			Extra:           extra,
+			Collation:       valAt(r, 6),
+			Comment:         valAt(r, 7),
+		})
+	}
+
+	// 2. Outgoing foreign keys (parent_object_id = @obj)
+	fkSelect := `SET NOCOUNT ON;
+DECLARE @obj INT = OBJECT_ID(N'%s');
+SELECT fk.name,
+       CASE WHEN ps.name = 'dbo' THEN po.name ELSE ps.name + '.' + po.name END,
+       pc.name,
+       CASE WHEN rs.name = 'dbo' THEN ro.name ELSE rs.name + '.' + ro.name END,
+       rc.name,
+       REPLACE(fk.update_referential_action_desc, '_', ' '),
+       REPLACE(fk.delete_referential_action_desc, '_', ' ')
+FROM sys.foreign_keys fk
+INNER JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+INNER JOIN sys.objects po ON po.object_id = fkc.parent_object_id
+INNER JOIN sys.schemas ps ON ps.schema_id = po.schema_id
+INNER JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
+INNER JOIN sys.objects ro ON ro.object_id = fkc.referenced_object_id
+INNER JOIN sys.schemas rs ON rs.schema_id = ro.schema_id
+INNER JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id`
+
+	if outFkRes, ferr := mssqlRunQuery(s, dbName, fmt.Sprintf(fkSelect+`
+WHERE fkc.parent_object_id = @obj
+ORDER BY fk.name, fkc.constraint_column_id;`, escObj)); ferr == nil {
+		for _, r := range outFkRes.Rows {
+			if len(r) < 5 {
+				continue
+			}
+			out.OutgoingForeignKeys = append(out.OutgoingForeignKeys, ForeignKeyInfo{
+				ConstraintName: valAt(r, 0),
+				FromTable:      valAt(r, 1),
+				FromColumn:     valAt(r, 2),
+				ToTable:        valAt(r, 3),
+				ToColumn:       valAt(r, 4),
+				UpdateRule:     valAt(r, 5),
+				DeleteRule:     valAt(r, 6),
+			})
+		}
+	}
+
+	// 3. Incoming foreign keys (referenced_object_id = @obj)
+	if inFkRes, ferr := mssqlRunQuery(s, dbName, fmt.Sprintf(fkSelect+`
+WHERE fkc.referenced_object_id = @obj
+ORDER BY 2, fk.name, fkc.constraint_column_id;`, escObj)); ferr == nil {
+		for _, r := range inFkRes.Rows {
+			if len(r) < 5 {
+				continue
+			}
+			out.IncomingForeignKeys = append(out.IncomingForeignKeys, ForeignKeyInfo{
+				ConstraintName: valAt(r, 0),
+				FromTable:      valAt(r, 1),
+				FromColumn:     valAt(r, 2),
+				ToTable:        valAt(r, 3),
+				ToColumn:       valAt(r, 4),
+				UpdateRule:     valAt(r, 5),
+				DeleteRule:     valAt(r, 6),
+			})
+		}
+	}
+
+	// 4. Indexes
+	idxQ := fmt.Sprintf(`SET NOCOUNT ON;
+DECLARE @obj INT = OBJECT_ID(N'%s');
+SELECT ix.name,
+       c.name,
+       CASE WHEN ix.is_unique = 1 THEN '1' ELSE '0' END,
+       CASE WHEN ix.is_primary_key = 1 THEN '1' ELSE '0' END,
+       ix.type_desc
+FROM sys.indexes ix
+INNER JOIN sys.index_columns ic ON ix.object_id = ic.object_id AND ix.index_id = ic.index_id
+INNER JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+WHERE ix.object_id = @obj AND ix.index_id > 0 AND ic.is_included_column = 0
+ORDER BY ix.is_primary_key DESC, ix.is_unique DESC, ix.name, ic.key_ordinal;`, escObj)
+	if idxRes, ierr := mssqlRunQuery(s, dbName, idxQ); ierr == nil {
+		idxByName := map[string]int{}
+		for _, r := range idxRes.Rows {
+			idxName := valAt(r, 0)
+			colName := valAt(r, 1)
+			if idxName == "" {
+				continue
+			}
+			pos, ok := idxByName[idxName]
+			if !ok {
+				pos = len(out.Indexes)
+				idxByName[idxName] = pos
+				out.Indexes = append(out.Indexes, TableIndexInfo{
+					Name:      idxName,
+					Columns:   []string{},
+					IsUnique:  valAt(r, 2) == "1",
+					IsPrimary: valAt(r, 3) == "1",
+					IndexType: valAt(r, 4),
+				})
+			}
+			if colName != "" {
+				out.Indexes[pos].Columns = append(out.Indexes[pos].Columns, colName)
+			}
+		}
+	}
+
+	// 5. Table properties (metadata + optional DMV row/size stats)
+	propQ := fmt.Sprintf(`SET NOCOUNT ON;
+DECLARE @obj INT = OBJECT_ID(N'%s');
+SELECT CASE o.type WHEN 'V' THEN 'VIEW' ELSE 'BASE TABLE' END,
+       CONVERT(VARCHAR(19), o.create_date, 120),
+       CONVERT(VARCHAR(19), o.modify_date, 120),
+       ISNULL(CAST(ep.value AS NVARCHAR(4000)), ''),
+       CASE WHEN o.type = 'V' THEN ISNULL(OBJECT_DEFINITION(@obj), '') ELSE '' END
+FROM sys.objects o
+LEFT JOIN sys.extended_properties ep ON ep.major_id = o.object_id AND ep.minor_id = 0 AND ep.name = N'MS_Description'
+WHERE o.object_id = @obj;`, escObj)
+	out.Properties.StorageEngine = "SQL Server"
+	if propRes, perr := mssqlRunQuery(s, dbName, propQ); perr == nil && len(propRes.Rows) > 0 {
+		r := propRes.Rows[0]
+		if k := valAt(r, 0); k != "" {
+			out.Kind = k
+		}
+		out.Properties.CreatedAt = valAt(r, 1)
+		out.Properties.UpdatedAt = valAt(r, 2)
+		out.Properties.Comment = valAt(r, 3)
+		if vd := strings.TrimSpace(valAt(r, 4)); vd != "" {
+			out.CreateDDL = vd
+		}
+	}
+
+	statsQ := fmt.Sprintf(`SET NOCOUNT ON;
+DECLARE @obj INT = OBJECT_ID(N'%s');
+SELECT ISNULL(SUM(CASE WHEN index_id IN (0, 1) THEN row_count ELSE 0 END), 0),
+       ISNULL(SUM(CASE WHEN index_id IN (0, 1) THEN used_page_count ELSE 0 END) * 8192, 0),
+       ISNULL(SUM(CASE WHEN index_id > 1 THEN used_page_count ELSE 0 END) * 8192, 0)
+FROM sys.dm_db_partition_stats
+WHERE object_id = @obj;`, escObj)
+	if stRes, serr := mssqlRunQuery(s, dbName, statsQ); serr == nil && len(stRes.Rows) > 0 {
+		r := stRes.Rows[0]
+		out.Properties.RowCount, _ = strconv.ParseInt(strings.TrimSpace(valAt(r, 0)), 10, 64)
+		out.Properties.DataBytes, _ = strconv.ParseInt(strings.TrimSpace(valAt(r, 1)), 10, 64)
+		out.Properties.IndexBytes, _ = strconv.ParseInt(strings.TrimSpace(valAt(r, 2)), 10, 64)
+	}
+
+	finalizeTableDetails(out)
+	return out, nil
+}

@@ -832,6 +832,14 @@ func (a *App) DescribeTable(engine, dbName, tableName string) ([]core.ColumnInfo
 	return core.DescribeTable(realEng, es, dbName, tableName)
 }
 
+func (a *App) GetTableDetails(engine, dbName, tableName string) (*core.TableDetails, error) {
+	realEng, es, _, err := a.resolveTargetStrict(engine)
+	if err != nil {
+		return nil, err
+	}
+	return core.GetTableDetails(realEng, es, dbName, tableName)
+}
+
 func (a *App) GetDatabaseDiagram(engine, dbName string) (*core.DatabaseDiagramData, error) {
 	realEng, es, _, err := a.resolveTargetStrict(engine)
 	if err != nil {

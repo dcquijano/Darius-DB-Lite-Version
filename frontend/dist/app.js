@@ -31,6 +31,7 @@
     sqlPage: 1,
     sqlPageSize: 50,
     sqlColWidths: null,
+    sqlViewMode: "rows",
     sqlTabs: [],
     activeSqlTabId: "",
     redisDb: 0,
@@ -387,6 +388,7 @@
       pageSize: pageSize ?? 50,
       filter: "",
       colWidths: null,
+      viewMode: "rows",
       metaText: "Ready",
       metaError: false,
       loading: false,
@@ -407,6 +409,7 @@
     tab.page = state.sqlPage;
     tab.pageSize = state.sqlPageSize;
     tab.colWidths = state.sqlColWidths;
+    tab.viewMode = state.sqlViewMode || "rows";
     if ($("sqlEditor")) tab.sql = $("sqlEditor").value;
     if ($("sqlRowFilter")) tab.filter = $("sqlRowFilter").value;
     if ($("sqlMeta")) {
@@ -476,6 +479,7 @@
       state.sqlPage = tab.page || 1;
       state.sqlPageSize = tab.pageSize !== undefined ? tab.pageSize : 50;
       state.sqlColWidths = tab.colWidths || null;
+      state.sqlViewMode = tab.table && tab.viewMode === "structure" ? "structure" : "rows";
 
       if ($("sqlEditor")) $("sqlEditor").value = tab.sql || "";
       if ($("sqlRowFilter")) $("sqlRowFilter").value = tab.filter || "";
@@ -485,7 +489,10 @@
         meta.textContent = tab.metaText || "Ready";
         meta.parentElement.className = tab.metaError ? "result-meta-bar error" : "result-meta-bar";
       }
-      if (tab.result && tab.result.isQuery) {
+      if (state.sqlViewMode === "structure" && tab.table) {
+        hideSqlPager();
+        renderSqlStructureView(tab, false);
+      } else if (tab.result && tab.result.isQuery) {
         renderSqlTable(tab.result);
       } else {
         if ($("sqlResults")) $("sqlResults").innerHTML = "";
@@ -2840,15 +2847,24 @@
   const sqlTablesCache = new Map();
   const sqlSchemaCache = new Map();
   const sqlSchemaInFlight = new Map();
+  const sqlTableDetailsCache = new Map();
+  const sqlTableDetailsInFlight = new Map();
+  const sqlExpandedTables = new Set();
+  const sqlTreeSubCollapsed = new Set();
   let sqlDbsReqSeq = 0;
   let sqlTablesReqSeq = 0;
   let sqlQueryReqSeq = 0;
+
+  function sqlTableKey(engine, db, table) {
+    return `${engine || ""}|${db || ""}|${table || ""}`;
+  }
 
   function invalidateSqlCache(engine = "", db = "", table = "") {
     if (!engine) {
       sqlDbsCache.clear();
       sqlTablesCache.clear();
       sqlSchemaCache.clear();
+      sqlTableDetailsCache.clear();
       return;
     }
     const engPrefix = `${engine}|`;
@@ -2856,6 +2872,7 @@
       sqlDbsCache.delete(engine);
       for (const k of sqlTablesCache.keys()) if (k.startsWith(engPrefix)) sqlTablesCache.delete(k);
       for (const k of sqlSchemaCache.keys()) if (k.startsWith(engPrefix)) sqlSchemaCache.delete(k);
+      for (const k of sqlTableDetailsCache.keys()) if (k.startsWith(engPrefix)) sqlTableDetailsCache.delete(k);
       return;
     }
     const dbKey = `${engine}|${db}`;
@@ -2863,14 +2880,16 @@
     if (!table) {
       sqlTablesCache.delete(dbKey);
       for (const k of sqlSchemaCache.keys()) if (k.startsWith(dbPrefix)) sqlSchemaCache.delete(k);
+      for (const k of sqlTableDetailsCache.keys()) if (k.startsWith(dbPrefix)) sqlTableDetailsCache.delete(k);
       return;
     }
     sqlSchemaCache.delete(`${dbKey}|${table}`);
+    sqlTableDetailsCache.delete(`${dbKey}|${table}`);
   }
 
   async function ensureSqlColumns(engine, db, table) {
     if (!engine || !db || !table) return [];
-    const key = `${engine}|${db}|${table}`;
+    const key = sqlTableKey(engine, db, table);
     if (sqlSchemaCache.has(key)) return sqlSchemaCache.get(key);
     if (sqlSchemaInFlight.has(key)) return sqlSchemaInFlight.get(key);
     const p = api()
@@ -2891,6 +2910,567 @@
       });
     sqlSchemaInFlight.set(key, p);
     return p;
+  }
+
+  async function ensureTableDetails(engine, db, table, force = false) {
+    if (!engine || !db || !table) return null;
+    const key = sqlTableKey(engine, db, table);
+    if (!force && sqlTableDetailsCache.has(key)) return sqlTableDetailsCache.get(key);
+    if (!force && sqlTableDetailsInFlight.has(key)) return sqlTableDetailsInFlight.get(key);
+    const p = api()
+      .GetTableDetails(engine, db, table)
+      .then((details) => {
+        if (!details) return null;
+        sqlTableDetailsCache.set(key, details);
+        if (Array.isArray(details.columns) && details.columns.length) {
+          const cols = details.columns.map((c) => ({
+            name: c.name,
+            dataType: c.dataType,
+            nullable: !!c.nullable,
+            defaultVal: c.defaultVal ?? null,
+            isPrimaryKey: !!c.isPrimaryKey,
+            isAutoIncrement: !!c.isAutoIncrement,
+          }));
+          sqlSchemaCache.set(key, cols);
+          state.sqlTabs.forEach((t) => {
+            if (t.engine === engine && t.db === db && t.table === table) t.columns = cols;
+          });
+          if (state.dbEngine === engine && (getActiveSqlTab()?.db || state.sqlDb) === db && state.sqlTable === table) {
+            state.sqlColumns = cols;
+          }
+        }
+        return details;
+      })
+      .finally(() => {
+        sqlTableDetailsInFlight.delete(key);
+      });
+    sqlTableDetailsInFlight.set(key, p);
+    return p;
+  }
+
+  function insertIdentifierAtSqlCursor(ident) {
+    const ed = $("sqlEditor");
+    if (!ed || !ident) return;
+    const start = ed.selectionStart ?? ed.value.length;
+    const end = ed.selectionEnd ?? start;
+    const before = ed.value.slice(0, start);
+    const after = ed.value.slice(end);
+    ed.value = before + ident + after;
+    const nextPos = start + ident.length;
+    ed.focus();
+    ed.setSelectionRange(nextPos, nextPos);
+    syncActiveTabFromDom();
+    toast(`Inserted "${ident}" into SQL editor`, "ok");
+  }
+
+  async function toggleTableTreeExpand(tableObj, forceState = null) {
+    if (!tableObj || !state.sqlDb) return;
+    const eng = state.dbEngine;
+    const db = state.sqlDb;
+    const key = sqlTableKey(eng, db, tableObj.name);
+    const nextOpen = forceState !== null ? !!forceState : !sqlExpandedTables.has(key);
+    if (nextOpen) {
+      sqlExpandedTables.add(key);
+    } else {
+      sqlExpandedTables.delete(key);
+    }
+    renderSqlTableList();
+    if (nextOpen && !sqlTableDetailsCache.has(key)) {
+      try {
+        await ensureTableDetails(eng, db, tableObj.name, false);
+        if (state.dbEngine === eng && state.sqlDb === db && sqlExpandedTables.has(key)) {
+          renderSqlTableList();
+        }
+      } catch (e) {
+        if (state.dbEngine === eng && state.sqlDb === db && sqlExpandedTables.has(key)) {
+          sqlTableDetailsCache.set(key, { _error: errMsg(e) });
+          renderSqlTableList();
+        }
+      }
+    }
+  }
+
+  function renderTableTreeSubtree(engine, db, tableObj) {
+    const key = sqlTableKey(engine, db, tableObj.name);
+    const details = sqlTableDetailsCache.get(key);
+    if (!details) {
+      return `<div class="tree-children"><div class="tree-loading">Loading columns, keys &amp; indexes…</div></div>`;
+    }
+    if (details._error) {
+      return `<div class="tree-children"><div class="tree-leaf is-muted" title="${esc(details._error)}">Failed to load: ${esc(details._error)}</div></div>`;
+    }
+    const cols = details.columns || [];
+    const outFks = details.outgoingForeignKeys || [];
+    const inFks = details.incomingForeignKeys || [];
+    const idxs = details.indexes || [];
+    const pkCols = details.primaryKey || [];
+    const keyCount = (pkCols.length ? 1 : 0) + outFks.length + inFks.length;
+
+    const colsSubKey = `${key}|cols`;
+    const keysSubKey = `${key}|keys`;
+    const idxsSubKey = `${key}|idxs`;
+    const colsOpen = !sqlTreeSubCollapsed.has(colsSubKey);
+    const keysOpen = !sqlTreeSubCollapsed.has(keysSubKey);
+    const idxsOpen = !sqlTreeSubCollapsed.has(idxsSubKey);
+
+    const outFkMap = new Map();
+    outFks.forEach((fk) => {
+      const k = String(fk.fromColumn || "").toLowerCase();
+      if (!outFkMap.has(k)) outFkMap.set(k, fk);
+    });
+
+    const colsHtml = cols.length
+      ? cols
+          .map((c) => {
+            const fk = outFkMap.get(String(c.name || "").toLowerCase());
+            const badges = [];
+            if (c.isPrimaryKey) badges.push(`<span class="key-badge pk" title="Primary Key">PK</span>`);
+            if (c.isForeignKey || fk) {
+              const fkTip = fk ? `Foreign Key → ${fk.toTable}.${fk.toColumn}` : "Foreign Key";
+              badges.push(`<span class="key-badge fk" title="${esc(fkTip)}">FK</span>`);
+            }
+            if (c.isUnique && !c.isPrimaryKey) badges.push(`<span class="key-badge uq" title="Unique">UQ</span>`);
+            const tip = `${c.name} ${c.dataType}${c.nullable ? " NULL" : " NOT NULL"}${fk ? ` → ${fk.toTable}.${fk.toColumn}` : ""} (Click to insert in SQL editor)`;
+            return `<div class="tree-leaf" data-tree-col-name="${esc(c.name)}" title="${esc(tip)}">
+              ${badges.join("")}
+              <span class="tree-leaf-name">${esc(c.name)}</span>
+              <span class="tree-leaf-type">${esc(c.dataType)}</span>
+            </div>`;
+          })
+          .join("")
+      : `<div class="tree-leaf is-muted">No columns</div>`;
+
+    const keyItems = [];
+    if (pkCols.length) {
+      keyItems.push(`<div class="tree-leaf" data-tree-open-structure="${esc(tableObj.name)}" title="Primary Key (${esc(pkCols.join(", "))})">
+        <span class="key-badge pk">PK</span>
+        <span class="tree-leaf-name">${esc(pkCols.join(", "))}</span>
+      </div>`);
+    }
+    outFks.forEach((fk) => {
+      const tip = `Outgoing FK (${fk.constraintName}): ${fk.fromColumn} → ${fk.toTable}.${fk.toColumn}${fk.deleteRule ? ` · ON DELETE ${fk.deleteRule}` : ""} (Click to jump to ${fk.toTable})`;
+      keyItems.push(`<div class="tree-leaf is-fk" data-tree-goto-table="${esc(fk.toTable)}" title="${esc(tip)}">
+        <span class="key-badge fk">FK↗</span>
+        <span class="tree-leaf-name">${esc(fk.fromColumn)} → ${esc(fk.toTable)}.${esc(fk.toColumn)}</span>
+      </div>`);
+    });
+    inFks.forEach((fk) => {
+      const tip = `Incoming FK (${fk.constraintName}): ${fk.fromTable}.${fk.fromColumn} → ${fk.toColumn} (Click to jump to ${fk.fromTable})`;
+      keyItems.push(`<div class="tree-leaf is-fk-in" data-tree-goto-table="${esc(fk.fromTable)}" title="${esc(tip)}">
+        <span class="key-badge fk-in">REF↙</span>
+        <span class="tree-leaf-name">${esc(fk.fromTable)}.${esc(fk.fromColumn)}</span>
+      </div>`);
+    });
+    const keysHtml = keyItems.length ? keyItems.join("") : `<div class="tree-leaf is-muted">No keys or foreign keys</div>`;
+
+    const idxsHtml = idxs.length
+      ? idxs
+          .map((ix) => {
+            const badge = ix.isPrimary
+              ? `<span class="key-badge pk">PK</span>`
+              : ix.isUnique
+              ? `<span class="key-badge uq">UQ</span>`
+              : `<span class="key-badge idx">IDX</span>`;
+            const colsStr = (ix.columns || []).join(", ");
+            return `<div class="tree-leaf" data-tree-open-structure="${esc(tableObj.name)}" title="${esc(ix.name)} (${esc(colsStr)})">
+              ${badge}
+              <span class="tree-leaf-name">${esc(ix.name)}</span>
+              <span class="tree-leaf-type">${esc(colsStr)}</span>
+            </div>`;
+          })
+          .join("")
+      : `<div class="tree-leaf is-muted">No indexes</div>`;
+
+    return `<div class="tree-children">
+      <div class="tree-sub-group">
+        <button type="button" class="tree-sub-head ${colsOpen ? "open" : ""}" data-toggle-tree-sub="${esc(colsSubKey)}">
+          <span class="tree-sub-arrow">▸</span><span>Columns</span><span class="tree-sub-count">${cols.length}</span>
+        </button>
+        ${colsOpen ? `<div class="tree-sub-items">${colsHtml}</div>` : ""}
+      </div>
+      <div class="tree-sub-group">
+        <button type="button" class="tree-sub-head ${keysOpen ? "open" : ""}" data-toggle-tree-sub="${esc(keysSubKey)}">
+          <span class="tree-sub-arrow">▸</span><span>Keys &amp; Relations</span><span class="tree-sub-count">${keyCount}</span>
+        </button>
+        ${keysOpen ? `<div class="tree-sub-items">${keysHtml}</div>` : ""}
+      </div>
+      <div class="tree-sub-group">
+        <button type="button" class="tree-sub-head ${idxsOpen ? "open" : ""}" data-toggle-tree-sub="${esc(idxsSubKey)}">
+          <span class="tree-sub-arrow">▸</span><span>Indexes</span><span class="tree-sub-count">${idxs.length}</span>
+        </button>
+        ${idxsOpen ? `<div class="tree-sub-items">${idxsHtml}</div>` : ""}
+      </div>
+      <button type="button" class="tree-open-struct-btn" data-tree-open-structure="${esc(tableObj.name)}">🔑 Inspect Properties, FKs &amp; DDL →</button>
+    </div>`;
+  }
+
+  function renderTableStructureInto(wrap, details, { engine = "", db = "", table = "" } = {}) {
+    if (!wrap) return;
+    if (!details) {
+      wrap.innerHTML = `<div class="empty-note">Loading structure, foreign keys &amp; properties for ${esc(table)}…</div>`;
+      return;
+    }
+    const cols = details.columns || [];
+    const outFks = details.outgoingForeignKeys || [];
+    const inFks = details.incomingForeignKeys || [];
+    const idxs = details.indexes || [];
+    const props = details.properties || {};
+    const isView = String(details.kind || "").toUpperCase().includes("VIEW");
+
+    const outFkByCol = new Map();
+    outFks.forEach((fk) => {
+      const k = String(fk.fromColumn || "").toLowerCase();
+      if (!outFkByCol.has(k)) outFkByCol.set(k, []);
+      outFkByCol.get(k).push(fk);
+    });
+
+    const rowCountStr = Number.isFinite(Number(props.rowCount)) ? Number(props.rowCount).toLocaleString() : "0";
+    const totalBytes = (Number(props.dataBytes) || 0) + (Number(props.indexBytes) || 0);
+
+    const outFkHtml = outFks.length
+      ? `<div class="fk-list">${outFks
+          .map((fk) => {
+            const rules = [];
+            if (fk.updateRule) rules.push(`ON UPDATE ${fk.updateRule}`);
+            if (fk.deleteRule) rules.push(`ON DELETE ${fk.deleteRule}`);
+            return `<div class="fk-row">
+              <div class="fk-row-main">
+                <span class="key-badge fk">FK</span>
+                <span class="fk-col-chip">${esc(fk.fromColumn)}</span>
+                <span class="fk-arrow">→</span>
+                <button type="button" class="entity-link-btn" data-goto-entity="${esc(fk.toTable)}" data-goto-mode="structure" title="Inspect ${esc(fk.toTable)} structure &amp; keys">
+                  ${esc(fk.toTable)}.${esc(fk.toColumn)}
+                </button>
+                <button type="button" class="entity-mini-btn" data-goto-entity="${esc(fk.toTable)}" data-goto-mode="rows" title="View rows in ${esc(fk.toTable)}">Rows</button>
+              </div>
+              <div class="fk-row-meta">
+                <span>${esc(fk.constraintName)}</span>
+                ${rules.length ? `<span>· ${esc(rules.join(" · "))}</span>` : ""}
+              </div>
+            </div>`;
+          })
+          .join("")}</div>`
+      : `<div class="empty-note" style="padding:12px">No outgoing foreign keys (this ${isView ? "view" : "table"} does not reference parent tables).</div>`;
+
+    const inFkHtml = inFks.length
+      ? `<div class="fk-list">${inFks
+          .map((fk) => {
+            const rules = [];
+            if (fk.updateRule) rules.push(`ON UPDATE ${fk.updateRule}`);
+            if (fk.deleteRule) rules.push(`ON DELETE ${fk.deleteRule}`);
+            return `<div class="fk-row">
+              <div class="fk-row-main">
+                <span class="key-badge fk-in">REF</span>
+                <button type="button" class="entity-link-btn incoming" data-goto-entity="${esc(fk.fromTable)}" data-goto-mode="structure" title="Inspect referencing entity ${esc(fk.fromTable)}">
+                  ${esc(fk.fromTable)}.${esc(fk.fromColumn)}
+                </button>
+                <button type="button" class="entity-mini-btn" data-goto-entity="${esc(fk.fromTable)}" data-goto-mode="rows" title="View rows in ${esc(fk.fromTable)}">Rows</button>
+                <span class="fk-arrow">→</span>
+                <span class="fk-col-chip">${esc(fk.toColumn)}</span>
+              </div>
+              <div class="fk-row-meta">
+                <span>${esc(fk.constraintName)}</span>
+                ${rules.length ? `<span>· ${esc(rules.join(" · "))}</span>` : ""}
+              </div>
+            </div>`;
+          })
+          .join("")}</div>`
+      : `<div class="empty-note" style="padding:12px">No other tables reference ${esc(details.table || table)}.</div>`;
+
+    const colRowsHtml = cols.length
+      ? cols
+          .map((c, idx) => {
+            const fkList = outFkByCol.get(String(c.name || "").toLowerCase()) || [];
+            const badges = [];
+            if (c.isPrimaryKey) badges.push(`<span class="key-badge pk">PK</span>`);
+            if (c.isForeignKey || fkList.length) badges.push(`<span class="key-badge fk">FK</span>`);
+            if (c.isUnique && !c.isPrimaryKey) badges.push(`<span class="key-badge uq">UQ</span>`);
+            if (c.isAutoIncrement) badges.push(`<span class="key-badge ai">AI</span>`);
+            fkList.forEach((fk) => {
+              badges.push(`<button type="button" class="entity-link-btn" style="padding:1px 6px;font-size:10.5px" data-goto-entity="${esc(fk.toTable)}" data-goto-mode="structure" title="Jump to related entity ${esc(fk.toTable)}">→ ${esc(fk.toTable)}.${esc(fk.toColumn)}</button>`);
+            });
+            const defCell = c.defaultVal === null || c.defaultVal === undefined
+              ? `<span class="null-val">NULL</span>`
+              : `<span class="struct-mono">${esc(c.defaultVal)}</span>`;
+            const extraParts = [c.extra, c.collation && !isView ? c.collation : "", c.comment].filter(Boolean);
+            return `<tr>
+              <td class="struct-mono" style="color:var(--text-muted)">${idx + 1}</td>
+              <td class="struct-mono" style="font-weight:600">${esc(c.name)}</td>
+              <td class="struct-mono">${esc(c.dataType)}</td>
+              <td><div class="struct-keys-cell">${badges.join("") || `<span style="color:var(--text-muted)">—</span>`}</div></td>
+              <td>${c.nullable ? `<span style="color:var(--text-muted)">YES</span>` : `<span style="font-weight:600">NOT NULL</span>`}</td>
+              <td>${defCell}</td>
+              <td style="color:var(--text-muted)">${esc(extraParts.join(" · ") || "—")}</td>
+            </tr>`;
+          })
+          .join("")
+      : `<tr><td colspan="7" class="empty-note">No columns found</td></tr>`;
+
+    const idxRowsHtml = idxs.length
+      ? idxs
+          .map((ix) => {
+            const flags = [];
+            if (ix.isPrimary) flags.push(`<span class="key-badge pk">PRIMARY</span>`);
+            if (ix.isUnique && !ix.isPrimary) flags.push(`<span class="key-badge uq">UNIQUE</span>`);
+            if (ix.indexType) flags.push(`<span class="key-badge idx">${esc(ix.indexType)}</span>`);
+            if (!flags.length) flags.push(`<span class="key-badge idx">INDEX</span>`);
+            return `<tr>
+              <td class="struct-mono" style="font-weight:600">${esc(ix.name)}</td>
+              <td><div class="struct-keys-cell">${flags.join("")}</div></td>
+              <td class="struct-mono">${esc((ix.columns || []).join(", ") || "—")}</td>
+            </tr>`;
+          })
+          .join("")
+      : `<tr><td colspan="3" class="empty-note">No indexes defined</td></tr>`;
+
+    const propCards = [
+      { label: "Type", val: details.kind || "BASE TABLE" },
+      { label: "Schema", val: details.schema || db || "—" },
+      props.storageEngine ? { label: "Storage Engine", val: props.storageEngine } : null,
+      props.collation ? { label: "Collation", val: props.collation } : null,
+      !isView ? { label: "Est. Rows", val: rowCountStr } : null,
+      !isView ? { label: "Data Size", val: formatBytes(props.dataBytes || 0) } : null,
+      !isView ? { label: "Index Size", val: formatBytes(props.indexBytes || 0) } : null,
+      !isView && totalBytes > 0 ? { label: "Total Size", val: formatBytes(totalBytes) } : null,
+      props.autoIncrement ? { label: "Auto Increment", val: props.autoIncrement } : null,
+      props.owner ? { label: "Owner", val: props.owner } : null,
+      props.createdAt ? { label: "Created", val: props.createdAt } : null,
+      props.updatedAt ? { label: "Updated", val: props.updatedAt } : null,
+      props.comment ? { label: "Comment", val: props.comment } : null,
+    ].filter(Boolean);
+
+    const ddlText = (details.createDdl || "").trim();
+
+    wrap.innerHTML = `<div class="tbl-struct-wrap">
+      <div class="tbl-struct-header">
+        <div>
+          <div class="tbl-struct-title-row">
+            <span class="tbl-struct-name">${esc(details.table || table)}</span>
+            <span class="type-tag">${esc(details.kind || "BASE TABLE")}</span>
+            <span class="chip">${esc(engine || details.engine)} / ${esc(db || details.database)}</span>
+          </div>
+          <div class="tbl-struct-stats">
+            ${cols.length} column${cols.length === 1 ? "" : "s"} ·
+            ${outFks.length} outgoing FK${outFks.length === 1 ? "" : "s"} ·
+            ${inFks.length} incoming FK${inFks.length === 1 ? "" : "s"} ·
+            ${idxs.length} index${idxs.length === 1 ? "" : "es"}${!isView ? ` · ~${rowCountStr} rows` : ""}
+          </div>
+        </div>
+        <div class="tbl-struct-actions">
+          <button type="button" class="btn xs" data-struct-act="refresh" title="Reload table metadata from server">↻ Refresh</button>
+          <button type="button" class="btn xs" data-struct-act="diagram" title="Open ER Diagram focused on this table">🗺️ ER Diagram</button>
+          ${ddlText ? `<button type="button" class="btn xs" data-struct-act="copy-ddl" title="Copy CREATE TABLE DDL">📋 Copy DDL</button>` : ""}
+          <button type="button" class="btn xs primary" data-struct-act="view-rows" title="Switch back to table rows">📊 View Rows</button>
+        </div>
+      </div>
+
+      <div class="tbl-struct-section">
+        <div class="tbl-struct-sec-head">
+          <span>🔗 Foreign Keys &amp; Related Entities</span>
+          <span style="font-size:11px;font-weight:500;color:var(--text-muted)">Click any entity to jump straight to it</span>
+        </div>
+        <div class="tbl-struct-sec-body">
+          <div class="fk-split-grid">
+            <div class="fk-group-box">
+              <div class="fk-group-head">
+                <span>↗ Outgoing References (Parent Entities)</span>
+                <span class="tree-sub-count">${outFks.length}</span>
+              </div>
+              ${outFkHtml}
+            </div>
+            <div class="fk-group-box">
+              <div class="fk-group-head">
+                <span>↙ Referenced By (Child Entities)</span>
+                <span class="tree-sub-count">${inFks.length}</span>
+              </div>
+              ${inFkHtml}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tbl-struct-section">
+        <div class="tbl-struct-sec-head">
+          <span>🧱 Columns (${cols.length})</span>
+          ${(details.primaryKey || []).length ? `<span class="struct-mono" style="font-size:11px;color:#f59e0b">PK: ${esc(details.primaryKey.join(", "))}</span>` : ""}
+        </div>
+        <div class="tbl-struct-sec-body flush">
+          <table class="struct-table">
+            <thead>
+              <tr><th>#</th><th>Column</th><th>Type</th><th>Keys &amp; Relations</th><th>Nullable</th><th>Default</th><th>Extra / Comment</th></tr>
+            </thead>
+            <tbody>${colRowsHtml}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tbl-struct-section">
+        <div class="tbl-struct-sec-head"><span>⚡ Indexes (${idxs.length})</span></div>
+        <div class="tbl-struct-sec-body flush">
+          <table class="struct-table">
+            <thead><tr><th>Index Name</th><th>Flags / Type</th><th>Columns</th></tr></thead>
+            <tbody>${idxRowsHtml}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tbl-struct-section">
+        <div class="tbl-struct-sec-head"><span>⚙️ Table Properties</span></div>
+        <div class="tbl-struct-sec-body">
+          <div class="prop-grid">
+            ${propCards.map((p) => `<div class="prop-card"><span class="prop-label">${esc(p.label)}</span><span class="prop-val" title="${esc(p.val)}">${esc(p.val)}</span></div>`).join("")}
+          </div>
+        </div>
+      </div>
+
+      ${ddlText ? `<div class="tbl-struct-section">
+        <div class="tbl-struct-sec-head">
+          <span>📜 CREATE ${isView ? "VIEW" : "TABLE"} DDL</span>
+          <div style="display:flex;gap:6px">
+            <button type="button" class="btn xs" data-struct-act="copy-ddl">📋 Copy DDL</button>
+            <button type="button" class="btn xs" data-struct-act="edit-ddl">📝 Open in SQL Editor</button>
+          </div>
+        </div>
+        <pre class="ddl-code-box">${esc(ddlText)}</pre>
+      </div>` : ""}
+    </div>`;
+    wrap.scrollTop = 0;
+  }
+
+  async function renderSqlStructureView(tab, force = false) {
+    if (!tab || !tab.table) return;
+    const reqEngine = tab.engine;
+    const reqDb = tab.db || state.sqlDb;
+    const reqTable = tab.table;
+    const wrap = $("sqlResults");
+    if (!wrap) return;
+    hideSqlPager();
+
+    const cached = !force ? sqlTableDetailsCache.get(sqlTableKey(reqEngine, reqDb, reqTable)) : null;
+    if (cached && !cached._error) {
+      renderTableStructureInto(wrap, cached, { engine: reqEngine, db: reqDb, table: reqTable });
+      const meta = $("sqlMeta");
+      if (meta && state.activeSqlTabId === tab.id) {
+        meta.parentElement.className = "result-meta-bar";
+        meta.textContent = `Structure · ${reqTable} (${(cached.columns || []).length} cols, ${(cached.outgoingForeignKeys || []).length} out FK, ${(cached.incomingForeignKeys || []).length} in FK)`;
+      }
+      return;
+    }
+
+    renderTableStructureInto(wrap, null, { engine: reqEngine, db: reqDb, table: reqTable });
+    const meta = $("sqlMeta");
+    if (meta && state.activeSqlTabId === tab.id) {
+      meta.parentElement.className = "result-meta-bar";
+      meta.textContent = `Loading structure for ${reqTable}…`;
+    }
+
+    try {
+      const details = await ensureTableDetails(reqEngine, reqDb, reqTable, force);
+      if (state.activeSqlTabId !== tab.id || state.dbEngine !== reqEngine || state.sqlViewMode !== "structure" || tab.table !== reqTable) {
+        return;
+      }
+      renderTableStructureInto(wrap, details, { engine: reqEngine, db: reqDb, table: reqTable });
+      if (meta) {
+        meta.parentElement.className = "result-meta-bar";
+        meta.textContent = `Structure · ${reqTable} (${(details.columns || []).length} cols, ${(details.outgoingForeignKeys || []).length} out FK, ${(details.incomingForeignKeys || []).length} in FK)`;
+      }
+      if (sqlExpandedTables.has(sqlTableKey(reqEngine, reqDb, reqTable))) {
+        renderSqlTableList();
+      }
+    } catch (e) {
+      if (state.activeSqlTabId !== tab.id || state.sqlViewMode !== "structure") return;
+      wrap.innerHTML = `<div class="empty-note" style="color:var(--red)">Failed to inspect ${esc(reqTable)}: ${esc(errMsg(e))}</div>`;
+      if (meta) {
+        meta.parentElement.className = "result-meta-bar error";
+        meta.textContent = errMsg(e);
+      }
+    }
+  }
+
+  function setSqlResultViewMode(mode) {
+    const tab = getActiveSqlTab();
+    if (!tab || tab.kind === "diagram" || !tab.table) return;
+    const next = mode === "structure" ? "structure" : "rows";
+    if (state.sqlViewMode === next && tab.viewMode === next) return;
+    tab.viewMode = next;
+    state.sqlViewMode = next;
+    updateSqlTableToolbar();
+    if (next === "structure") {
+      renderSqlStructureView(tab, false);
+    } else {
+      const meta = $("sqlMeta");
+      if (meta) {
+        meta.textContent = tab.metaText || "Ready";
+        meta.parentElement.className = tab.metaError ? "result-meta-bar error" : "result-meta-bar";
+      }
+      if (tab.result && tab.result.isQuery) {
+        renderSqlTable(tab.result);
+      } else if (tab.sql && tab.sql.trim()) {
+        runSqlQuery(tab.showingAll, false, tab.id);
+      } else {
+        const tblObj = state.sqlTables.find((t) => t.name === tab.table);
+        if (tblObj) selectSqlTable(tblObj, false, { viewMode: "rows" });
+      }
+    }
+  }
+
+  async function openTableStructure(tableObj, opts = {}) {
+    if (!tableObj) return;
+    await selectSqlTable(tableObj, false, { ...opts, viewMode: "structure" });
+  }
+
+  async function copyTableDDL(tableObj, explicitEngine = "", explicitDb = "") {
+    if (!tableObj) return;
+    const eng = explicitEngine || state.dbEngine;
+    const db = explicitDb || state.sqlDb;
+    try {
+      const details = await ensureTableDetails(eng, db, tableObj.name, false);
+      const ddl = (details?.createDdl || "").trim();
+      if (!ddl) {
+        toast(`No DDL available for ${tableObj.name}`, "err");
+        return;
+      }
+      await copyText(ddl);
+      toast(`Copied CREATE DDL for ${tableObj.name}`, "ok");
+    } catch (e) {
+      toast(errMsg(e), "err");
+    }
+  }
+
+  function findTableObjByName(name) {
+    if (!name) return null;
+    const norm = String(name).trim().toLowerCase();
+    const bare = norm.includes(".") ? norm.split(".").pop() : norm;
+    return (
+      state.sqlTables.find((t) => String(t.name).toLowerCase() === norm) ||
+      state.sqlTables.find((t) => String(t.name).toLowerCase() === bare) ||
+      null
+    );
+  }
+
+  async function navigateToRelatedTable(tableName, mode = "structure") {
+    if (!tableName) return;
+    let tblObj = findTableObjByName(tableName);
+    if (!tblObj) {
+      const eng = state.dbEngine;
+      const qTbl = eng === "mssql" ? `[${tableName.replace(/\]/g, "]]")}]` : eng === "postgresql" ? `"${tableName.replace(/"/g, '""')}"` : `\`${tableName.replace(/`/g, "``")}\``;
+      tblObj = {
+        name: tableName,
+        kind: "BASE TABLE",
+        select: eng === "mssql" ? `SELECT TOP 100 * FROM ${qTbl};` : `SELECT * FROM ${qTbl} LIMIT 100;`,
+        selectAll: `SELECT * FROM ${qTbl};`,
+      };
+    }
+    if (mode === "rows") {
+      await selectSqlTable(tblObj, false, { viewMode: "rows" });
+    } else {
+      await openTableStructure(tblObj);
+    }
+    const idx = state.sqlTables.indexOf(tblObj);
+    if (idx >= 0) {
+      const el = $("sqlTableList")?.querySelector(`[data-table-idx="${idx}"]`);
+      el?.scrollIntoView?.({ block: "nearest" });
+    }
   }
 
   async function loadDbView(force = false) {
@@ -3049,16 +3629,26 @@
 
   function updateSqlTableToolbar() {
     const hasTable = !!state.sqlTable;
+    const isStruct = hasTable && state.sqlViewMode === "structure";
     const chip = $("sqlActiveTable");
     if (chip) {
       chip.hidden = !hasTable;
       chip.textContent = hasTable ? state.sqlTable : "";
     }
+    const toggle = $("sqlResultViewToggle");
+    if (toggle) {
+      toggle.hidden = !hasTable;
+      toggle.querySelectorAll("[data-sql-view]").forEach((btn) => {
+        const active = btn.dataset.sqlView === (isStruct ? "structure" : "rows");
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-selected", active ? "true" : "false");
+      });
+    }
     if ($("btnRowCreate")) $("btnRowCreate").hidden = !hasTable;
     if ($("btnMetaExportTable")) $("btnMetaExportTable").hidden = !hasTable;
-    if ($("btnMetaCreateRow")) $("btnMetaCreateRow").hidden = !hasTable;
-    if ($("btnMetaShowAll")) $("btnMetaShowAll").hidden = !hasTable;
-    if ($("sqlRowFilter")) $("sqlRowFilter").hidden = !(state.sqlLastResult && state.sqlLastResult.isQuery);
+    if ($("btnMetaCreateRow")) $("btnMetaCreateRow").hidden = !hasTable || isStruct;
+    if ($("btnMetaShowAll")) $("btnMetaShowAll").hidden = !hasTable || isStruct;
+    if ($("sqlRowFilter")) $("sqlRowFilter").hidden = isStruct || !(state.sqlLastResult && state.sqlLastResult.isQuery);
   }
 
   async function loadSqlTables(db, force = false, background = false) {
@@ -3160,10 +3750,16 @@
         const safeKind = esc(t.kind);
         const isView = t.kind && t.kind.toUpperCase().includes("VIEW");
         const isActive = activeMatchDb && t.name === state.sqlTable;
-        return `<div class="tree-item ${isActive ? "active" : ""}" data-table-idx="${idx}" title="${safeName} (${safeKind})">
+        const tKey = sqlTableKey(state.dbEngine, state.sqlDb, t.name);
+        const isExpanded = sqlExpandedTables.has(tKey);
+        return `<div class="tree-node" data-table-node-idx="${idx}">
+          <div class="tree-item has-twisty ${isActive ? "active" : ""}" data-table-idx="${idx}" title="${safeName} (${safeKind}) · Click ▸ to expand Columns/FKs/Indexes · Right-click for Properties &amp; DDL">
+            <button type="button" class="tree-twisty ${isExpanded ? "open" : ""}" data-toggle-table-tree="${idx}" title="${isExpanded ? "Collapse" : "Expand"} Columns, Foreign Keys &amp; Indexes">▸</button>
             <span class="tree-label">${safeName}</span>
             ${isView ? `<span class="type-tag">VIEW</span>` : `<button class="tree-del" data-drop-table="${safeName}" title="Drop table">✕</button>`}
-          </div>`;
+          </div>
+          ${isExpanded ? renderTableTreeSubtree(state.dbEngine, state.sqlDb, t) : ""}
+        </div>`;
       })
       .join("");
   }
@@ -3207,12 +3803,22 @@
     syncActiveTabFromDom();
     const reqEngine = state.dbEngine;
     const reqDb = state.sqlDb;
+    const desiredMode = opts.viewMode || "rows";
     const existing = engineTabs(reqEngine).find((t) => t.db === reqDb && t.table === tableObj.name);
     let targetTab = null;
 
     if (existing && !opts.forceNew) {
       targetTab = existing;
       const wasActive = existing.id === state.activeSqlTabId;
+      if (desiredMode === "structure") {
+        existing.viewMode = "structure";
+        if (existing.detached) {
+          dockSqlTab(existing.id);
+        }
+        applyTabToDom(existing);
+        return;
+      }
+      existing.viewMode = "rows";
       if (!wasActive) {
         applyTabToDom(existing);
         if (existing.detached) focusFloatingSqlWin(floatingSqlWins.get(existing.id));
@@ -3220,6 +3826,9 @@
           return;
         }
       } else if (!showAll && existing.loading) {
+        return;
+      } else if (!showAll && existing.result) {
+        applyTabToDom(existing);
         return;
       }
     } else {
@@ -3247,6 +3856,7 @@
     targetTab.db = reqDb;
     targetTab.showingAll = fetchAll;
     targetTab.page = 1;
+    targetTab.viewMode = desiredMode;
     targetTab.columns = sqlSchemaCache.get(`${reqEngine}|${reqDb}|${tableObj.name}`) || [];
     let sql = tableObj.select;
     if (fetchAll) {
@@ -3256,6 +3866,10 @@
     }
     targetTab.sql = sql;
     applyTabToDom(targetTab);
+
+    if (desiredMode === "structure") {
+      return;
+    }
 
     await runSqlQuery(fetchAll || targetTab.pageSize > 1000, false, targetTab.id);
     if (
@@ -3273,6 +3887,11 @@
     const tab = (explicitTabId && getSqlTab(explicitTabId)) || ensureActiveSqlTab();
     const q = (tab.sql || "").trim();
     if (!q) return;
+    tab.viewMode = "rows";
+    if (!tab.detached && state.activeSqlTabId === tab.id) {
+      state.sqlViewMode = "rows";
+      updateSqlTableToolbar();
+    }
     const reqEngine = tab.engine;
     const reqDb = tab.db || state.sqlDb;
     tab.db = reqDb;
@@ -5904,6 +6523,41 @@ try {
     });
 
     $("sqlTableList").addEventListener("click", async (e) => {
+      const twisty = e.target.closest("[data-toggle-table-tree]");
+      if (twisty) {
+        e.stopPropagation();
+        const t = state.sqlTables[Number(twisty.dataset.toggleTableTree)];
+        await toggleTableTreeExpand(t);
+        return;
+      }
+      const subHead = e.target.closest("[data-toggle-tree-sub]");
+      if (subHead) {
+        e.stopPropagation();
+        const sk = subHead.dataset.toggleTreeSub;
+        if (sqlTreeSubCollapsed.has(sk)) sqlTreeSubCollapsed.delete(sk);
+        else sqlTreeSubCollapsed.add(sk);
+        renderSqlTableList();
+        return;
+      }
+      const gotoTbl = e.target.closest("[data-tree-goto-table]");
+      if (gotoTbl) {
+        e.stopPropagation();
+        await navigateToRelatedTable(gotoTbl.dataset.treeGotoTable, "structure");
+        return;
+      }
+      const openStruct = e.target.closest("[data-tree-open-structure]");
+      if (openStruct) {
+        e.stopPropagation();
+        const tblObj = findTableObjByName(openStruct.dataset.treeOpenStructure);
+        if (tblObj) await openTableStructure(tblObj);
+        return;
+      }
+      const colLeaf = e.target.closest("[data-tree-col-name]");
+      if (colLeaf) {
+        e.stopPropagation();
+        insertIdentifierAtSqlCursor(colLeaf.dataset.treeColName);
+        return;
+      }
       const dropBtn = e.target.closest("[data-drop-table]");
       if (dropBtn) {
         e.stopPropagation();
@@ -5924,16 +6578,33 @@ try {
       const tblObj = state.sqlTables[Number(item.dataset.tableIdx)];
       if (!tblObj) return;
       const isView = String(tblObj.kind || "").toUpperCase().includes("VIEW");
+      const isExpanded = sqlExpandedTables.has(sqlTableKey(state.dbEngine, state.sqlDb, tblObj.name));
       const items = [
         {
-          icon: "📄",
-          label: "Select Top Rows",
-          onClick: () => selectSqlTable(tblObj, false),
+          icon: "🔑",
+          label: "Structure, Foreign Keys & Properties",
+          onClick: () => openTableStructure(tblObj),
+        },
+        {
+          icon: isExpanded ? "📁" : "📂",
+          label: isExpanded ? "Collapse in Sidebar" : "Expand in Sidebar",
+          onClick: () => toggleTableTreeExpand(tblObj),
         },
         {
           icon: "📋",
+          label: `Copy CREATE ${isView ? "VIEW" : "TABLE"} DDL`,
+          onClick: () => copyTableDDL(tblObj),
+        },
+        { type: "sep" },
+        {
+          icon: "📄",
+          label: "Select Top Rows",
+          onClick: () => selectSqlTable(tblObj, false, { viewMode: "rows" }),
+        },
+        {
+          icon: "📊",
           label: "Show All Rows",
-          onClick: () => selectSqlTable(tblObj, true),
+          onClick: () => selectSqlTable(tblObj, true, { viewMode: "rows" }),
         },
         { type: "sep" },
         {
@@ -5962,6 +6633,20 @@ try {
       showDbContextMenu(e.clientX, e.clientY, `${isView ? "View" : "Table"}: ${tblObj.name}`, items);
     });
 
+    if ($("sqlResultViewToggle")) {
+      $("sqlResultViewToggle").addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-sql-view]");
+        if (!btn) return;
+        setSqlResultViewMode(btn.dataset.sqlView);
+      });
+    }
+    if ($("sqlActiveTable")) {
+      $("sqlActiveTable").addEventListener("click", () => {
+        if (!state.sqlTable) return;
+        setSqlResultViewMode(state.sqlViewMode === "structure" ? "rows" : "structure");
+      });
+    }
+
     if ($("btnNewSqlTab")) {
       $("btnNewSqlTab").onclick = () => openNewSqlTab({ focus: true });
     }
@@ -5969,6 +6654,57 @@ try {
       $("btnCloseAllSqlTabs").onclick = () => closeAllSqlTabs();
     }
     if ($("sqlTabList")) {
+      $("sqlTabList").addEventListener("contextmenu", (e) => {
+        const tabEl = e.target.closest("[data-sqltab-id]");
+        if (!tabEl) return;
+        const tab = getSqlTab(tabEl.dataset.sqltabId);
+        if (!tab || tab.kind === "diagram") return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (tab.id !== state.activeSqlTabId) {
+          syncActiveTabFromDom();
+          applyTabToDom(tab, { syncSidebar: true });
+        }
+        const items = [];
+        if (tab.table) {
+          items.push(
+            {
+              icon: "📊",
+              label: "View Rows",
+              onClick: () => setSqlResultViewMode("rows"),
+            },
+            {
+              icon: "🔑",
+              label: "Structure, Foreign Keys & Properties",
+              onClick: () => setSqlResultViewMode("structure"),
+            },
+            {
+              icon: "📋",
+              label: "Copy CREATE TABLE DDL",
+              onClick: () => copyTableDDL({ name: tab.table }, tab.engine, tab.db || state.sqlDb),
+            },
+            {
+              icon: "🗺️",
+              label: "New Database Diagram",
+              onClick: () => openDatabaseDiagramTab({ engine: tab.engine, db: tab.db || state.sqlDb, focusTable: tab.table }),
+            },
+            { type: "sep" }
+          );
+        }
+        items.push(
+          {
+            icon: "↗",
+            label: "Pop Out Tab",
+            onClick: () => detachSqlTab(tab.id),
+          },
+          {
+            icon: "✕",
+            label: "Close Tab",
+            onClick: () => closeSqlTab(tab.id),
+          }
+        );
+        showDbContextMenu(e.clientX, e.clientY, tab.table ? `Table: ${tab.table}` : `Tab: ${tab.title}`, items);
+      });
       $("sqlTabList").addEventListener("click", (e) => {
         if (suppressNextSqlTabClick) {
           suppressNextSqlTabClick = false;
@@ -6171,6 +6907,38 @@ try {
     });
 
     $("sqlResults").addEventListener("click", async (e) => {
+      const gotoBtn = e.target.closest("[data-goto-entity]");
+      if (gotoBtn) {
+        e.stopPropagation();
+        await navigateToRelatedTable(gotoBtn.dataset.gotoEntity, gotoBtn.dataset.gotoMode || "structure");
+        return;
+      }
+      const sAct = e.target.closest("[data-struct-act]");
+      if (sAct) {
+        e.stopPropagation();
+        const tab = getActiveSqlTab();
+        const act = sAct.dataset.structAct;
+        if (!tab || !tab.table) return;
+        const details = sqlTableDetailsCache.get(sqlTableKey(tab.engine, tab.db || state.sqlDb, tab.table));
+        if (act === "refresh") {
+          await renderSqlStructureView(tab, true);
+        } else if (act === "diagram") {
+          openDatabaseDiagramTab({ engine: tab.engine, db: tab.db || state.sqlDb, focusTable: tab.table });
+        } else if (act === "copy-ddl") {
+          await copyTableDDL({ name: tab.table }, tab.engine, tab.db || state.sqlDb);
+        } else if (act === "edit-ddl") {
+          const ddl = (details?.createDdl || "").trim();
+          if (ddl && $("sqlEditor")) {
+            $("sqlEditor").value = ddl;
+            $("sqlEditor").focus();
+            syncActiveTabFromDom();
+            toast(`Loaded DDL for ${tab.table} into SQL editor`, "ok");
+          }
+        } else if (act === "view-rows") {
+          setSqlResultViewMode("rows");
+        }
+        return;
+      }
       const btn = e.target.closest("[data-row-act]");
       if (!btn) return;
       const idx = Number(btn.dataset.rowIdx);

@@ -26,8 +26,12 @@ Manage **Apache Web Server (+ PHP 8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **
 |---|---|
 | ![Auto-Run Bar](example/dashboard-auto-run.png) | ![Repair Modal](example/repair-diagnostics.jpg) |
 
-### Database Manager, Structure & Foreign Keys Inspector, ER Diagrams & Floating Query Tabs
+### Database Manager, Visual SQL Join Map, Structure & Foreign Keys Inspector, ER Diagrams & Floating Query Tabs
 ![Darius DB Database Manager](example/database-manager.jpg)
+
+| Visual SQL JOIN Builder & Interactive Join Map (`INNER` / `LEFT` / `RIGHT` / `FULL` / `CROSS`) | Right-Click DB Menu (`New Database Diagram` & `Visual Join Builder & Map`) |
+|---|---|
+| ![Visual SQL Join Builder and Interactive Join Map](example/database-visual-join-map.jpg) | ![Right-Click Database Menu with Visual Join Builder](example/database-join-context-menu.jpg) |
 
 | Expandable Table Tree (`▸ Columns`, `Keys & Relations`, `Indexes`) | `🔑 Structure & Keys` Inspector (Columns, Foreign Keys & Properties) | Foreign Keys, Indexes & `CREATE TABLE` DDL |
 |---|---|---|
@@ -92,7 +96,8 @@ Manage **Apache Web Server (+ PHP 8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **
 - **Portable Engine Downloader & Live Upstream Version Checker** — Click **↻ Check Newest Versions** to fetch live upstream builds across **Apache, PHP, MariaDB, MySQL, PostgreSQL, MS SQL Server, Redis, and Mailpit**, update in one click, or import any custom offline `.zip`.
 - **Built-in Multi-Tab SQL, ER Diagram & Redis Browser**
   - **SQL (MariaDB / MySQL / PostgreSQL / MS SQL Server, Local & Cloud):** browse databases & tables with an **expandable sidebar table tree** (`▸ Columns`, `Keys & Relations`, `Indexes`), toggle **`📊 Rows` | `🔑 Structure & Keys`** to inspect columns, PKs, outgoing & incoming Foreign Keys (clickable related entities), indexes, entity properties, and `CREATE TABLE` DDL, quick-create database + user/login with privileges, drop databases/tables, inline Row CRUD (Show, Edit, Create, Delete), **IDE-style `Tab` SQL autocomplete** (`CREATE`, `SHOW`, `SELECT`, functions, tables & columns), **Chrome-style tear-off floating query windows** (`↗` pop-out, `↩ Put Back`, drag-to-reorder & `✕ Close All`), and **VS / .env** + Connection URI copy.
-  - **SSMS-Style Right-Click Menu & Interactive ER Database Diagram (`🗺️ Diagram`):** right-click any database or table → **Structure, Foreign Keys & Properties**, **Copy CREATE TABLE DDL**, or **New Database Diagram** for draggable table cards, solid FK + dashed inferred `*_id` relationship lines, pan/zoom/Auto-Arrange/Fit, Table filter picker, and **`📤 Export ▾`** to **PNG, JPEG, WebP, SVG, HTML, Mermaid (`.mmd`), or Clipboard PNG**.
+  - **Visual SQL JOIN Builder & Interactive Join Map (`INNER` / `LEFT` / `RIGHT` / `FULL OUTER` / `CROSS`):** right-click any database, table, query tab, or FK row → **🔗 Visual Join Builder & Map** to switch join types via interactive clickable Venn regions or cards (including automatic MySQL/MariaDB `FULL OUTER JOIN` `UNION ALL` emulation), click entity columns (`A` / `B` / `C...`) to edit `ON` keys, chain extra tables (`+ Add Join`), drag or click the `▲ ▼` splitter, filter/paginate/export joined rows as CSV, or inspect side-by-side **`🔑 Structure & Keys`**.
+  - **SSMS-Style Right-Click Menu & Interactive ER Database Diagram:** right-click any database or table → **Structure, Foreign Keys & Properties**, **Copy CREATE TABLE DDL**, or **New Database Diagram** for draggable table cards, solid FK + dashed inferred `*_id` relationship lines, pan/zoom/Auto-Arrange/Fit, Table filter picker, and **`📤 Export ▾`** to **PNG, JPEG, WebP, SVG, HTML, Mermaid (`.mmd`), or Clipboard PNG**.
   - **Redis:** switch logical DBs (`db0`–`db15`), scan & filter keys, inspect values (with automatic JSON formatting & TTL), delete keys, and run interactive Redis CLI commands.
 - **Cloud Databases, Live Sync & Daily 2:00 AM Auto-Backup / Purge** — Connect **cPanel / Plesk / Hostinger (MySQL)**, **MonsterASP.NET / SmarterASP (MS SQL)**, **Supabase / Neon (PostgreSQL)**, **Aiven / TiDB / PlanetScale**, **AWS RDS / Azure SQL**, and **Redis Cloud** with URI/ADO.NET Quick Auto-Fill, SSL/TLS options, separated **Manual Sync**, **Daily Auto-Sync**, and **Daily 2:00 AM Auto-Backup** modals (with live Purge Date Guide & 7-day retention purge), plus **Sync & Auto-Schedule Trace Logs (`scheduler.log`)** and optional **Windows Task Scheduler** integration.
 - **Config Editor & Live Log Viewer** — Edit `httpd.conf`, `php.ini`, `my.ini`, `postgresql.conf`, `mssql.conf`, `redis.conf`, and `mailpit.conf` inside the app (or Notepad) with *Save & Restart*, plus auto-refreshing logs.

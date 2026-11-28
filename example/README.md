@@ -39,11 +39,17 @@ Manage **Apache 2.4**, **PHP (8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **Post
 
 ---
 
-## 3. Database Manager, Structure & Foreign Keys Inspector & Fast SQL Browser
+## 3. Database Manager, Visual SQL Join Map, Structure & Foreign Keys Inspector & Fast SQL Browser
 
-Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server** (local & Cloud), and **Redis** with live database/table counts, expandable table trees (`▸ Columns`, `Keys & Relations`, `Indexes`), a **Rows | Structure & Keys** inspector (columns, primary keys, outgoing & incoming foreign keys with clickable entity links, indexes, table properties & `CREATE TABLE` DDL), resizable & collapsible split panes, stretchable result columns, fast non-blocking loading, inline filtering, and full table/row actions.
+Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server** (local & Cloud), and **Redis** with live database/table counts, expandable table trees (`▸ Columns`, `Keys & Relations`, `Indexes`), a **Rows | Structure & Keys** inspector (columns, primary keys, outgoing & incoming foreign keys with clickable entity links, indexes, table properties & `CREATE TABLE` DDL), a **Visual SQL JOIN Builder & Interactive Join Map** (`INNER`, `LEFT`, `RIGHT`, `FULL OUTER`, `CROSS` with clickable Venn regions, live SQL preview, chained joins, draggable splitter & pagination), resizable & collapsible split panes, stretchable result columns, fast non-blocking loading, inline filtering, and full table/row actions.
 
 ![Darius DB Database Manager and SQL Browser](database-manager.jpg)
+
+### Visual SQL JOIN Builder & Interactive Join Map (`INNER` / `LEFT` / `RIGHT` / `FULL OUTER` / `CROSS`)
+![Visual SQL Join Builder and Interactive Join Map](database-visual-join-map.jpg)
+
+### Right-Click Database Menu (`New Database Diagram` & `Visual Join Builder & Map`)
+![Right-Click Database Menu with Visual Join Builder and Map](database-join-context-menu.jpg)
 
 ### Expandable Sidebar Table Tree (`▸ Columns`, `Keys & Relations`, `Indexes` & `Properties & DDL →`)
 ![Expandable Sidebar Table Tree](database-table-tree.png)

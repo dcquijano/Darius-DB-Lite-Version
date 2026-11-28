@@ -724,6 +724,9 @@ type Downloader struct {
 }
 
 func NewDownloader(p *Paths, emit func(Progress), onDone func(engine, name string)) *Downloader {
+	if emit == nil {
+		emit = func(Progress) {}
+	}
 	return &Downloader{p: p, emit: emit, onDone: onDone, active: map[string]context.CancelFunc{}}
 }
 
@@ -786,35 +789,67 @@ func (d *Downloader) Install(engine, version, url string) error {
 	}
 	go func() {
 		defer d.end(engine, version)
-		zipPath := filepath.Join(d.p.Tmp, fmt.Sprintf("%s-%s.zip", engine, version))
-		dlErr := d.download(ctx, engine, version, url, zipPath)
-		if dlErr != nil {
-			if engine == "apache" && ctx.Err() == nil {
-				d.emit(Progress{Engine: engine, Version: version, Phase: "extracting", Received: 1, Total: 1})
-				finalDir := filepath.Join(d.p.EngineBin("apache"), "apache-"+version)
-				if err := provisionPortableApache(finalDir, version); err == nil {
-					d.finish(engine, version)
-					return
-				}
-			}
-			d.fail(ctx, engine, version, dlErr)
-			return
-		}
-		err := d.extract(ctx, engine, version, zipPath)
-		os.Remove(zipPath)
-		if err != nil {
-			if engine == "apache" && ctx.Err() == nil {
-				finalDir := filepath.Join(d.p.EngineBin("apache"), "apache-"+version)
-				if perr := provisionPortableApache(finalDir, version); perr == nil {
-					d.finish(engine, version)
-					return
-				}
-			}
-			d.fail(ctx, engine, version, err)
-			return
-		}
-		d.finish(engine, version)
+		_ = d.runInstall(ctx, engine, version, url)
 	}()
+	return nil
+}
+
+// InstallSync downloads url and installs it as bin/<engine>/<engine>-<version> synchronously.
+func (d *Downloader) InstallSync(ctx context.Context, engine, version, url string) error {
+	baseCtx, err := d.begin(engine, version)
+	if err != nil {
+		return err
+	}
+	defer d.end(engine, version)
+	runCtx := baseCtx
+	if ctx != nil {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			select {
+			case <-baseCtx.Done():
+				cancel()
+			case <-runCtx.Done():
+			}
+		}()
+	}
+	return d.runInstall(runCtx, engine, version, url)
+}
+
+func (d *Downloader) runInstall(ctx context.Context, engine, version, url string) error {
+	if err := os.MkdirAll(d.p.Tmp, 0o755); err != nil {
+		d.fail(ctx, engine, version, err)
+		return err
+	}
+	zipPath := filepath.Join(d.p.Tmp, fmt.Sprintf("%s-%s.zip", engine, version))
+	dlErr := d.download(ctx, engine, version, url, zipPath)
+	if dlErr != nil {
+		if engine == "apache" && ctx.Err() == nil {
+			d.emit(Progress{Engine: engine, Version: version, Phase: "extracting", Received: 1, Total: 1})
+			finalDir := filepath.Join(d.p.EngineBin("apache"), "apache-"+version)
+			if err := provisionPortableApache(finalDir, version); err == nil {
+				d.finish(engine, version)
+				return nil
+			}
+		}
+		d.fail(ctx, engine, version, dlErr)
+		return dlErr
+	}
+	err := d.extract(ctx, engine, version, zipPath)
+	os.Remove(zipPath)
+	if err != nil {
+		if engine == "apache" && ctx.Err() == nil {
+			finalDir := filepath.Join(d.p.EngineBin("apache"), "apache-"+version)
+			if perr := provisionPortableApache(finalDir, version); perr == nil {
+				d.finish(engine, version)
+				return nil
+			}
+		}
+		d.fail(ctx, engine, version, err)
+		return err
+	}
+	d.finish(engine, version)
 	return nil
 }
 
@@ -837,6 +872,272 @@ func (d *Downloader) InstallZip(engine, zipPath string) (string, error) {
 		d.finish(engine, version)
 	}()
 	return version, nil
+}
+
+// InstallZipSync installs a local zip archive synchronously into bin/<engine>/<engine>-<version>.
+func (d *Downloader) InstallZipSync(ctx context.Context, engine, version, zipPath string) (string, error) {
+	if strings.TrimSpace(version) == "" {
+		version = parseVersion(strings.TrimSuffix(filepath.Base(zipPath), filepath.Ext(zipPath)))
+	}
+	if strings.TrimSpace(version) == "" {
+		version = time.Now().Format("20060102-150405")
+	}
+	baseCtx, err := d.begin(engine, version)
+	if err != nil {
+		return "", err
+	}
+	defer d.end(engine, version)
+	runCtx := baseCtx
+	if ctx != nil {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			select {
+			case <-baseCtx.Done():
+				cancel()
+			case <-runCtx.Done():
+			}
+		}()
+	}
+	if err := d.extract(runCtx, engine, version, zipPath); err != nil {
+		d.fail(runCtx, engine, version, err)
+		return "", err
+	}
+	d.finish(engine, version)
+	return version, nil
+}
+
+// FindOfflineEngineArchive searches searchDirs (and their engines/ and offline/engines/ subfolders)
+// for a locally bundled zip archive for engine (preferring preferredVersion when matched).
+func FindOfflineEngineArchive(engine, preferredVersion string, searchDirs []string) (zipPath, version string, ok bool) {
+	eng := strings.ToLower(strings.TrimSpace(engine))
+	if eng == "" {
+		return "", "", false
+	}
+	pref := strings.TrimSpace(preferredVersion)
+
+	type candidate struct {
+		path    string
+		version string
+	}
+	var matches []candidate
+	seenDir := map[string]bool{}
+	scanDir := func(dir string) {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			return
+		}
+		clean := strings.ToLower(filepath.Clean(dir))
+		if seenDir[clean] {
+			return
+		}
+		seenDir[clean] = true
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			low := strings.ToLower(name)
+			if !strings.HasSuffix(low, ".zip") {
+				continue
+			}
+			if !matchesOfflineEngineFileName(eng, low) {
+				continue
+			}
+			base := strings.TrimSuffix(name, filepath.Ext(name))
+			ver := parseVersion(base)
+			if ver == "" {
+				ver = pref
+			}
+			matches = append(matches, candidate{
+				path:    filepath.Join(dir, name),
+				version: ver,
+			})
+		}
+	}
+
+	for _, root := range searchDirs {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		scanDir(filepath.Join(root, "offline", "engines"))
+		scanDir(filepath.Join(root, "engines"))
+		scanDir(filepath.Join(root, "offline"))
+		scanDir(root)
+	}
+	if len(matches) == 0 {
+		return "", "", false
+	}
+	if pref != "" {
+		for _, m := range matches {
+			if strings.EqualFold(m.version, pref) {
+				return m.path, m.version, true
+			}
+		}
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		return compareVersions(matches[i].version, matches[j].version) > 0
+	})
+	return matches[0].path, matches[0].version, true
+}
+
+func matchesOfflineEngineFileName(engine, lowerFileName string) bool {
+	switch engine {
+	case "apache":
+		return strings.HasPrefix(lowerFileName, "apache-") || strings.HasPrefix(lowerFileName, "httpd-")
+	case "mssql":
+		return strings.HasPrefix(lowerFileName, "mssql-") || strings.HasPrefix(lowerFileName, "sqlcmd-")
+	case "postgresql":
+		return strings.HasPrefix(lowerFileName, "postgresql-") || strings.HasPrefix(lowerFileName, "postgres-")
+	default:
+		return strings.HasPrefix(lowerFileName, engine+"-") || strings.HasPrefix(lowerFileName, engine+"_")
+	}
+}
+
+// FindOfflineEngineDir searches searchDirs for a pre-extracted offline engine directory
+// under offline/bin/<engine>/ or bin/<engine>/.
+func FindOfflineEngineDir(engine, preferredVersion string, searchDirs []string) (dirPath, version string, ok bool) {
+	eng, err := GetEngine(engine)
+	if err != nil {
+		return "", "", false
+	}
+	pref := strings.TrimSpace(preferredVersion)
+	type candidate struct {
+		path    string
+		version string
+	}
+	var matches []candidate
+	seenDir := map[string]bool{}
+	scanBase := func(base string) {
+		if strings.TrimSpace(base) == "" {
+			return
+		}
+		clean := strings.ToLower(filepath.Clean(base))
+		if seenDir[clean] {
+			return
+		}
+		seenDir[clean] = true
+		entries, err := os.ReadDir(base)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			sub := filepath.Join(base, e.Name())
+			if !eng.Detect(sub) {
+				continue
+			}
+			matches = append(matches, candidate{
+				path:    sub,
+				version: parseVersion(e.Name()),
+			})
+		}
+	}
+
+	for _, root := range searchDirs {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		scanBase(filepath.Join(root, "offline", "bin", engine))
+		scanBase(filepath.Join(root, "bin", engine))
+	}
+	if len(matches) == 0 {
+		return "", "", false
+	}
+	if pref != "" {
+		for _, m := range matches {
+			if strings.EqualFold(m.version, pref) {
+				return m.path, m.version, true
+			}
+		}
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		return compareVersions(matches[i].version, matches[j].version) > 0
+	})
+	return matches[0].path, matches[0].version, true
+}
+
+// InstallOfflineEngineDir copies a pre-extracted engine directory into p.EngineBin(engine)
+// as <engine>-<version>, validates it with eng.Detect, and runs post-install hooks (like PHP ini sync).
+func InstallOfflineEngineDir(p *Paths, engine, version, srcDir string, onDone func(engine, name string)) (string, error) {
+	if p == nil {
+		return "", errors.New("paths not initialized")
+	}
+	eng, err := GetEngine(engine)
+	if err != nil {
+		return "", err
+	}
+	if !eng.Detect(srcDir) {
+		return "", fmt.Errorf("folder %s does not look like a %s build", srcDir, eng.Name())
+	}
+	if strings.TrimSpace(version) == "" {
+		version = parseVersion(filepath.Base(srcDir))
+	}
+	if strings.TrimSpace(version) == "" {
+		version = "offline"
+	}
+	name := engine + "-" + version
+	final := filepath.Join(p.EngineBin(engine), name)
+	if dirExists(final) {
+		return name, fmt.Errorf("%s is already installed", name)
+	}
+	tmp := filepath.Join(p.EngineBin(engine), "."+name+".partial")
+	_ = os.RemoveAll(tmp)
+	if err := copyDirRecursive(srcDir, tmp); err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", err
+	}
+	if err := os.Rename(tmp, final); err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", err
+	}
+	if engine == "php" {
+		_, _ = SyncManagedPHPIni(p)
+	}
+	if onDone != nil {
+		onDone(engine, name)
+	}
+	return name, nil
+}
+
+func copyDirRecursive(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := os.Create(target)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			return err
+		}
+		return out.Close()
+	})
 }
 
 func (d *Downloader) fail(ctx context.Context, engine, version string, err error) {

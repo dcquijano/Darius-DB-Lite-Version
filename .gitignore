@@ -1,5 +1,6 @@
 # Build outputs
 /build/bin/
+/build/offline/
 /build/windows/icon.ico
 /build/windows/wails.exe.manifest
 /build/windows/info.json

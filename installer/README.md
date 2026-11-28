@@ -14,22 +14,52 @@ Use **`DariusDB-Setup-0.1.6.exe`** right inside this folder (no admin rights req
    - *(If Windows SmartScreen appears on an unsigned open-source build, click **More info → Run anyway**.)*
    - *(If Darius DB is already installed, Setup offers automatic **Upgrade** or **Repair Mode** while keeping `data/`, `www/`, `backups/`, and `etc/` untouched.)*
 2. **Accept License & Choose Destination:** Accept the MIT License, keep the default **`C:\DariusDB`** folder (or click **Browse...** to choose another directory), and pick optional **Desktop shortcut** / **Start with Windows** checkboxes.
-3. **Click Install:** Setup extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Repair.exe`, `DariusDB-Updater.exe`, `DariusDB-Uninstall.exe`, `darius.exe`, docs, and folders (`www/`, `bin/`, `data/`, `etc/`, `logs/`, `tmp/`), creates Start Menu shortcuts, and adds `darius` to Windows `PATH`.
-4. **Click Finish** to launch **Darius DB (Lite Version 0.1.6)** immediately.
-5. **First-Run Inside Darius DB:**
-   - Open **Versions** (`Alt+4`) to download **Apache, PHP (8.2/8.3/8.4), MariaDB, MySQL, PostgreSQL, Redis, or Mailpit** *(built-in Apache, Mailpit, and MS SQL Server work immediately)*.
+3. **Requirements & Optional Components (Step 3 of 4):**
+   - Setup automatically detects **Edge WebView2 Runtime**, **Visual C++ 2015–2026 x64**, and **SQL Server Express LocalDB** (showing `Installed` / `Missing`).
+   - Check any missing prerequisites and optional engines (**MariaDB, MySQL, PostgreSQL, MS SQL Tools, PHP, Apache, Redis, Mailpit**) to pre-install during Setup — or click **Lite (None)** to uncheck all for a fast offline/Lite install.
+   - *(If an `offline\` bundle folder is placed next to Setup, bundled components automatically show `[Offline]` and install with zero internet access.)*
+4. **Click Install:** Setup extracts core executables, docs, folders (`www/`, `bin/`, `data/`, `etc/`, `logs/`, `backups/`, `tmp/`), installs any selected prerequisites/engines, runs Repair All diagnostics, creates Start Menu shortcuts, and adds `darius` to Windows `PATH`.
+5. **Click Finish** to launch **Darius DB (Lite Version 0.1.6)** immediately.
+6. **First-Run Inside Darius DB:**
+   - Open **Versions** (`Alt+4`) anytime to download additional **Apache, PHP, MariaDB, MySQL, PostgreSQL, Redis, or Mailpit** builds *(built-in Apache, Mailpit, and MS SQL Server work immediately)*.
    - Press **`F8`** (**Start All**) on **Dashboard** (`Alt+1`).
    - Open **Database** (`Alt+2`) to browse tables, run SQL with **`Tab`** autocomplete, pop out tabs, or **right-click any database → New Database Diagram**.
 
-> **Silent CLI Install / Repair:**
+> **Silent CLI Install / Pre-install / Offline Lab Deployment:**
 > ```powershell
 > .\DariusDB-Setup-0.1.6.exe --silent --dir="C:\DariusDB" --autostart
+> .\DariusDB-Setup-0.1.6.exe --silent --install-missing-prereqs --engines=recommended
+> .\DariusDB-Setup-0.1.6.exe --silent --offline-dir="D:\DariusDB-Offline\offline" --offline-only --install-missing-prereqs --engines=all
 > .\DariusDB-Setup-0.1.6.exe --silent --repair
 > ```
 
 ---
 
-## Option 2: Install via PowerShell (`install.ps1`)
+## Option 2: All-in-One Offline Bundle (School Labs & Air-Gapped PCs)
+
+Build a self-contained offline package containing Windows prerequisites (**WebView2 x64**, **VC++ x64**, **SQL Server LocalDB**) plus pre-staged database/web engines:
+
+```powershell
+# Build full offline bundle (produces Offline USB Pack .zip + Inno Setup .exe if ISCC.exe is installed)
+powershell -ExecutionPolicy Bypass -File .\installer\build-offline.ps1
+
+# Or build a smaller Web + Database offline stack (Apache, PHP, MariaDB, Mailpit)
+powershell -ExecutionPolicy Bypass -File .\installer\build-offline.ps1 -Preset WebStack -SkipLocalDB
+
+# Or run full release build + offline bundle in one command
+powershell -ExecutionPolicy Bypass -File .\installer\build-all.ps1 -Offline
+
+# Compile Inno Setup single-file offline installer directly (requires Inno Setup 6 ISCC.exe)
+ISCC.exe /DOfflineBundle=1 .\installer\DariusDB.iss
+```
+
+Outputs in `dist\`:
+- **`DariusDB-0.1.6-offline-bundle-windows-amd64.zip`**: Extract to a USB drive and double-click `Install-Offline.bat` (or `Install-Offline-Silent.bat` for unattended lab imaging).
+- **`DariusDB-Offline-Setup-0.1.6.exe`**: Single-file Inno Setup 6 installer with upfront requirement detection and selectable engine components (generated automatically when Inno Setup 6 is installed).
+
+---
+
+## Option 3: Install via PowerShell (`install.ps1`)
 
 Run from the repository root or inside `installer\`:
 
@@ -94,7 +124,8 @@ powershell -ExecutionPolicy Bypass -File .\installer\uninstall.ps1 -Silent
 | `update.ps1` | PowerShell wrapper for in-place upgrades via `DariusDB-Updater.exe` or local/GitHub Setup |
 | `repair.ps1` | PowerShell wrapper for `DariusDB-Repair.exe` / `darius.exe repair` |
 | `uninstall.ps1` | PowerShell wrapper for `DariusDB-Uninstall.exe` |
-| `build-all.ps1` | Runs Go tests, builds all 6 `.exe` binaries, portable `.zip` (`..\dist\`), and `DariusDB-Setup-0.1.6.exe` |
+| `build-all.ps1` | Runs Go tests, builds all 6 `.exe` binaries, portable `.zip` (`..\dist\`), and `DariusDB-Setup-0.1.6.exe` (pass `-Offline` to also package offline bundle) |
+| `build-offline.ps1` | Stages WebView2/VC++/LocalDB + engines from `catalog.json` into an Offline USB `.zip` pack and Inno Setup `DariusDB-Offline-Setup-0.1.6.exe` |
 | `generate-version.ps1` | Auto-generates `..\version.json` changelog & build metadata from `git log` |
-| `DariusDB.iss` | Inno Setup 6 script used for Inno Setup packaging |
+| `DariusDB.iss` | Inno Setup 6 script supporting both Lite (`ISCC.exe`) and All-in-One Offline Bundle (`/DOfflineBundle=1`) builds |
 | `bin/` | Pre-staged helper/resource folder used during packaging |

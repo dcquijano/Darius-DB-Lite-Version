@@ -27,29 +27,55 @@ No administrator rights are required.
      (Or click "Browse..." to choose a different folder, and select optional
       Desktop shortcut / Start with Windows options.)
 
-  4. Click "Install".
-     Setup automatically extracts the executables and docs, creates the
-     portable folders (www/, bin/, data/, etc/, logs/, tmp/), adds Start Menu
-     shortcuts, and registers "darius" CLI in your Windows User PATH.
+  4. Requirements & Components (Step 3 of 4):
+     - Setup automatically checks WebView2, VC++ x64, and SQL Server LocalDB
+       (showing Installed / Missing).
+     - Check any missing prerequisites and optional engines (MariaDB, MySQL,
+       PostgreSQL, MS SQL Tools, PHP, Apache, Redis, Mailpit) to pre-install
+       during Setup -- or click "Lite (None)" for a fast offline/Lite install.
 
-  5. Click "Finish" to open Darius DB (Lite Version 0.1.6).
+  5. Click "Install".
+     Setup extracts core executables and docs, installs selected components,
+     creates portable folders (www/, bin/, data/, etc/, logs/, backups/, tmp/),
+     adds Start Menu shortcuts, and registers "darius" CLI in Windows PATH.
 
-  6. First-Run Inside Darius DB:
-     - Open "Versions" (Alt+4) to download Apache, PHP (8.2/8.3/8.4),
-       MariaDB, MySQL, PostgreSQL, Redis, or Mailpit.
+  6. Click "Finish" to open Darius DB (Lite Version 0.1.6).
+
+  7. First-Run Inside Darius DB:
+     - Open "Versions" (Alt+4) anytime to download Apache, PHP, MariaDB, MySQL,
+       PostgreSQL, Redis, or Mailpit.
        (Built-in Apache, Mailpit, and MS SQL Server work immediately.)
      - Press F8 ("Start All") on the Dashboard (Alt+1).
      - Open "Database" (Alt+2) to browse tables, run SQL with Tab
        autocomplete, drag out floating query tabs, or right-click any
        database -> "New Database Diagram".
 
-  Silent CLI Install / Repair:
+  Silent CLI Install / Pre-Install / Offline Lab Deployment:
     .\DariusDB-Setup-0.1.6.exe --silent --dir="C:\DariusDB" --autostart
+    .\DariusDB-Setup-0.1.6.exe --silent --install-missing-prereqs --engines=recommended
+    .\DariusDB-Setup-0.1.6.exe --silent --offline-dir="offline" --offline-only --install-missing-prereqs --engines=all
     .\DariusDB-Setup-0.1.6.exe --silent --repair
 
 
 --------------------------------------------------------------------------------
-OPTION 2: INSTALL VIA POWERSHELL SCRIPT (install.ps1)
+OPTION 2: ALL-IN-ONE OFFLINE BUNDLE (SCHOOL LABS / AIR-GAPPED PCs)
+--------------------------------------------------------------------------------
+
+Build a self-contained offline bundle with WebView2 x64, VC++ x64, SQL LocalDB,
+and pre-staged engines:
+
+  Full offline bundle (Offline USB Pack .zip + Inno Setup .exe if installed):
+    powershell -ExecutionPolicy Bypass -File .\installer\build-offline.ps1
+
+  Web + Database offline stack only (Apache, PHP, MariaDB, Mailpit):
+    powershell -ExecutionPolicy Bypass -File .\installer\build-offline.ps1 -Preset WebStack -SkipLocalDB
+
+  Inno Setup single-file offline installer (requires Inno Setup 6 ISCC.exe):
+    ISCC.exe /DOfflineBundle=1 .\installer\DariusDB.iss
+
+
+--------------------------------------------------------------------------------
+OPTION 3: INSTALL VIA POWERSHELL SCRIPT (install.ps1)
 --------------------------------------------------------------------------------
 
 Run from the repository root or inside the installer folder:
@@ -96,8 +122,9 @@ FILES IN THIS INSTALLER FOLDER
   repair.ps1                 PowerShell repair script
   uninstall.ps1              PowerShell uninstall script
   build-all.ps1              Runs tests & builds all .exe, ZIP, and Setup packages
+  build-offline.ps1          Builds Offline USB .zip pack & Inno Setup Offline .exe
   generate-version.ps1       Generates ..\version.json from git commits
-  DariusDB.iss               Inno Setup 6 packaging script
+  DariusDB.iss               Inno Setup 6 script (Lite & All-in-One Offline Bundle)
   README.md                  GitHub Markdown version of this guide
   HOW_TO_INSTALL.txt         Plain-text Notepad-ready version of this guide
 ================================================================================

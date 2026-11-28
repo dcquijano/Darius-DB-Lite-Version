@@ -9,8 +9,14 @@ import (
 )
 
 func TestWebView2Installed(t *testing.T) {
-	// Just ensures registry lookup works cleanly without panicking.
-	_ = WebView2Installed()
+	// Ensures registry lookup works cleanly and Installed agrees with Version.
+	ok, ver := WebView2Version()
+	if ok != WebView2Installed() {
+		t.Fatalf("WebView2Installed()=%v disagrees with WebView2Version()=(%v, %q)", WebView2Installed(), ok, ver)
+	}
+	if ok && ver == "" {
+		t.Fatalf("expected non-empty WebView2 version when installed=true")
+	}
 }
 
 func TestCreateShortcut(t *testing.T) {

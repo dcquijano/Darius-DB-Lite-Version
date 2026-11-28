@@ -19,11 +19,18 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+
+	"dariusdb/internal/winui"
 )
 
 const (
+	PrereqIDWebView2     = "webview2"
 	PrereqIDVCRedistX64  = "vcredist_x64"
 	PrereqIDMSSQLLocalDB = "mssql_localdb"
+
+	WebView2BootstrapURL     = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+	WebView2StandaloneX64URL = "https://go.microsoft.com/fwlink/?linkid=2124701"
+	WebView2InfoURL          = "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
 
 	VCRedistX64URL         = "https://aka.ms/vc14/vc_redist.x64.exe"
 	VCRedistX64FallbackURL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
@@ -184,9 +191,42 @@ func CheckSQLLocalDB() PrereqStatus {
 	}
 }
 
+// CheckWebView2 inspects Windows for Microsoft Edge WebView2 Runtime (required by the Darius DB GUI).
+func CheckWebView2() PrereqStatus {
+	installed, ver := winui.WebView2Version()
+	detail := "Microsoft Edge WebView2 Runtime not found — required to open the Darius DB desktop interface"
+	if installed {
+		if ver != "" {
+			detail = fmt.Sprintf("Installed (v%s)", ver)
+		} else {
+			detail = "Installed"
+		}
+	}
+	return PrereqStatus{
+		ID:          PrereqIDWebView2,
+		Name:        "Microsoft Edge WebView2 Runtime",
+		Installed:   installed,
+		Version:     ver,
+		Detail:      detail,
+		DownloadURL: WebView2BootstrapURL,
+		InfoURL:     WebView2InfoURL,
+		Engines:     []string{"gui"},
+	}
+}
+
 // CheckPrerequisites returns the installation status of external Windows runtimes used by Darius DB engines.
 func CheckPrerequisites() []PrereqStatus {
 	return []PrereqStatus{
+		CheckVCRedistX64(),
+		CheckSQLLocalDB(),
+	}
+}
+
+// CheckAllPrerequisites returns the installation status of all Windows prerequisites,
+// including WebView2 Runtime, VC++ 2015-2026 x64 Redistributable, and SQL Server Express LocalDB.
+func CheckAllPrerequisites() []PrereqStatus {
+	return []PrereqStatus{
+		CheckWebView2(),
 		CheckVCRedistX64(),
 		CheckSQLLocalDB(),
 	}
@@ -220,6 +260,11 @@ func annotateWindowsExecError(subject string, err error) error {
 
 func prereqInstallTarget(id string) (name string, urls []string, fileName string, err error) {
 	switch strings.ToLower(strings.TrimSpace(id)) {
+	case PrereqIDWebView2:
+		return "Microsoft Edge WebView2 Runtime",
+			[]string{WebView2BootstrapURL, WebView2StandaloneX64URL},
+			"MicrosoftEdgeWebview2Setup.exe",
+			nil
 	case PrereqIDVCRedistX64:
 		return "Visual C++ 2015–2026 Runtime (x64)",
 			[]string{VCRedistX64URL, VCRedistX64FallbackURL},
@@ -235,9 +280,82 @@ func prereqInstallTarget(id string) (name string, urls []string, fileName string
 	}
 }
 
+func prereqOfflineFileNames(id string) []string {
+	switch strings.ToLower(strings.TrimSpace(id)) {
+	case PrereqIDWebView2:
+		return []string{
+			"MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
+			"MicrosoftEdgeWebview2Setup.exe",
+			"webview2-x64.exe",
+		}
+	case PrereqIDVCRedistX64:
+		return []string{
+			"vc_redist.x64.exe",
+			"VC_redist.x64.exe",
+		}
+	case PrereqIDMSSQLLocalDB:
+		return []string{
+			"SqlLocalDB.msi",
+			"sqllocaldb.msi",
+		}
+	default:
+		return nil
+	}
+}
+
+// FindOfflinePrereq searches searchDirs (and their prereqs/ and offline/prereqs/ subfolders)
+// for a locally staged installer matching prerequisite id.
+func FindOfflinePrereq(id string, searchDirs []string) string {
+	names := prereqOfflineFileNames(id)
+	if len(names) == 0 {
+		return ""
+	}
+	seen := map[string]bool{}
+	tryDir := func(dir string) string {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			return ""
+		}
+		clean := strings.ToLower(filepath.Clean(dir))
+		if seen[clean] {
+			return ""
+		}
+		seen[clean] = true
+		for _, fn := range names {
+			p := filepath.Join(dir, fn)
+			if fileExists(p) {
+				return p
+			}
+		}
+		return ""
+	}
+	for _, root := range searchDirs {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		for _, sub := range []string{
+			filepath.Join(root, "offline", "prereqs"),
+			filepath.Join(root, "prereqs"),
+			filepath.Join(root, "offline"),
+			root,
+		} {
+			if found := tryDir(sub); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
+}
+
 // InstallPrerequisite downloads and launches the official Microsoft installer for id
 // (with UAC elevation and passive progress), reporting progress through emit.
 func InstallPrerequisite(ctx context.Context, p *Paths, id string, emit func(Progress)) error {
+	return InstallPrerequisiteWithOffline(ctx, p, id, nil, false, emit)
+}
+
+// InstallPrerequisiteWithOffline installs prerequisite id using a locally bundled installer from
+// offlineDirs when present, or falls back to downloading from Microsoft unless offlineOnly is true.
+func InstallPrerequisiteWithOffline(ctx context.Context, p *Paths, id string, offlineDirs []string, offlineOnly bool, emit func(Progress)) error {
 	if p == nil {
 		return errors.New("paths not initialized")
 	}
@@ -252,7 +370,6 @@ func InstallPrerequisite(ctx context.Context, p *Paths, id string, emit func(Pro
 	if err := os.MkdirAll(p.Tmp, 0o755); err != nil {
 		return err
 	}
-	dest := filepath.Join(p.Tmp, fileName)
 	report := func(phase string, received, total int64, msg string) {
 		if emit != nil {
 			emit(Progress{
@@ -266,35 +383,50 @@ func InstallPrerequisite(ctx context.Context, p *Paths, id string, emit func(Pro
 		}
 	}
 
-	report("downloading", 0, 0, "Downloading "+displayName+"...")
-	var dlErr error
-	for _, u := range urls {
-		if ctx.Err() != nil {
-			dlErr = ctx.Err()
-			break
+	dest := FindOfflinePrereq(id, offlineDirs)
+	fromOffline := dest != ""
+	if !fromOffline {
+		if offlineOnly {
+			err := fmt.Errorf("%s offline installer (%s) was not found in the offline bundle", displayName, fileName)
+			report("error", 0, 0, err.Error())
+			return err
 		}
-		dlErr = downloadPrereqFile(ctx, u, dest, func(rec, tot int64) {
-			report("downloading", rec, tot, "")
-		})
-		if dlErr == nil {
-			break
+		dest = filepath.Join(p.Tmp, fileName)
+		report("downloading", 0, 0, "Downloading "+displayName+"...")
+		var dlErr error
+		for _, u := range urls {
+			if ctx.Err() != nil {
+				dlErr = ctx.Err()
+				break
+			}
+			dlErr = downloadPrereqFile(ctx, u, dest, func(rec, tot int64) {
+				report("downloading", rec, tot, "")
+			})
+			if dlErr == nil {
+				break
+			}
 		}
-	}
-	if dlErr != nil {
-		phase := "error"
-		msg := dlErr.Error()
-		if ctx.Err() != nil {
-			phase = "cancelled"
-			msg = "cancelled"
+		if dlErr != nil {
+			phase := "error"
+			msg := dlErr.Error()
+			if ctx.Err() != nil {
+				phase = "cancelled"
+				msg = "cancelled"
+			}
+			report(phase, 0, 0, msg)
+			return dlErr
 		}
-		report(phase, 0, 0, msg)
-		return dlErr
+	} else {
+		report("installing", 1, 1, fmt.Sprintf("Using offline %s installer (%s)...", displayName, filepath.Base(dest)))
 	}
 
 	report("installing", 1, 1, "Running Microsoft "+displayName+" installer (approve Windows UAC prompt if shown)...")
 
 	var exePath, params string
 	switch id {
+	case PrereqIDWebView2:
+		exePath = dest
+		params = "/silent /install"
 	case PrereqIDVCRedistX64:
 		exePath = dest
 		params = "/install /passive /norestart"
@@ -304,10 +436,33 @@ func InstallPrerequisite(ctx context.Context, p *Paths, id string, emit func(Pro
 	}
 
 	exitCode, runErr := runElevatedAndWait(ctx, exePath, params, p.Tmp)
-	_ = os.Remove(dest)
+	if !fromOffline {
+		_ = os.Remove(dest)
+	}
 	if runErr != nil {
 		report("error", 0, 0, runErr.Error())
 		return runErr
+	}
+
+	InvalidateSystemDetectCache()
+
+	if id == PrereqIDWebView2 {
+		if winui.WebView2Installed() {
+			msg := displayName + " installed!"
+			if exitCode == 3010 {
+				msg = displayName + " installed (Windows reboot recommended)."
+			}
+			report("done", 1, 1, msg)
+			return nil
+		}
+		if exitCode != 0 && exitCode != 3010 && exitCode != 1638 {
+			err := fmt.Errorf("%s installer exited with code %d — try downloading and running it manually from Microsoft", displayName, exitCode)
+			report("error", 0, 0, err.Error())
+			return err
+		}
+		err := fmt.Errorf("%s installer finished (exit code %d), but WebView2 Runtime was not detected yet", displayName, exitCode)
+		report("error", 0, 0, err.Error())
+		return err
 	}
 
 	// Standard Windows installer success codes:
@@ -317,8 +472,6 @@ func InstallPrerequisite(ctx context.Context, p *Paths, id string, emit func(Pro
 		report("error", 0, 0, err.Error())
 		return err
 	}
-
-	InvalidateSystemDetectCache()
 
 	if id == PrereqIDVCRedistX64 {
 		if !HasVCRedistX64() {

@@ -91,8 +91,9 @@ func OpenURL(url string) error {
 	return cmd.Start()
 }
 
-// WebView2Installed checks whether Microsoft Edge WebView2 Runtime is available.
-func WebView2Installed() bool {
+// WebView2Version checks whether Microsoft Edge WebView2 Runtime is available
+// and returns (installed, version).
+func WebView2Version() (bool, string) {
 	const guid = `{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`
 	checks := []struct {
 		root registry.Key
@@ -109,11 +110,18 @@ func WebView2Installed() bool {
 		}
 		pv, _, err := k.GetStringValue("pv")
 		k.Close()
+		pv = strings.TrimSpace(pv)
 		if err == nil && pv != "" && pv != "0.0.0.0" {
-			return true
+			return true, pv
 		}
 	}
-	return false
+	return false, ""
+}
+
+// WebView2Installed checks whether Microsoft Edge WebView2 Runtime is available.
+func WebView2Installed() bool {
+	ok, _ := WebView2Version()
+	return ok
 }
 
 // KillProcessesInDir terminates processes whose image path is inside root,

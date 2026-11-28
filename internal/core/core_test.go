@@ -1893,6 +1893,125 @@ func TestVCRedistChecksAndErrorAnnotation(t *testing.T) {
 	}
 }
 
+func TestCheckAllPrerequisitesAndOfflineDiscovery(t *testing.T) {
+	engPrereqs := CheckPrerequisites()
+	if len(engPrereqs) != 2 || engPrereqs[0].ID != PrereqIDVCRedistX64 || engPrereqs[1].ID != PrereqIDMSSQLLocalDB {
+		t.Fatalf("CheckPrerequisites should preserve [vcredist_x64, mssql_localdb], got %+v", engPrereqs)
+	}
+	allPrereqs := CheckAllPrerequisites()
+	if len(allPrereqs) != 3 || allPrereqs[0].ID != PrereqIDWebView2 || allPrereqs[1].ID != PrereqIDVCRedistX64 || allPrereqs[2].ID != PrereqIDMSSQLLocalDB {
+		t.Fatalf("CheckAllPrerequisites should return [webview2, vcredist_x64, mssql_localdb], got %+v", allPrereqs)
+	}
+
+	bundle := t.TempDir()
+	prereqDir := filepath.Join(bundle, "offline", "prereqs")
+	if err := os.MkdirAll(prereqDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wvFile := filepath.Join(prereqDir, "MicrosoftEdgeWebView2RuntimeInstallerX64.exe")
+	vcFile := filepath.Join(prereqDir, "vc_redist.x64.exe")
+	ldbFile := filepath.Join(prereqDir, "SqlLocalDB.msi")
+	for _, f := range []string{wvFile, vcFile, ldbFile} {
+		if err := os.WriteFile(f, []byte("stub-installer"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got := FindOfflinePrereq(PrereqIDWebView2, []string{bundle}); got != wvFile {
+		t.Fatalf("expected %s, got %q", wvFile, got)
+	}
+	if got := FindOfflinePrereq(PrereqIDVCRedistX64, []string{bundle}); got != vcFile {
+		t.Fatalf("expected %s, got %q", vcFile, got)
+	}
+	if got := FindOfflinePrereq(PrereqIDMSSQLLocalDB, []string{bundle}); got != ldbFile {
+		t.Fatalf("expected %s, got %q", ldbFile, got)
+	}
+
+	// Offline-only install with missing file fails fast without touching network.
+	p := NewPaths(t.TempDir())
+	_ = p.Ensure()
+	err := InstallPrerequisiteWithOffline(context.Background(), p, PrereqIDVCRedistX64, []string{t.TempDir()}, true, nil)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "offline bundle") {
+		t.Fatalf("expected offline-only missing error, got %v", err)
+	}
+}
+
+func TestOfflineEngineArchiveAndDirInstall(t *testing.T) {
+	bundle := t.TempDir()
+	enginesDir := filepath.Join(bundle, "offline", "engines")
+	phpSrcDir := filepath.Join(bundle, "offline", "bin", "php", "php-8.6.0")
+	if err := os.MkdirAll(enginesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(phpSrcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(phpSrcDir, "php.exe"), []byte("php-stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Build a valid Redis zip with a shared top-level folder
+	redisZip := filepath.Join(enginesDir, "redis-8.10.3.zip")
+	zf, err := os.Create(redisZip)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(zf)
+	w, err := zw.Create("Redis-8.10.3/redis-server.exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("redis-stub"))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = zf.Close()
+
+	gotZip, gotVer, ok := FindOfflineEngineArchive("redis", "8.10.3", []string{bundle})
+	if !ok || gotZip != redisZip || gotVer != "8.10.3" {
+		t.Fatalf("FindOfflineEngineArchive(redis) got (%q, %q, %v)", gotZip, gotVer, ok)
+	}
+
+	gotDir, gotPhpVer, ok := FindOfflineEngineDir("php", "8.6.0", []string{bundle})
+	if !ok || gotDir != phpSrcDir || gotPhpVer != "8.6.0" {
+		t.Fatalf("FindOfflineEngineDir(php) got (%q, %q, %v)", gotDir, gotPhpVer, ok)
+	}
+
+	installRoot := t.TempDir()
+	p := NewPaths(installRoot)
+	if err := p.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+
+	var doneNames []string
+	dl := NewDownloader(p, nil, func(engine, name string) {
+		doneNames = append(doneNames, engine+":"+name)
+	})
+	actualVer, err := dl.InstallZipSync(context.Background(), "redis", gotVer, gotZip)
+	if err != nil || actualVer != "8.10.3" {
+		t.Fatalf("InstallZipSync failed: ver=%q err=%v", actualVer, err)
+	}
+	if !fileExists(filepath.Join(p.EngineBin("redis"), "redis-8.10.3", "redis-server.exe")) {
+		t.Fatal("expected extracted redis-server.exe in bin/redis/redis-8.10.3/")
+	}
+
+	phpName, err := InstallOfflineEngineDir(p, "php", gotPhpVer, gotDir, func(engine, name string) {
+		doneNames = append(doneNames, engine+":"+name)
+	})
+	if err != nil || phpName != "php-8.6.0" {
+		t.Fatalf("InstallOfflineEngineDir(php) failed: name=%q err=%v", phpName, err)
+	}
+	if !fileExists(filepath.Join(p.EngineBin("php"), "php-8.6.0", "php.exe")) {
+		t.Fatal("expected copied php.exe in bin/php/php-8.6.0/")
+	}
+	if !fileExists(filepath.Join(p.EngineBin("php"), "php-8.6.0", "php.ini")) {
+		t.Fatal("expected SyncManagedPHPIni to link php.ini after offline PHP install")
+	}
+	if len(doneNames) != 2 {
+		t.Fatalf("expected 2 onDone callbacks, got %v", doneNames)
+	}
+}
+
 
 
 

@@ -5,7 +5,11 @@
 #>
 param(
     [switch]$SkipTests,
-    [switch]$SkipVersionGen
+    [switch]$SkipVersionGen,
+    [switch]$Offline,
+    [ValidateSet("Full", "WebStack", "Database", "Minimal", "Custom")]
+    [string]$OfflinePreset = "Full",
+    [string[]]$OfflineEngines = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -123,7 +127,7 @@ try {
     # Embed portable payload cleanly into PE .rdata via go:embed (avoids EOF overlay heuristics & keeps PE valid for code signing)
     Copy-Item -Force $zipPath $embedPayload
     try {
-        go build -p 1 -tags "$tags,embedzip" -ldflags "-H=windowsgui" -o $setupExe ./cmd/installer
+        go build -p 1 -tags "$tags,embedzip" -ldflags "-s -w -H=windowsgui" -o $setupExe ./cmd/installer
         if ($LASTEXITCODE -ne 0) { throw "building DariusDB-Setup.exe with embedded payload failed" }
     }
     finally {
@@ -137,6 +141,16 @@ try {
     Copy-Item -Force "build\bin\DariusDB-Repair.exe" "installer\DariusDB-Repair.exe"
     Copy-Item -Force "build\bin\DariusDB-Uninstall.exe" "installer\DariusDB-Uninstall.exe"
     Copy-Item -Force "build\bin\DariusDB-Updater.exe" "installer\DariusDB-Updater.exe"
+
+    if ($Offline) {
+        Write-Host ""
+        Write-Host "==> Building All-in-One Offline Bundle (Preset: $OfflinePreset)..." -ForegroundColor Cyan
+        $offArgs = @{ SkipBuild = $true; Preset = $OfflinePreset }
+        if ($OfflineEngines -and $OfflineEngines.Count -gt 0) {
+            $offArgs["Engines"] = $OfflineEngines
+        }
+        & (Join-Path $RepoRoot "installer\build-offline.ps1") @offArgs
+    }
 
     Write-Host ""
     Write-Host "==> Build outputs:" -ForegroundColor Green

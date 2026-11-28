@@ -14,6 +14,11 @@ Manage **Apache Web Server (+ PHP 8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **
 
 ## System Preview ([`example/`](example/))
 
+### Smart Windows Setup Wizard (Requirements Check, Engine Picker & Repair Mode)
+| Step 1 — Welcome & MIT License | Step 2 — Location & PATH Options | Step 3 — Requirements & Engine Picker | Maintenance / Repair Mode |
+|---|---|---|---|
+| ![Setup Wizard Step 1](example/setup-wizard-step1-license.png) | ![Setup Wizard Step 2](example/setup-wizard-step2-location.png) | ![Setup Wizard Step 3](example/setup-wizard-step3-requirements.png) | ![Setup Wizard Repair Mode](example/setup-wizard-repair-mode.png) |
+
 ### Services Dashboard, Auto-Run Bar & Repair Diagnostics
 ![Darius DB Services Dashboard](example/dashboard-overview.jpg)
 
@@ -21,8 +26,12 @@ Manage **Apache Web Server (+ PHP 8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **
 |---|---|
 | ![Auto-Run Bar](example/dashboard-auto-run.png) | ![Repair Modal](example/repair-diagnostics.jpg) |
 
-### Database Manager, ER Diagrams, SQL Autocomplete & Floating Query Tabs
+### Database Manager, Structure & Foreign Keys Inspector, ER Diagrams & Floating Query Tabs
 ![Darius DB Database Manager](example/database-manager.jpg)
+
+| Expandable Table Tree (`▸ Columns`, `Keys & Relations`, `Indexes`) | `🔑 Structure & Keys` Inspector (Columns, Foreign Keys & Properties) | Foreign Keys, Indexes & `CREATE TABLE` DDL |
+|---|---|---|
+| ![Expandable Table Tree](example/database-table-tree.png) | ![Structure and Keys Inspector](example/database-structure-keys.png) | ![Foreign Keys, Indexes and DDL](example/database-structure-ddl.png) |
 
 | Right-Click DB Menu (`New Database Diagram`) | Interactive ER Diagram & Export Dropdown |
 |---|---|
@@ -82,13 +91,13 @@ Manage **Apache Web Server (+ PHP 8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **
 - **Self-Healing Repair & Diagnostics (`🔧 Repair`, `🛠️ Repair All`, `DariusDB-Repair.exe`, `darius repair`)** — Diagnoses and heals missing portable directories, `www/index.html`, corrupted `settings.json` / Mailpit `messages.json`, engine configs (`etc/*`), stale crash locks (`postmaster.pid`, `tmp/run/*.pid`), blocked ports, UI caches, Windows `PATH`, and `MSSQLLocalDB` instances while keeping databases in `data/` safe.
 - **Portable Engine Downloader & Live Upstream Version Checker** — Click **↻ Check Newest Versions** to fetch live upstream builds across **Apache, PHP, MariaDB, MySQL, PostgreSQL, MS SQL Server, Redis, and Mailpit**, update in one click, or import any custom offline `.zip`.
 - **Built-in Multi-Tab SQL, ER Diagram & Redis Browser**
-  - **SQL (MariaDB / MySQL / PostgreSQL / MS SQL Server, Local & Cloud):** browse databases & tables, quick-create database + user/login with privileges, drop databases/tables, inline Row CRUD (Show, Edit, Create, Delete), **IDE-style `Tab` SQL autocomplete** (`CREATE`, `SHOW`, `SELECT`, functions, tables & columns), **Chrome-style tear-off floating query windows** (`↗` pop-out, `↩ Put Back`, drag-to-reorder & `✕ Close All`), and **VS / .env** + Connection URI copy.
-  - **SSMS-Style Right-Click Menu & Interactive ER Database Diagram (`🗺️ Diagram`):** right-click any database or table → **New Database Diagram** for draggable table cards, solid FK + dashed inferred `*_id` relationship lines, pan/zoom/Auto-Arrange/Fit, Table filter picker, and **`📤 Export ▾`** to **PNG, JPEG, WebP, SVG, HTML, Mermaid (`.mmd`), or Clipboard PNG**.
+  - **SQL (MariaDB / MySQL / PostgreSQL / MS SQL Server, Local & Cloud):** browse databases & tables with an **expandable sidebar table tree** (`▸ Columns`, `Keys & Relations`, `Indexes`), toggle **`📊 Rows` | `🔑 Structure & Keys`** to inspect columns, PKs, outgoing & incoming Foreign Keys (clickable related entities), indexes, entity properties, and `CREATE TABLE` DDL, quick-create database + user/login with privileges, drop databases/tables, inline Row CRUD (Show, Edit, Create, Delete), **IDE-style `Tab` SQL autocomplete** (`CREATE`, `SHOW`, `SELECT`, functions, tables & columns), **Chrome-style tear-off floating query windows** (`↗` pop-out, `↩ Put Back`, drag-to-reorder & `✕ Close All`), and **VS / .env** + Connection URI copy.
+  - **SSMS-Style Right-Click Menu & Interactive ER Database Diagram (`🗺️ Diagram`):** right-click any database or table → **Structure, Foreign Keys & Properties**, **Copy CREATE TABLE DDL**, or **New Database Diagram** for draggable table cards, solid FK + dashed inferred `*_id` relationship lines, pan/zoom/Auto-Arrange/Fit, Table filter picker, and **`📤 Export ▾`** to **PNG, JPEG, WebP, SVG, HTML, Mermaid (`.mmd`), or Clipboard PNG**.
   - **Redis:** switch logical DBs (`db0`–`db15`), scan & filter keys, inspect values (with automatic JSON formatting & TTL), delete keys, and run interactive Redis CLI commands.
 - **Cloud Databases, Live Sync & Daily 2:00 AM Auto-Backup / Purge** — Connect **cPanel / Plesk / Hostinger (MySQL)**, **MonsterASP.NET / SmarterASP (MS SQL)**, **Supabase / Neon (PostgreSQL)**, **Aiven / TiDB / PlanetScale**, **AWS RDS / Azure SQL**, and **Redis Cloud** with URI/ADO.NET Quick Auto-Fill, SSL/TLS options, separated **Manual Sync**, **Daily Auto-Sync**, and **Daily 2:00 AM Auto-Backup** modals (with live Purge Date Guide & 7-day retention purge), plus **Sync & Auto-Schedule Trace Logs (`scheduler.log`)** and optional **Windows Task Scheduler** integration.
 - **Config Editor & Live Log Viewer** — Edit `httpd.conf`, `php.ini`, `my.ini`, `postgresql.conf`, `mssql.conf`, `redis.conf`, and `mailpit.conf` inside the app (or Notepad) with *Save & Restart*, plus auto-refreshing logs.
 - **Native Setup, Launcher, Repair, Updater & Uninstall Wizards**
-  - `DariusDB-Setup-0.1.6.exe` — self-contained Windows Setup Wizard with automatic in-place upgrade detection (e.g. `0.1.5 → 0.1.6`) and Repair Mode.
+  - `DariusDB-Setup-0.1.6.exe` — self-contained 4-step Windows Setup Wizard with **live system requirements detection** (`WebView2`, `VC++ 2015–2022 x64`, `SQL Server LocalDB`), optional database/web engine pre-installer, automatic offline bundle detection (`offline\`), in-place upgrade detection (e.g. `0.1.5 → 0.1.6`), and 1-click **Repair Mode**; pair with `installer\build-offline.ps1` and `installer\DariusDB.iss` for air-gapped all-in-one offline bundles.
   - `DariusDB-Launcher.exe` — verifies WebView2, sets `DARIUSDB_HOME`, supports `--minimized`, `--terminal`, `--start-all`, `--stop-all`, `--version`.
   - `DariusDB-Repair.exe` — standalone Win32 full-system Repair All wizard.
   - `DariusDB-Updater.exe` — native Win32 System Version Updater GUI & CLI (`--check`, `--silent`, `--token=PAT`) that detects installed version, checks GitHub (`version.json` + Releases + Commits) and local installers, and upgrades in-place while keeping `data/` and `www/` untouched.

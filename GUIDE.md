@@ -15,7 +15,7 @@
 
 1. [System Requirements](#1-system-requirements)
 2. [How to Install Darius DB (Step by Step)](#2-how-to-install-darius-db-step-by-step)
-   - [Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.6.exe`)](#option-a-using-the-standalone-windows-installer-dariusdb-setup-015exe)
+   - [Option A: Using the Standalone Windows Installer (`DariusDB-Setup-0.1.6.exe`)](#option-a-using-the-standalone-windows-installer-dariusdb-setup-016exe)
    - [Option B: 100% Portable (No Installation Required)](#option-b-100-portable-no-installation-required)
 3. [First-Time Setup & Daily Usage Guide](#3-first-time-setup--daily-usage-guide)
 4. [Keyboard Shortcuts Reference](#4-keyboard-shortcuts-reference)
@@ -45,9 +45,9 @@
 
 1. Download **`DariusDB-Setup-0.1.6.exe`** from [**GitHub Releases**](https://github.com/dcquijano/Darius-DB-Lite-Version/releases) or the [**Official Google Drive Installer Folder**](https://drive.google.com/drive/folders/1FVLCHqOfxmP9PbSx70jy_BfH2Yn1E_UG?usp=sharing) (or run local build output `installer\DariusDB-Setup-0.1.6.exe` or `dist\DariusDB-Setup-0.1.6.exe`).
 2. In the **Darius DB (Lite Version 0.1.6) Setup Wizard**:
-   - Accept the MIT License Agreement and click **Next >**.
-   - Keep the recommended destination folder **`C:\DariusDB`** (or click **Browse...** to choose another folder) and select your shortcut/PATH/startup options.
-   - Click **Install**.
+   - **Step 1:** Accept the MIT License Agreement and click **Next >**.
+   - **Step 2:** Keep the recommended destination folder **`C:\DariusDB`** (or click **Browse...** to choose another folder) and select your shortcut/PATH/startup options, then click **Next >**.
+   - **Step 3 (Requirements & Components):** Review the live system check for **WebView2**, **VC++ 2015–2022 (x64)**, and **SQL Server LocalDB**. Tick any database/web engines and missing prerequisites you want pre-installed right away (or click **Lite Only (None)** for a fast install with zero extra downloads), then click **Install**. *(If an `offline\` bundle folder is placed next to `DariusDB-Setup-0.1.6.exe`, Setup installs checked items 100% offline.)*
 3. Setup automatically:
    - Extracts `DariusDB.exe`, `DariusDB-Launcher.exe`, `DariusDB-Repair.exe`, `DariusDB-Uninstall.exe`, `DariusDB-Updater.exe`, `darius.exe`, `LICENSE`, `README.md`, and `GUIDE.md`.
    - Creates `www/`, `backups/`, `bin/`, `data/`, `etc/`, `logs/`, and `tmp/`.
@@ -98,7 +98,8 @@
 
 1. Click **Browse** on any running engine card (or press **`Alt + 2`** to open **Database**).
 2. **For MariaDB, MySQL, PostgreSQL, and MS SQL Server (Local & Cloud):**
-   - **Databases & Right-Click Context Menu:** Click **+ New** (**`Alt + D`**) to create a database (+ optional user/login), or **right-click any database or table** for quick actions (`🗺️ New Database Diagram`, `📝 New Query Tab`, `➕ Create Table...`, `↻ Refresh`, `📤 Export`, `🗑️ Drop`).
+   - **Databases & Right-Click Context Menu:** Click **+ New** (**`Alt + D`**) to create a database (+ optional user/login), or **right-click any database or table** for quick actions (`🔑 Structure, Foreign Keys & Properties`, `📋 Copy CREATE TABLE DDL`, `🗺️ New Database Diagram`, `📝 New Query Tab`, `➕ Create Table...`, `↻ Refresh`, `📤 Export`, `🗑️ Drop`).
+   - **Expandable Table Tree & `🔑 Structure & Keys` Inspector:** Click the **`▸`** arrow next to any table to expand **Columns**, **Keys & Relations** (PK + clickable outgoing & incoming Foreign Keys), and **Indexes**, or toggle the results bar between **`📊 Rows`** and **`🔑 Structure & Keys`** to view entity metadata, foreign-key references, indexes, and `CREATE TABLE` DDL.
    - **Interactive ER Database Diagrams (`🗺️ Diagram`):** Right-click a database or click **🗺️ Diagram** in the Tables header to explore draggable table cards, solid Foreign Key + optional dashed inferred `*_id` links, Auto-Arrange, Fit View, Table picker, double-click/open table rows, and **`📤 Export ▾`** (**PNG**, **JPEG**, **WebP**, **SVG**, **HTML**, **Mermaid `.mmd`**, or **Copy PNG to Clipboard**).
    - **Multi-Tab SQL Editor, Autocomplete & Tear-Off Floating Windows:**
      - Press **`Tab`** inside the SQL editor for IDE-style autocomplete (`CREATE`, `SHOW`, `SELECT`, aggregate functions, tables, and columns).

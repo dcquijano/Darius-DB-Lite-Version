@@ -2,9 +2,30 @@
 
 Visual showcase of **Darius DB (Lite Version 0.1.6)** in action on Windows.
 
+- **Repository:** [https://github.com/dcquijano/Darius-DB-Lite-Version](https://github.com/dcquijano/Darius-DB-Lite-Version)
+- **Official Releases & Installer:** [https://github.com/dcquijano/Darius-DB-Lite-Version/releases](https://github.com/dcquijano/Darius-DB-Lite-Version/releases)
+
 ---
 
-## 1. Unified Services Dashboard & PHP / Apache / DB Stack
+## 1. Smart Windows Setup Wizard (Requirements Check & Engine Picker)
+
+Install **Darius DB (Lite Version 0.1.6)** with the native 4-step Windows Setup Wizard (`DariusDB-Setup-0.1.6.exe`). Setup automatically detects **Microsoft Edge WebView2**, **Visual C++ 2015–2022 Redistributable (x64)**, and **SQL Server 2022 Express LocalDB** upfront, lets you select any database/web engines to pre-install during Setup (or click **Lite Only (None)** for a fast install), and automatically detects sibling `offline\` bundles for air-gapped PCs.
+
+### Step 1 of 4 — Welcome & MIT License Agreement
+![Setup Wizard Step 1 — Welcome and License](setup-wizard-step1-license.png)
+
+### Step 2 of 4 — Choose Install Location & Developer Integration
+![Setup Wizard Step 2 — Destination and Options](setup-wizard-step2-location.png)
+
+### Step 3 of 4 — System Requirements & Selectable Database / Web Engines
+![Setup Wizard Step 3 — Requirements and Components](setup-wizard-step3-requirements.png)
+
+### Maintenance / Repair Mode (Existing Installation Detected — Double Install Disabled)
+![Setup Wizard Repair Mode](setup-wizard-repair-mode.png)
+
+---
+
+## 2. Unified Services Dashboard & PHP / Apache / DB Stack
 
 Manage **Apache 2.4**, **PHP (8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server 2025**, **Redis**, and **Mailpit** with one-click toggle switches, Auto-Run service presets, quick config/log/data shortcuts, live GitHub update announcements, and the **Unified Full-Stack Diagram**.
 
@@ -18,13 +39,22 @@ Manage **Apache 2.4**, **PHP (8.2 / 8.3 / 8.4)**, **MariaDB**, **MySQL**, **Post
 
 ---
 
-## 2. Database Manager & Fast SQL Browser
+## 3. Database Manager, Structure & Foreign Keys Inspector & Fast SQL Browser
 
-Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server** (local & Cloud), and **Redis** with live database/table counts, resizable & collapsible split panes, stretchable result columns, fast non-blocking loading, inline filtering, and full table/row actions.
+Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS SQL Server** (local & Cloud), and **Redis** with live database/table counts, expandable table trees (`▸ Columns`, `Keys & Relations`, `Indexes`), a **Rows | Structure & Keys** inspector (columns, primary keys, outgoing & incoming foreign keys with clickable entity links, indexes, table properties & `CREATE TABLE` DDL), resizable & collapsible split panes, stretchable result columns, fast non-blocking loading, inline filtering, and full table/row actions.
 
 ![Darius DB Database Manager and SQL Browser](database-manager.jpg)
 
-### SSMS-Style Right-Click Menu (`New Database Diagram`, `New Query`, `Create Table`, `Refresh`)
+### Expandable Sidebar Table Tree (`▸ Columns`, `Keys & Relations`, `Indexes` & `Properties & DDL →`)
+![Expandable Sidebar Table Tree](database-table-tree.png)
+
+### Structure & Foreign Keys Inspector (`📊 Rows` | `🔑 Structure & Keys`)
+![Structure and Foreign Keys Inspector](database-structure-keys.png)
+
+### Foreign Keys (Outgoing & Incoming), Indexes & Table Definition (`CREATE TABLE` DDL)
+![Foreign Keys, Indexes and DDL](database-structure-ddl.png)
+
+### SSMS-Style Right-Click Menu (`Structure & Foreign Keys`, `New Database Diagram`, `Copy DDL`, `Create Table`)
 ![Right-Click Database Context Menu](database-context-menu.jpg)
 
 ### Interactive ER Database Diagram & Export Dropdown (`.png`, `.jpg`, `.webp`, `.svg`, `.html`, `.mmd`)
@@ -38,7 +68,7 @@ Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS 
 
 ---
 
-## 3. Row CRUD (Show, Edit & Create)
+## 4. Row CRUD (Show, Edit & Create)
 
 ### Show Row Details (with Field Copy & Copy JSON)
 ![Show Row Details](database-show-row.png)
@@ -51,7 +81,7 @@ Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS 
 
 ---
 
-## 4. Database Export, Full `.zip` Backup & Import / Restore
+## 5. Database Export, Full `.zip` Backup & Import / Restore
 
 ### Export (Entire Database, Single Table, or Selected Tables as `.sql`, `.zip`, or `.csv`)
 ![Database Export Modal](database-export.png)
@@ -67,7 +97,7 @@ Browse databases and tables across **MariaDB**, **MySQL**, **PostgreSQL**, **MS 
 
 ---
 
-## 5. Cloud Databases, Provider Presets & 2:00 AM Auto-Sync / Backup
+## 6. Cloud Databases, Provider Presets & 2:00 AM Auto-Sync / Backup
 
 Connect and manage **cPanel / Plesk / Hostinger (MySQL)**, **MonsterASP.NET / SmarterASP (MS SQL)**, **Supabase / Neon (PostgreSQL)**, **Aiven / TiDB / PlanetScale**, **AWS RDS / Azure SQL**, and **Redis Cloud**, complete with URI/ADO.NET quick-parse, live Local ↔ Cloud sync, and daily **2:00 AM Auto-Sync & `.zip` Auto-Backup** with 7-day retention purge.
 
@@ -96,7 +126,7 @@ Connect and manage **cPanel / Plesk / Hostinger (MySQL)**, **MonsterASP.NET / Sm
 
 ---
 
-## 6. Portable Engine Versions, Config & Logs, and Built-in Terminal
+## 7. Portable Engine Versions, Config & Logs, and Built-in Terminal
 
 ### Portable Versions Manager (Apache, PHP, MariaDB, MySQL, PostgreSQL, MS SQL, Redis, Mailpit)
 ![Portable Engine Versions Manager](versions-manager.png)
@@ -109,7 +139,7 @@ Connect and manage **cPanel / Plesk / Hostinger (MySQL)**, **MonsterASP.NET / Sm
 
 ---
 
-## 7. Settings (Ports, Credentials & Windows Integration)
+## 8. Settings (Ports, Credentials & Windows Integration)
 
 Configure ports, default database credentials, Start All selection, close-to-tray behavior, and auto-start options saved cleanly to `settings.json`.
 
@@ -117,7 +147,7 @@ Configure ports, default database credentials, Start All selection, close-to-tra
 
 ---
 
-## 8. Live GitHub System Version Updater
+## 9. Live GitHub System Version Updater
 
 Check online for new versions/builds, sync release announcements and commit history directly from GitHub, and perform 1-click in-place upgrades with automatic restart (`data/` and `www/` preserved).
 
@@ -125,7 +155,7 @@ Check online for new versions/builds, sync release announcements and commit hist
 
 ---
 
-## 9. Built-in Visual Guide, Keyboard Shortcuts (`F1`) & CLI / Ports Reference
+## 10. Built-in Visual Guide, Keyboard Shortcuts (`F1`) & CLI / Ports Reference
 
 Explore the interactive quick-start checklist, collapsible visual step-by-step guides (`Alt+8`), searchable keyboard shortcuts popup (`F1` / `Ctrl+/` / `?`), full shortcuts matrix, default engine ports (including Mailpit `:8025/:1025`), and one-click copy `darius` CLI commands.
 

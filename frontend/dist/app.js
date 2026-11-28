@@ -360,7 +360,7 @@
   }
 
   function isBlankSqlTab(tab) {
-    return !!tab && tab.kind !== "diagram" && !tab.diagram && !tab.table && !tab.result && !tab.loading && !(tab.sql || "").trim();
+    return !!tab && tab.kind !== "diagram" && !tab.diagram && tab.kind !== "join" && !tab.join && !tab.table && !tab.result && !tab.loading && !(tab.sql || "").trim();
   }
 
   function nextQueryTabTitle(engine) {
@@ -370,7 +370,7 @@
     return `Query ${n}`;
   }
 
-  function createSqlTabObj({ engine = state.dbEngine, db = state.sqlDb, table = "", title = "", sql = "", kind = "query", diagram = null, pageSize = state.sqlPageSize || 50 } = {}) {
+  function createSqlTabObj({ engine = state.dbEngine, db = state.sqlDb, table = "", title = "", sql = "", kind = "query", diagram = null, join = null, pageSize = state.sqlPageSize || 50 } = {}) {
     const id = `sqltab-${++sqlTabIdSeq}`;
     return {
       id,
@@ -383,6 +383,7 @@
       sql: sql || "",
       result: null,
       diagram: diagram || null,
+      join: join || null,
       showingAll: false,
       page: 1,
       pageSize: pageSize ?? 50,
@@ -401,7 +402,7 @@
 
   function syncActiveTabFromDom() {
     const tab = getActiveSqlTab();
-    if (!tab || tab.detached || tab.kind === "diagram") return;
+    if (!tab || tab.detached || tab.kind === "diagram" || tab.kind === "join") return;
     tab.table = state.sqlTable;
     tab.columns = state.sqlColumns;
     tab.result = state.sqlLastResult;
@@ -457,19 +458,20 @@
     }
     state.activeSqlTabId = tab.id;
     activeSqlTabByEngine.set(tab.engine, tab.id);
-    const isDiagram = tab.kind === "diagram";
-    if ($("sqlDiagramStage")) $("sqlDiagramStage").hidden = !isDiagram;
-    if ($("sqlEditorBox")) $("sqlEditorBox").hidden = isDiagram;
-    if ($("sqlMainSplitH")) $("sqlMainSplitH").hidden = isDiagram;
-    if ($("sqlResultBox")) $("sqlResultBox").hidden = isDiagram;
+    const isCanvas = tab.kind === "diagram" || tab.kind === "join";
+    if ($("sqlDiagramStage")) $("sqlDiagramStage").hidden = !isCanvas;
+    if ($("sqlEditorBox")) $("sqlEditorBox").hidden = isCanvas;
+    if ($("sqlMainSplitH")) $("sqlMainSplitH").hidden = isCanvas;
+    if ($("sqlResultBox")) $("sqlResultBox").hidden = isCanvas;
 
-    if (isDiagram) {
+    if (isCanvas) {
       state.sqlTable = "";
       state.sqlColumns = [];
       state.sqlLastResult = null;
       updateSqlTableToolbar();
       renderSqlTabs();
-      renderDatabaseDiagramInto($("sqlDiagramStage"), tab);
+      if (tab.kind === "join") renderJoinBuilderInto($("sqlDiagramStage"), tab);
+      else renderDatabaseDiagramInto($("sqlDiagramStage"), tab);
     } else {
       if ($("sqlDiagramStage")) $("sqlDiagramStage").innerHTML = "";
       state.sqlTable = tab.table || "";
@@ -691,9 +693,12 @@
     const dbEl = winEl.querySelector(".sql-float-db");
     if (dbEl) dbEl.textContent = tab.db ? `${tab.engine} / ${tab.db}` : tab.engine;
 
-    if (tab.kind === "diagram") {
+    if (tab.kind === "diagram" || tab.kind === "join") {
       const diagWrap = winEl.querySelector(".sql-float-diagram");
-      if (diagWrap) renderDatabaseDiagramInto(diagWrap, tab);
+      if (diagWrap) {
+        if (tab.kind === "join") renderJoinBuilderInto(diagWrap, tab);
+        else renderDatabaseDiagramInto(diagWrap, tab);
+      }
       return;
     }
 
@@ -1204,7 +1209,7 @@
     if (!layer || !tab) return null;
     removeFloatingSqlWin(tab.id);
 
-    const isDiagram = tab.kind === "diagram";
+    const isDiagram = tab.kind === "diagram" || tab.kind === "join";
     const pos = tab.floatPos || {};
     const w = pos.width || Math.min(isDiagram ? 860 : 640, Math.max(400, Math.round(window.innerWidth * (isDiagram ? 0.68 : 0.54))));
     const h = pos.height || Math.min(isDiagram ? 620 : 460, Math.max(320, Math.round(window.innerHeight * (isDiagram ? 0.74 : 0.6))));
@@ -2459,6 +2464,1286 @@
     });
   }
 
+  // ---- Visual SQL JOIN Builder & Interactive Join Map (INNER / LEFT / RIGHT / FULL / CROSS) ----
+  const JOIN_TYPES = [
+    { id: "INNER", name: "INNER JOIN", desc: "Matching rows in A & B" },
+    { id: "LEFT", name: "LEFT JOIN", desc: "All A + matching B" },
+    { id: "RIGHT", name: "RIGHT JOIN", desc: "Matching A + all B" },
+    { id: "FULL", name: "FULL OUTER", desc: "All rows from A & B" },
+    { id: "CROSS", name: "CROSS JOIN", desc: "Every A × B pair" },
+  ];
+
+  function resolveSqlDialect(engine) {
+    let raw = String(engine || "").toLowerCase();
+    if (raw.startsWith("cloud:")) {
+      const cid = raw.slice(6);
+      const prof = (state.cloudProfiles || []).find((p) => p.id === cid);
+      if (prof && prof.engine) raw = String(prof.engine).toLowerCase();
+    }
+    if (raw === "postgresql" || raw === "postgres" || raw === "pg") return "postgresql";
+    if (raw === "mssql" || raw === "sqlserver") return "mssql";
+    return "mysql";
+  }
+
+  function quoteSqlIdent(dialect, ident) {
+    const s = String(ident || "").trim();
+    if (!s) return "";
+    const quotePart = (part) => {
+      if (dialect === "postgresql") return `"${part.replace(/"/g, '""')}"`;
+      if (dialect === "mssql") return `[${part.replace(/\]/g, "]]")}]`;
+      return `\`${part.replace(/`/g, "``")}\``;
+    };
+    return s.includes(".") ? s.split(".").map(quotePart).join(".") : quotePart(s);
+  }
+
+  function renderMiniVennSvg(type, uid) {
+    const clipId = `mv-${uid}-${type}`;
+    const fillOn = "rgba(20, 184, 166, 0.72)";
+    const fillRight = "rgba(56, 189, 248, 0.72)";
+    const fillOff = "rgba(148, 163, 184, 0.12)";
+    const stroke = "rgba(148, 163, 184, 0.7)";
+    const leftFill = type === "LEFT" || type === "FULL" ? fillOn : fillOff;
+    const rightFill = type === "RIGHT" || type === "FULL" ? fillRight : fillOff;
+    const interFill =
+      type === "INNER" || type === "LEFT" || type === "RIGHT" || type === "FULL"
+        ? "#14b8a6"
+        : fillOff;
+    return `<svg class="venn-mini" viewBox="0 0 42 26" aria-hidden="true">
+      <defs><clipPath id="${esc(clipId)}"><circle cx="15" cy="13" r="9.5"/></clipPath></defs>
+      <circle cx="15" cy="13" r="9.5" fill="${leftFill}" stroke="${stroke}" stroke-width="1.2"/>
+      <circle cx="27" cy="13" r="9.5" fill="${rightFill}" stroke="${stroke}" stroke-width="1.2"/>
+      ${
+        type === "CROSS"
+          ? `<text x="21" y="16.5" text-anchor="middle" font-size="11" font-weight="700" fill="#14b8a6">×</text>`
+          : `<circle cx="27" cy="13" r="9.5" clip-path="url(#${esc(clipId)})" fill="${interFill}"/>`
+      }
+      <circle cx="15" cy="13" r="9.5" fill="none" stroke="${stroke}" stroke-width="1.1"/>
+      <circle cx="27" cy="13" r="9.5" fill="none" stroke="${stroke}" stroke-width="1.1"/>
+    </svg>`;
+  }
+
+  function getJoinTableObj(j, tableName) {
+    return (j?.data?.tables || []).find((t) => t.name === tableName) || null;
+  }
+
+  function pickDefaultJoinColumn(tblObj, preferNames = []) {
+    const cols = tblObj?.columns || [];
+    for (const pref of preferNames) {
+      const hit = cols.find((c) => c.name.toLowerCase() === String(pref).toLowerCase());
+      if (hit) return hit.name;
+    }
+    const pk = cols.find((c) => c.isPrimaryKey);
+    if (pk) return pk.name;
+    const idCol = cols.find((c) => c.name.toLowerCase() === "id");
+    if (idCol) return idCol.name;
+    return cols[0]?.name || "";
+  }
+
+  function findJoinEdgeBetween(edges, leftTable, rightTable) {
+    if (!leftTable || !rightTable || !edges?.length) return null;
+    const fwd = edges.find((e) => e.fromTable === leftTable && e.toTable === rightTable);
+    if (fwd) return { leftCol: fwd.fromColumn, rightCol: fwd.toColumn, edge: fwd, dir: "fwd" };
+    const rev = edges.find((e) => e.fromTable === rightTable && e.toTable === leftTable);
+    if (rev) return { leftCol: rev.toColumn, rightCol: rev.fromColumn, edge: rev, dir: "rev" };
+    return null;
+  }
+
+  function buildJoinSql(tab) {
+    const j = tab?.join;
+    if (!j || !j.leftTable || !j.rightTable) {
+      return { sql: "", note: "" };
+    }
+    const dialect = resolveSqlDialect(tab.engine);
+    const q = (id) => quoteSqlIdent(dialect, id);
+    const joinType = j.joinType || "INNER";
+    const limit = Number(j.limit || 0);
+    const extraHops = (j.extraJoins || []).filter((h) => h.toTable);
+
+    const aliases = [
+      { alias: "a", table: j.leftTable },
+      { alias: "b", table: j.rightTable },
+    ];
+    const letters = "cdefghijklmnop";
+    extraHops.forEach((h, idx) => {
+      aliases.push({ alias: letters[idx] || `t${idx + 3}`, table: h.toTable });
+    });
+
+    const selectParts = [];
+    const customCols = j.selectedCols || {};
+    const anyCustom = Object.values(customCols).some((arr) => Array.isArray(arr) && arr.length > 0);
+    if (anyCustom) {
+      const seenColNames = new Map();
+      aliases.forEach(({ alias, table }) => {
+        const picked = customCols[alias];
+        if (!Array.isArray(picked) || !picked.length) return;
+        picked.forEach((cName) => {
+          const low = cName.toLowerCase();
+          const count = (seenColNames.get(low) || 0) + 1;
+          seenColNames.set(low, count);
+          if (count > 1) {
+            selectParts.push(`${alias}.${q(cName)} AS ${q(`${table}_${cName}`)}`);
+          } else {
+            selectParts.push(`${alias}.${q(cName)}`);
+          }
+        });
+      });
+    }
+    if (!selectParts.length) {
+      aliases.forEach(({ alias }) => selectParts.push(`${alias}.*`));
+    }
+    const selectClause = selectParts.join(", ");
+    const topPrefix = dialect === "mssql" && limit > 0 ? `TOP ${limit} ` : "";
+    const limitSuffix = dialect !== "mssql" && limit > 0 ? `\nLIMIT ${limit}` : "";
+
+    const extraSql = extraHops
+      .map((h, idx) => {
+        const alias = letters[idx] || `t${idx + 3}`;
+        const kw = h.type === "CROSS" ? "CROSS JOIN" : `${h.type || "LEFT"} JOIN`;
+        if (h.type === "CROSS") {
+          return `\n${kw} ${q(h.toTable)} AS ${alias}`;
+        }
+        return `\n${kw} ${q(h.toTable)} AS ${alias} ON ${h.fromAlias || "b"}.${q(h.fromCol || "id")} = ${alias}.${q(h.toCol || "id")}`;
+      })
+      .join("");
+
+    // MySQL & MariaDB do not support native FULL OUTER JOIN — emulate cleanly via LEFT JOIN UNION ALL RIGHT JOIN WHERE a.col IS NULL
+    if (joinType === "FULL" && dialect === "mysql") {
+      const lCol = j.leftCol || "id";
+      const rCol = j.rightCol || "id";
+      const sql =
+        `SELECT ${selectClause}\n` +
+        `FROM ${q(j.leftTable)} AS a\n` +
+        `LEFT JOIN ${q(j.rightTable)} AS b ON a.${q(lCol)} = b.${q(rCol)}${extraSql}\n` +
+        `UNION ALL\n` +
+        `SELECT ${selectClause}\n` +
+        `FROM ${q(j.leftTable)} AS a\n` +
+        `RIGHT JOIN ${q(j.rightTable)} AS b ON a.${q(lCol)} = b.${q(rCol)}${extraSql}\n` +
+        `WHERE a.${q(lCol)} IS NULL${limitSuffix};`;
+      return {
+        sql,
+        note: "MySQL / MariaDB FULL OUTER JOIN emulation via LEFT JOIN + UNION ALL + RIGHT JOIN (WHERE left key IS NULL)",
+      };
+    }
+
+    const kwMap = {
+      INNER: "INNER JOIN",
+      LEFT: "LEFT JOIN",
+      RIGHT: "RIGHT JOIN",
+      FULL: "FULL OUTER JOIN",
+      CROSS: "CROSS JOIN",
+    };
+    const mainKw = kwMap[joinType] || "INNER JOIN";
+    const mainJoinLine =
+      joinType === "CROSS"
+        ? `${mainKw} ${q(j.rightTable)} AS b`
+        : `${mainKw} ${q(j.rightTable)} AS b ON a.${q(j.leftCol || "id")} = b.${q(j.rightCol || "id")}`;
+
+    const sql =
+      `SELECT ${topPrefix}${selectClause}\n` +
+      `FROM ${q(j.leftTable)} AS a\n` +
+      `${mainJoinLine}${extraSql}${limitSuffix};`;
+    return { sql, note: "" };
+  }
+
+  function buildJoinMapSvg(tab, edges) {
+    const j = tab.join;
+    const leftTbl = getJoinTableObj(j, j.leftTable);
+    const rightTbl = getJoinTableObj(j, j.rightTable);
+    if (!leftTbl || !rightTbl) {
+      return `<div class="empty-note">Pick a Left Table (A) and Right Table (B) above to visualize their join map.</div>`;
+    }
+
+    const extraHops = (j.extraJoins || []).filter((h) => h.toTable && getJoinTableObj(j, h.toTable));
+    const letters = "cdefghijklmnop";
+    const cardW = 216;
+    const headH = 30;
+    const rowH = 21;
+    const maxCols = 9;
+
+    const getVisibleCols = (tblObj, activeCol) => {
+      const all = tblObj.columns || [];
+      if (all.length <= maxCols) return { list: all, extra: 0 };
+      const picked = all.slice(0, maxCols);
+      if (activeCol && !picked.some((c) => c.name === activeCol)) {
+        const hit = all.find((c) => c.name === activeCol);
+        if (hit) picked[maxCols - 1] = hit;
+      }
+      return { list: picked, extra: all.length - picked.length };
+    };
+
+    const leftVis = getVisibleCols(leftTbl, j.leftCol);
+    const rightVis = getVisibleCols(rightTbl, j.rightCol);
+    const extraVisList = extraHops.map((h) => getVisibleCols(getJoinTableObj(j, h.toTable), h.toCol));
+
+    const cardHeight = (vis) => headH + Math.max(2, vis.list.length) * rowH + (vis.extra > 0 ? 18 : 8);
+    const hA = cardHeight(leftVis);
+    const hB = cardHeight(rightVis);
+    const hMax = Math.max(182, hA, hB, ...extraVisList.map(cardHeight));
+    const svgH = hMax + 34;
+
+    const xA = 16;
+    const vennCenterX = xA + cardW + 114;
+    const xB = vennCenterX + 114;
+    const yCard = 16;
+    const extraStepX = cardW + 96;
+    const svgW = xB + cardW + 16 + extraHops.length * extraStepX;
+
+    const fkColsByTable = new Map();
+    edges.forEach((e) => {
+      if (!fkColsByTable.has(e.fromTable)) fkColsByTable.set(e.fromTable, new Set());
+      fkColsByTable.get(e.fromTable).add(String(e.fromColumn || "").toLowerCase());
+    });
+
+    const isLight = document.documentElement.dataset.scheme === "light";
+    const cardBg = isLight ? "#ffffff" : "#0f172a";
+    const headBgA = isLight ? "rgba(13,148,136,0.14)" : "rgba(20,184,166,0.18)";
+    const headBgB = isLight ? "rgba(2,132,199,0.14)" : "rgba(56,189,248,0.18)";
+    const headBgC = isLight ? "rgba(124,58,237,0.14)" : "rgba(168,85,247,0.18)";
+    const borderCol = isLight ? "rgba(15,23,42,0.16)" : "rgba(148,163,184,0.25)";
+    const textCol = isLight ? "#0f172a" : "#e2e8f0";
+    const mutedCol = isLight ? "#64748b" : "#94a3b8";
+
+    const renderEntityCard = ({ x, y, tblObj, vis, alias, activeCol, accent, headBg, portSide }) => {
+      const h = cardHeight(vis);
+      const fkSet = fkColsByTable.get(tblObj.name) || new Set();
+      let activeY = y + headH + rowH / 2;
+      const rowsSvg = vis.list
+        .map((c, idx) => {
+          const ry = y + headH + idx * rowH;
+          const isKey = c.name === activeCol;
+          if (isKey) activeY = ry + rowH / 2;
+          const isFk = fkSet.has(c.name.toLowerCase());
+          const badge = c.isPrimaryKey ? "PK" : isFk ? "FK" : "";
+          const badgeColor = c.isPrimaryKey ? "#f59e0b" : "#14b8a6";
+          const shortName = c.name.length > 17 ? c.name.slice(0, 16) + "…" : c.name;
+          const shortType = (c.dataType || "").length > 11 ? c.dataType.slice(0, 10) + "…" : (c.dataType || "");
+          return `<g class="jm-col-row" data-jm-pick-alias="${esc(alias)}" data-jm-pick-col="${esc(c.name)}">
+            <rect class="jm-col-bg" x="${x + 2}" y="${ry}" width="${cardW - 4}" height="${rowH}" rx="4" fill="${isKey ? (isLight ? "rgba(13,148,136,0.16)" : "rgba(20,184,166,0.22)") : "transparent"}"/>
+            ${badge ? `<text x="${x + 8}" y="${ry + 14}" font-size="9" font-weight="700" font-family="Consolas,monospace" fill="${badgeColor}">${badge}</text>` : ""}
+            <text x="${x + (badge ? 26 : 10)}" y="${ry + 14}" font-size="11" font-weight="${isKey ? "700" : "500"}" font-family="Consolas,monospace" fill="${isKey ? accent : textCol}">${esc(shortName)}</text>
+            <text x="${x + cardW - 8}" y="${ry + 14}" text-anchor="end" font-size="9.5" font-family="Consolas,monospace" fill="${mutedCol}">${esc(shortType)}</text>
+            ${isKey && portSide === "right" ? `<circle cx="${x + cardW}" cy="${ry + rowH / 2}" r="4.5" fill="${accent}" stroke="${cardBg}" stroke-width="1.5"/>` : ""}
+            ${isKey && portSide === "left" ? `<circle cx="${x}" cy="${ry + rowH / 2}" r="4.5" fill="${accent}" stroke="${cardBg}" stroke-width="1.5"/>` : ""}
+          </g>`;
+        })
+        .join("");
+
+      const moreSvg = vis.extra > 0
+        ? `<text x="${x + cardW / 2}" y="${y + h - 5}" text-anchor="middle" font-size="9.5" fill="${mutedCol}">+${vis.extra} more columns</text>`
+        : "";
+
+      const shortTitle = tblObj.name.length > 20 ? tblObj.name.slice(0, 19) + "…" : tblObj.name;
+      return {
+        activeY,
+        svg: `<g>
+          <rect x="${x}" y="${y}" width="${cardW}" height="${h}" rx="9" fill="${cardBg}" stroke="${accent}" stroke-opacity="0.55" stroke-width="1.3"/>
+          <path d="M ${x + 9} ${y} H ${x + cardW - 9} Q ${x + cardW} ${y} ${x + cardW} ${y + 9} V ${y + headH} H ${x} V ${y + 9} Q ${x} ${y} ${x + 9} ${y} Z" fill="${headBg}"/>
+          <line x1="${x}" y1="${y + headH}" x2="${x + cardW}" y2="${y + headH}" stroke="${borderCol}" stroke-width="1"/>
+          <rect x="${x + 8}" y="${y + 6}" width="18" height="17" rx="4" fill="${accent}"/>
+          <text x="${x + 17}" y="${y + 18}" text-anchor="middle" font-size="10.5" font-weight="800" font-family="Consolas,monospace" fill="#042f2e">${esc(alias.toUpperCase())}</text>
+          <text x="${x + 32}" y="${y + 19}" font-size="11.5" font-weight="700" font-family="Consolas,monospace" fill="${textCol}">${esc(shortTitle)}</text>
+          ${rowsSvg}
+          ${moreSvg}
+        </g>`,
+      };
+    };
+
+    const cardA = renderEntityCard({
+      x: xA, y: yCard, tblObj: leftTbl, vis: leftVis, alias: "a",
+      activeCol: j.leftCol, accent: "#14b8a6", headBg: headBgA, portSide: "right",
+    });
+    const cardB = renderEntityCard({
+      x: xB, y: yCard, tblObj: rightTbl, vis: rightVis, alias: "b",
+      activeCol: j.rightCol, accent: "#38bdf8", headBg: headBgB, portSide: "left",
+    });
+
+    // Interactive center Venn Hub
+    const jt = j.joinType || "INNER";
+    const vy = Math.round(Math.min(hMax, 190) / 2) + 8;
+    const r = 34;
+    const cxL = vennCenterX - 18;
+    const cxR = vennCenterX + 18;
+    const uid = `jm-${tab.id}`;
+
+    const onLeft = jt === "LEFT" || jt === "FULL";
+    const onMid = jt === "INNER" || jt === "LEFT" || jt === "RIGHT" || jt === "FULL";
+    const onRight = jt === "RIGHT" || jt === "FULL";
+
+    const fillMuted = isLight ? "rgba(148,163,184,0.16)" : "rgba(148,163,184,0.12)";
+    const strokeVenn = isLight ? "rgba(15,23,42,0.35)" : "rgba(148,163,184,0.55)";
+
+    const matchedEdge = findJoinEdgeBetween(edges, j.leftTable, j.rightTable);
+    const linkKind = matchedEdge ? (matchedEdge.edge.inferred ? "inferred *_id" : "FK") : "custom ON";
+    const onLabel = jt === "CROSS" ? "A × B (Cartesian)" : `a.${j.leftCol || "?"} = b.${j.rightCol || "?"}`;
+
+    const lineL = `M ${xA + cardW} ${cardA.activeY} C ${xA + cardW + 34} ${cardA.activeY}, ${cxL - r - 28} ${vy}, ${cxL - r - 2} ${vy}`;
+    const lineR = `M ${cxR + r + 2} ${vy} C ${cxR + r + 28} ${vy}, ${xB - 34} ${cardB.activeY}, ${xB} ${cardB.activeY}`;
+
+    // Render any extra chained join hops (C, D...)
+    const cardPosByAlias = {
+      a: { x: xA, w: cardW, activeY: cardA.activeY },
+      b: { x: xB, w: cardW, activeY: cardB.activeY },
+    };
+    const extraSvgs = [];
+    extraHops.forEach((h, idx) => {
+      const alias = letters[idx] || `t${idx + 3}`;
+      const tblObj = getJoinTableObj(j, h.toTable);
+      const exX = xB + (idx + 1) * extraStepX;
+      const cardC = renderEntityCard({
+        x: exX, y: yCard, tblObj, vis: extraVisList[idx], alias,
+        activeCol: h.toCol, accent: "#a855f7", headBg: headBgC, portSide: "left",
+      });
+      const prev = cardPosByAlias[h.fromAlias] || cardPosByAlias.b;
+      const sx = prev.x + prev.w;
+      const sy = prev.activeY;
+      const ex = exX;
+      const ey = cardC.activeY;
+      const midX = (sx + ex) / 2;
+      const hopLabel = h.type === "CROSS" ? "CROSS" : `${h.type || "LEFT"} JOIN`;
+      extraSvgs.push(`
+        <path d="M ${sx} ${sy} C ${midX} ${sy}, ${midX} ${ey}, ${ex} ${ey}" fill="none" stroke="#a855f7" stroke-width="2" stroke-dasharray="${h.type === "CROSS" ? "5 4" : ""}"/>
+        <rect x="${midX - 38}" y="${(sy + ey) / 2 - 11}" width="76" height="22" rx="11" fill="${cardBg}" stroke="#a855f7" stroke-width="1.2"/>
+        <text x="${midX}" y="${(sy + ey) / 2 + 4}" text-anchor="middle" font-size="9.5" font-weight="700" font-family="Consolas,monospace" fill="#c084fc">${esc(hopLabel)}</text>
+        ${cardC.svg}
+      `);
+      cardPosByAlias[alias] = { x: exX, w: cardW, activeY: cardC.activeY };
+    });
+
+    return `<svg class="join-map-svg" viewBox="0 0 ${svgW} ${svgH}" role="img" aria-label="Interactive SQL Join Map">
+      <defs>
+        <clipPath id="${esc(uid)}-clipA"><circle cx="${cxL}" cy="${vy}" r="${r}"/></clipPath>
+        <clipPath id="${esc(uid)}-clipB"><circle cx="${cxR}" cy="${vy}" r="${r}"/></clipPath>
+      </defs>
+
+      <!-- Connector curves from Table A and Table B join keys to center Venn hub -->
+      <path d="${lineL}" fill="none" stroke="#14b8a6" stroke-width="2.2" stroke-dasharray="${jt === "CROSS" ? "5 4" : ""}"/>
+      <path d="${lineR}" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-dasharray="${jt === "CROSS" ? "5 4" : ""}"/>
+
+      <!-- Entity Cards -->
+      ${cardA.svg}
+      ${cardB.svg}
+      ${extraSvgs.join("")}
+
+      <!-- Interactive Clickable Venn Diagram -->
+      <g>
+        <!-- Left Circle (Click to toggle LEFT / FULL) -->
+        <circle class="jm-venn-hit" data-jm-venn="left" cx="${cxL}" cy="${vy}" r="${r}" fill="${onLeft ? "rgba(20,184,166,0.52)" : fillMuted}" stroke="${onLeft ? "#14b8a6" : strokeVenn}" stroke-width="1.8">
+          <title>Click to toggle LEFT JOIN (combine with Right for FULL OUTER)</title>
+        </circle>
+        <!-- Right Circle (Click to toggle RIGHT / FULL) -->
+        <circle class="jm-venn-hit" data-jm-venn="right" cx="${cxR}" cy="${vy}" r="${r}" fill="${onRight ? "rgba(56,189,248,0.52)" : fillMuted}" stroke="${onRight ? "#38bdf8" : strokeVenn}" stroke-width="1.8">
+          <title>Click to toggle RIGHT JOIN (combine with Left for FULL OUTER)</title>
+        </circle>
+        <!-- Center Intersection (Click for INNER JOIN) -->
+        <circle class="jm-venn-hit" data-jm-venn="inner" cx="${cxR}" cy="${vy}" r="${r}" clip-path="url(#${esc(uid)}-clipA)" fill="${onMid ? "rgba(20,184,166,0.88)" : fillMuted}">
+          <title>Click for INNER JOIN (matching rows only)</title>
+        </circle>
+        <!-- Crisp Outlines -->
+        <circle cx="${cxL}" cy="${vy}" r="${r}" fill="none" stroke="${onLeft ? "#14b8a6" : strokeVenn}" stroke-width="1.6" pointer-events="none"/>
+        <circle cx="${cxR}" cy="${vy}" r="${r}" fill="none" stroke="${onRight ? "#38bdf8" : strokeVenn}" stroke-width="1.6" pointer-events="none"/>
+        <text x="${cxL - 14}" y="${vy + 4}" text-anchor="middle" font-size="11" font-weight="800" font-family="Consolas,monospace" fill="${textCol}" pointer-events="none">A</text>
+        <text x="${cxR + 14}" y="${vy + 4}" text-anchor="middle" font-size="11" font-weight="800" font-family="Consolas,monospace" fill="${textCol}" pointer-events="none">B</text>
+        ${jt === "CROSS" ? `<text x="${vennCenterX}" y="${vy + 5}" text-anchor="middle" font-size="15" font-weight="800" fill="#14b8a6" pointer-events="none">×</text>` : ""}
+
+        <!-- Active Join Type Pill Above Venn -->
+        <rect x="${vennCenterX - 58}" y="${Math.max(4, vy - r - 28)}" width="116" height="20" rx="10" fill="${cardBg}" stroke="#14b8a6" stroke-width="1.2"/>
+        <text x="${vennCenterX}" y="${Math.max(18, vy - r - 14)}" text-anchor="middle" font-size="10.5" font-weight="700" font-family="Consolas,monospace" fill="#14b8a6">${esc(jt === "FULL" ? "FULL OUTER" : `${jt} JOIN`)}</text>
+
+        <!-- ON Condition Pill Below Venn -->
+        <rect x="${vennCenterX - 88}" y="${vy + r + 10}" width="176" height="22" rx="6" fill="${cardBg}" stroke="${borderCol}" stroke-width="1"/>
+        <text x="${vennCenterX}" y="${vy + r + 24}" text-anchor="middle" font-size="10" font-weight="600" font-family="Consolas,monospace" fill="${textCol}">${esc(onLabel.length > 26 ? onLabel.slice(0, 25) + "…" : onLabel)}</text>
+        <text x="${vennCenterX}" y="${vy + r + 44}" text-anchor="middle" font-size="9.5" fill="${mutedCol}">Click Venn regions or columns to edit (${esc(linkKind)})</text>
+      </g>
+    </svg>`;
+  }
+
+  function refreshJoinViewForTab(tab) {
+    if (!tab || tab.kind !== "join") return;
+    if (tab.detached) {
+      updateFloatingSqlWin(tab);
+    } else if (state.activeSqlTabId === tab.id && $("sqlDiagramStage") && !$("sqlDiagramStage").hidden) {
+      renderJoinBuilderInto($("sqlDiagramStage"), tab);
+    }
+  }
+
+  async function runJoinBuilderQuery(tab) {
+    if (!tab || !tab.join) return;
+    const j = tab.join;
+    const built = buildJoinSql(tab);
+    if (!built.sql) return;
+
+    const seq = ++j.reqSeq;
+    j.running = true;
+    j.runError = "";
+    j.page = 1;
+    tab.loading = true;
+    renderSqlTabs();
+    refreshJoinViewForTab(tab);
+
+    try {
+      const res = Number(j.limit || 0) === 0
+        ? await api().RunQueryAll(tab.engine, tab.db, built.sql)
+        : await api().RunQuery(tab.engine, tab.db, built.sql);
+      if (!getSqlTab(tab.id) || j.reqSeq !== seq) return;
+      j.running = false;
+      j.result = res;
+      j.runMeta = res.isQuery
+        ? `${j.joinType === "FULL" ? "FULL OUTER" : `${j.joinType} JOIN`} · ${res.rows.length} row(s)${res.truncated ? " (capped)" : ""} · ${res.durationMs.toFixed(1)} ms`
+        : `Query OK · ${res.durationMs.toFixed(1)} ms`;
+      tab.loading = false;
+      renderSqlTabs();
+      refreshJoinViewForTab(tab);
+    } catch (err) {
+      if (!getSqlTab(tab.id) || j.reqSeq !== seq) return;
+      j.running = false;
+      j.result = null;
+      j.runError = errMsg(err);
+      tab.loading = false;
+      renderSqlTabs();
+      refreshJoinViewForTab(tab);
+    }
+  }
+
+  async function loadJoinBuilderSchema(tab, { autoRun = true } = {}) {
+    const j = tab?.join;
+    if (!j) return;
+    j.loadingSchema = true;
+    j.schemaError = "";
+    tab.loading = true;
+    renderSqlTabs();
+    refreshJoinViewForTab(tab);
+
+    try {
+      const cachedDiagTab = engineTabs(tab.engine).find((t) => t.kind === "diagram" && t.db === tab.db && t.diagram?.data);
+      const data = cachedDiagTab?.diagram?.data || (await api().GetDatabaseDiagram(tab.engine, tab.db));
+      if (!getSqlTab(tab.id)) return;
+      j.data = data || { engine: tab.engine, database: tab.db, tables: [], foreignKeys: [] };
+      j.loadingSchema = false;
+      tab.loading = false;
+
+      const tables = j.data.tables || [];
+      const edges = buildDiagramEdges(j.data, true);
+
+      if (!j.leftTable || !tables.some((t) => t.name === j.leftTable)) {
+        j.leftTable = (edges[0]?.fromTable) || tables[0]?.name || "";
+      }
+      if (!j.rightTable || !tables.some((t) => t.name === j.rightTable)) {
+        const hitEdge = edges.find((e) => e.fromTable === j.leftTable || e.toTable === j.leftTable);
+        if (hitEdge) {
+          if (hitEdge.fromTable === j.leftTable) {
+            j.rightTable = hitEdge.toTable;
+            j.leftCol = j.leftCol || hitEdge.fromColumn;
+            j.rightCol = j.rightCol || hitEdge.toColumn;
+          } else {
+            j.rightTable = hitEdge.fromTable;
+            j.leftCol = j.leftCol || hitEdge.toColumn;
+            j.rightCol = j.rightCol || hitEdge.fromColumn;
+          }
+        } else {
+          const other = tables.find((t) => t.name !== j.leftTable) || tables[0];
+          j.rightTable = other?.name || "";
+        }
+      }
+
+      const matched = findJoinEdgeBetween(edges, j.leftTable, j.rightTable);
+      if (!j.leftCol) {
+        j.leftCol = matched?.leftCol || pickDefaultJoinColumn(getJoinTableObj(j, j.leftTable));
+      }
+      if (!j.rightCol) {
+        j.rightCol = matched?.rightCol || pickDefaultJoinColumn(getJoinTableObj(j, j.rightTable), [j.leftCol, `${diagramTableKey(j.leftTable)}_id`, "id"]);
+      }
+
+      if (j.leftTable && j.rightTable) {
+        tab.title = `🔗 ${j.leftTable} ⋈ ${j.rightTable}`;
+      }
+      renderSqlTabs();
+      refreshJoinViewForTab(tab);
+
+      if (autoRun && j.leftTable && j.rightTable) {
+        await runJoinBuilderQuery(tab);
+      }
+    } catch (err) {
+      j.loadingSchema = false;
+      j.schemaError = errMsg(err);
+      tab.loading = false;
+      renderSqlTabs();
+      refreshJoinViewForTab(tab);
+    }
+  }
+
+  async function openJoinBuilderTab({
+    engine = state.dbEngine,
+    db = state.sqlDb,
+    leftTable = "",
+    rightTable = "",
+    leftCol = "",
+    rightCol = "",
+    joinType = "INNER",
+  } = {}) {
+    if (!db) {
+      toast("Select a database first to open the Visual Join Builder", "info");
+      return null;
+    }
+    syncActiveTabFromDom();
+    if (engine === state.dbEngine && db !== state.sqlDb) {
+      state.sqlDb = db;
+      renderSqlDbList();
+      loadSqlTables(db, false);
+    }
+    const tabTitle = leftTable && rightTable ? `🔗 ${leftTable} ⋈ ${rightTable}` : `🔗 Join (${leftTable || db})`;
+    const tab = createSqlTabObj({
+      engine,
+      db,
+      kind: "join",
+      title: tabTitle,
+      join: {
+        database: db,
+        data: null,
+        loadingSchema: true,
+        schemaError: "",
+        joinType: joinType || "INNER",
+        leftTable: leftTable || "",
+        rightTable: rightTable || "",
+        leftCol: leftCol || "",
+        rightCol: rightCol || "",
+        extraJoins: [],
+        selectedCols: {},
+        limit: 100,
+        showMap: true,
+        resultView: "data",
+        splitPct: 52,
+        splitCollapsed: "",
+        colWidths: null,
+        running: false,
+        runError: "",
+        runMeta: "",
+        result: null,
+        filter: "",
+        page: 1,
+        pageSize: state.sqlPageSize || 50,
+        reqSeq: 0,
+      },
+    });
+    state.sqlTabs.push(tab);
+    applyTabToDom(tab, { syncSidebar: true });
+    await loadJoinBuilderSchema(tab, { autoRun: true });
+    return tab;
+  }
+
+  function renderJoinBuilderInto(container, tab) {
+    if (!container || !tab || !tab.join) return;
+    const j = tab.join;
+    const tables = j.data?.tables || [];
+    const edges = buildDiagramEdges(j.data, true);
+    const leftTbl = getJoinTableObj(j, j.leftTable);
+    const rightTbl = getJoinTableObj(j, j.rightTable);
+    const built = buildJoinSql(tab);
+
+    const relatedLinks = [];
+    const seenRel = new Set();
+    edges.forEach((e) => {
+      if (e.fromTable === j.leftTable) {
+        const k = `${e.fromColumn}|${e.toTable}|${e.toColumn}`;
+        if (!seenRel.has(k)) {
+          seenRel.add(k);
+          relatedLinks.push({ rightTable: e.toTable, leftCol: e.fromColumn, rightCol: e.toColumn, tag: e.inferred ? "*_id" : "FK", dir: "→" });
+        }
+      } else if (e.toTable === j.leftTable) {
+        const k = `${e.toColumn}|${e.fromTable}|${e.fromColumn}`;
+        if (!seenRel.has(k)) {
+          seenRel.add(k);
+          relatedLinks.push({ rightTable: e.fromTable, leftCol: e.toColumn, rightCol: e.fromColumn, tag: e.inferred ? "*_id" : "IN", dir: "←" });
+        }
+      }
+    });
+
+    const tableOptsHtml = (selected) =>
+      tables.map((t) => `<option value="${esc(t.name)}" ${t.name === selected ? "selected" : ""}>${esc(t.name)}</option>`).join("");
+    const colOptsHtml = (tblObj, selected) =>
+      (tblObj?.columns || []).map((c) => `<option value="${esc(c.name)}" ${c.name === selected ? "selected" : ""}>${esc(c.name)}${c.isPrimaryKey ? " (PK)" : ""}</option>`).join("");
+
+    const letters = "cdefghijklmnop";
+    const extraHopsHtml = (j.extraJoins || [])
+      .map((h, idx) => {
+        const alias = letters[idx] || `t${idx + 3}`;
+        const prevAliases = [{ alias: "a", name: j.leftTable }, { alias: "b", name: j.rightTable }];
+        for (let k = 0; k < idx; k++) {
+          prevAliases.push({ alias: letters[k] || `t${k + 3}`, name: j.extraJoins[k].toTable });
+        }
+        const fromTblName = prevAliases.find((p) => p.alias === h.fromAlias)?.name || j.rightTable;
+        const fromTblObj = getJoinTableObj(j, fromTblName);
+        const toTblObj = getJoinTableObj(j, h.toTable);
+        return `<div class="join-hop-row" data-hop-idx="${idx}">
+          <span class="key-badge ai">${esc(alias.toUpperCase())}</span>
+          <select class="select xs" data-hop-field="type">
+            ${["INNER", "LEFT", "RIGHT", "CROSS"].map((jt) => `<option value="${jt}" ${h.type === jt ? "selected" : ""}>${jt} JOIN</option>`).join("")}
+          </select>
+          <select class="select xs" data-hop-field="toTable">${tableOptsHtml(h.toTable)}</select>
+          ${
+            h.type === "CROSS"
+              ? `<span class="muted">Cartesian product</span>`
+              : `<span class="join-eq-pill">ON</span>
+                <select class="select xs" data-hop-field="fromAlias">
+                  ${prevAliases.map((p) => `<option value="${esc(p.alias)}" ${p.alias === h.fromAlias ? "selected" : ""}>${esc(p.alias.toUpperCase())}: ${esc(p.name)}</option>`).join("")}
+                </select>
+                <span>.</span>
+                <select class="select xs" data-hop-field="fromCol">${colOptsHtml(fromTblObj, h.fromCol)}</select>
+                <span class="join-eq-pill">=</span>
+                <span>${esc(alias)}.</span>
+                <select class="select xs" data-hop-field="toCol">${colOptsHtml(toTblObj, h.toCol)}</select>`
+          }
+          <button type="button" class="btn xs danger-ghost" data-hop-rm="${idx}" title="Remove chained join">✕</button>
+        </div>`;
+      })
+      .join("");
+
+    container.innerHTML = `<div class="join-root">
+      <div class="join-toolbar">
+        <span class="chip accent">🔗 Visual Join Map · ${esc(`${tab.engine} / ${tab.db}`)}</span>
+        <button type="button" class="btn xs" data-jn-act="toggle-map">${j.showMap ? "🙈 Hide Map" : "🗺️ Show Map"}</button>
+        <button type="button" class="btn xs" data-jn-act="add-hop" title="Chain another table join (C, D...)" ${tables.length < 2 ? "disabled" : ""}>+ Add Join</button>
+        <button type="button" class="btn xs" data-jn-act="diagram" title="Open full database ER diagram">🗺️ Full ER</button>
+        <div class="spacer"></div>
+        <label style="font-size:11px;color:var(--text-muted);display:inline-flex;align-items:center;gap:4px">
+          Limit
+          <select class="select xs" data-jn-field="limit">
+            ${[100, 500, 1000, 0].map((v) => `<option value="${v}" ${Number(j.limit) === v ? "selected" : ""}>${v === 0 ? "All" : v}</option>`).join("")}
+          </select>
+        </label>
+        <button type="button" class="btn xs" data-jn-act="copy-sql" ${built.sql ? "" : "disabled"}>📋 Copy SQL</button>
+        <button type="button" class="btn xs" data-jn-act="open-sql" ${built.sql ? "" : "disabled"}>📝 Open in SQL Tab</button>
+        <button type="button" class="btn xs primary" data-jn-act="run" ${!built.sql || j.running ? "disabled" : ""}>${j.running ? "Running..." : "▶ Run Join"}</button>
+      </div>
+
+      ${
+        j.loadingSchema
+          ? `<div class="empty-note" style="padding:28px">Loading tables &amp; foreign keys for ${esc(tab.db)}...</div>`
+          : j.schemaError
+          ? `<div class="empty-note" style="padding:28px;color:var(--red)">${esc(j.schemaError)}</div>`
+          : tables.length < 1
+          ? `<div class="empty-note" style="padding:28px">No tables found in ${esc(tab.db)}.</div>`
+          : `<div class="join-body">
+              <div class="join-top-panel">
+                <div class="join-types-bar">
+                  ${JOIN_TYPES.map(
+                    (jt) => `<button type="button" class="join-type-card ${j.joinType === jt.id ? "active" : ""}" data-jn-type="${jt.id}" title="${esc(jt.name)} — ${esc(jt.desc)}">
+                      ${renderMiniVennSvg(jt.id, tab.id)}
+                      <span class="jt-text">
+                        <span class="jt-name">${esc(jt.name)}</span>
+                        <span class="jt-desc">${esc(jt.desc)}</span>
+                      </span>
+                    </button>`
+                  ).join("")}
+                </div>
+
+                <div class="join-controls-row">
+                  <span class="key-badge fk">A</span>
+                  <select class="select xs" data-jn-field="leftTable" title="Left Table (A)">${tableOptsHtml(j.leftTable)}</select>
+                  ${
+                    j.joinType !== "CROSS"
+                      ? `<span>.</span><select class="select xs" data-jn-field="leftCol" title="Left Join Column">${colOptsHtml(leftTbl, j.leftCol)}</select>
+                         <span class="join-eq-pill">${esc(j.joinType === "FULL" ? "⟗ FULL =" : j.joinType === "LEFT" ? "⟕ LEFT =" : j.joinType === "RIGHT" ? "⟖ RIGHT =" : "⋈ INNER =")}</span>`
+                      : `<span class="join-eq-pill">× CROSS</span>`
+                  }
+                  <span class="key-badge fk-in">B</span>
+                  <select class="select xs" data-jn-field="rightTable" title="Right Table (B)">${tableOptsHtml(j.rightTable)}</select>
+                  ${
+                    j.joinType !== "CROSS"
+                      ? `<span>.</span><select class="select xs" data-jn-field="rightCol" title="Right Join Column">${colOptsHtml(rightTbl, j.rightCol)}</select>`
+                      : ""
+                  }
+                  <button type="button" class="btn xs ghost" data-jn-act="swap" title="Swap Left (A) and Right (B) tables">⇄ Swap A↔B</button>
+                </div>
+
+                ${
+                  relatedLinks.length
+                    ? `<div class="join-quick-links">
+                        <span class="ql-label">Detected links for <code>${esc(j.leftTable)}</code>:</span>
+                        ${relatedLinks
+                          .slice(0, 8)
+                          .map((rl, i) => {
+                            const isCur = rl.rightTable === j.rightTable && rl.leftCol === j.leftCol && rl.rightCol === j.rightCol;
+                            return `<button type="button" class="join-link-pill ${isCur ? "active" : ""}" data-jn-rel="${i}" title="Join ${esc(j.leftTable)}.${esc(rl.leftCol)} = ${esc(rl.rightTable)}.${esc(rl.rightCol)}">
+                              <span class="ql-tag">${esc(rl.tag)}</span>
+                              <span>${esc(rl.dir)} ${esc(rl.rightTable)} (${esc(rl.leftCol)} = ${esc(rl.rightCol)})</span>
+                            </button>`;
+                          })
+                          .join("")}
+                      </div>`
+                    : ""
+                }
+
+                ${extraHopsHtml ? `<div class="join-extra-hops">${extraHopsHtml}</div>` : ""}
+
+                ${j.showMap ? `<div class="join-map-stage">${buildJoinMapSvg(tab, edges)}</div>` : ""}
+
+                ${built.note ? `<div class="join-sql-note">ℹ️ ${esc(built.note)}</div>` : ""}
+                <div class="join-sql-bar">
+                  <pre class="join-sql-code">${esc(built.sql || "-- Select tables to generate JOIN query")}</pre>
+                </div>
+              </div>
+
+              <div class="split-handle split-h" data-jn-split-h
+                title="Drag to resize Join Map / Joined Results · Double-click to reset">
+                <div class="split-actions">
+                  <button type="button" class="split-btn" data-jn-split-act="collapse-a"
+                    title="Collapse Join Builder &amp; Map (expand Joined Results)">▲</button>
+                  <button type="button" class="split-btn" data-jn-split-act="collapse-b"
+                    title="Collapse Joined Results (expand Join Builder &amp; Map)">▼</button>
+                </div>
+              </div>
+
+              <div class="join-result-pane" data-jn-result-pane>
+                <div class="result-meta-bar ${j.runError ? "error" : ""}">
+                  <div class="result-view-toggle" role="tablist" aria-label="Joined result view mode">
+                    <button type="button" class="rvt-btn ${j.resultView !== "structure" ? "active" : ""}" data-jn-view="data" title="View joined table rows">📊 Rows</button>
+                    <button type="button" class="rvt-btn ${j.resultView === "structure" ? "active" : ""}" data-jn-view="structure" title="Inspect columns &amp; keys of joined tables">🔑 Structure &amp; Keys</button>
+                  </div>
+                  <div class="result-meta-text" data-jn-meta>${esc(j.running ? "Executing JOIN query..." : j.runError || j.runMeta || "Click Run Join to preview joined rows")}</div>
+                  <div class="spacer"></div>
+                  <input type="search" class="input xs" data-jn-filter placeholder="Filter visible rows..." value="${esc(j.filter || "")}" style="width:170px" ${j.resultView !== "structure" && j.result?.isQuery ? "" : "hidden"} />
+                  <button type="button" class="btn xs" data-jn-act="export-csv" title="Export joined rows to .csv" ${j.result?.isQuery && j.result.rows.length ? "" : "hidden"}>📤 Export</button>
+                  <button type="button" class="btn xs" data-jn-act="show-all" title="Fetch all joined rows without SQL LIMIT" ${j.resultView !== "structure" ? "" : "hidden"}>Show All</button>
+                </div>
+                <div class="table-wrap" data-jn-results></div>
+                <div class="result-pager-bar" data-jn-pager hidden>
+                  <div class="pager-left">
+                    <span class="pager-info" data-jn-pinfo>Showing 0 of 0</span>
+                    <button type="button" class="btn xs accent" data-jn-act="show-all" data-jn-load-max hidden
+                      title="Fetch all joined rows without SQL LIMIT">Load All (Max)</button>
+                  </div>
+                  <div class="pager-right">
+                    <label class="pager-size-wrap">
+                      <span>Per page</span>
+                      <select class="select xs" data-jn-pagesize title="Rows per page (50 to Max)">
+                        ${[50, 100, 250, 500, 1000, 5000, 10000, 0]
+                          .map((v) => `<option value="${v}" ${Number(j.pageSize ?? 50) === v ? "selected" : ""}>${v === 0 ? "Max (All)" : v}</option>`)
+                          .join("")}
+                      </select>
+                    </label>
+                    <div class="pager-nav" role="navigation" aria-label="Joined results pagination">
+                      <button type="button" class="btn xs pager-btn" data-jn-page="first" title="First page">«</button>
+                      <button type="button" class="btn xs pager-btn" data-jn-page="prev" title="Previous page">‹ Prev</button>
+                      <div class="pager-pages" data-jn-pnums></div>
+                      <button type="button" class="btn xs pager-btn" data-jn-page="next" title="Next page">Next ›</button>
+                      <button type="button" class="btn xs pager-btn" data-jn-page="last" title="Last page">»</button>
+                    </div>
+                    <label class="pager-jump-wrap" data-jn-pjump-wrap hidden>
+                      <span>Page</span>
+                      <input type="number" class="input xs pager-jump-input" data-jn-pjump min="1" value="1" title="Jump to page number (Enter)" />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>`
+      }
+    </div>`;
+
+    // Wire interactive draggable & collapsible horizontal splitter
+    const topPanelEl = container.querySelector(".join-top-panel");
+    const botPaneEl = container.querySelector("[data-jn-result-pane]");
+    const splitHandleEl = container.querySelector("[data-jn-split-h]");
+    if (topPanelEl && botPaneEl && splitHandleEl) {
+      const btnUp = splitHandleEl.querySelector('[data-jn-split-act="collapse-a"]');
+      const btnDn = splitHandleEl.querySelector('[data-jn-split-act="collapse-b"]');
+      const applyJoinSplit = () => {
+        const mode = j.splitCollapsed || "";
+        const pct = Math.min(82, Math.max(18, Number(j.splitPct || 52)));
+        topPanelEl.classList.toggle("is-collapsed", mode === "a");
+        botPaneEl.classList.toggle("is-collapsed", mode === "b");
+        splitHandleEl.classList.toggle("is-collapsed-a", mode === "a");
+        splitHandleEl.classList.toggle("is-collapsed-b", mode === "b");
+        if (mode === "a") {
+          topPanelEl.style.flex = "";
+          botPaneEl.style.flex = "1 1 0px";
+        } else if (mode === "b") {
+          topPanelEl.style.flex = "1 1 0px";
+          botPaneEl.style.flex = "";
+        } else {
+          topPanelEl.style.flex = `${pct} 1 0px`;
+          botPaneEl.style.flex = `${100 - pct} 1 0px`;
+        }
+        if (btnUp) {
+          btnUp.hidden = mode === "a";
+          btnUp.title = mode === "b" ? "Restore Joined Results" : "Collapse Join Map & Builder (expand Joined Results)";
+        }
+        if (btnDn) {
+          btnDn.hidden = mode === "b";
+          btnDn.title = mode === "a" ? "Restore Join Map & Builder" : "Collapse Joined Results (expand Join Map & Builder)";
+        }
+      };
+      if (btnUp) {
+        btnUp.onclick = (e) => {
+          e.stopPropagation();
+          j.splitCollapsed = j.splitCollapsed === "b" ? "" : "a";
+          applyJoinSplit();
+        };
+      }
+      if (btnDn) {
+        btnDn.onclick = (e) => {
+          e.stopPropagation();
+          j.splitCollapsed = j.splitCollapsed === "a" ? "" : "b";
+          applyJoinSplit();
+        };
+      }
+      splitHandleEl.addEventListener("dblclick", (e) => {
+        if (e.target.closest(".split-btn")) return;
+        j.splitCollapsed = "";
+        j.splitPct = 52;
+        applyJoinSplit();
+      });
+      splitHandleEl.addEventListener("pointerdown", (e) => {
+        if (e.target.closest(".split-btn") || e.button !== 0) return;
+        e.preventDefault();
+        const startY = e.clientY;
+        const startMode = j.splitCollapsed || "";
+        const startTopH = topPanelEl.getBoundingClientRect().height;
+        const startBotH = botPaneEl.getBoundingClientRect().height;
+        const totalH = startTopH + startBotH;
+        if (totalH <= 0) return;
+        splitHandleEl.classList.add("is-dragging");
+        document.body.classList.add("is-resizing-row");
+        const onMove = (ev) => {
+          const dy = ev.clientY - startY;
+          if (startMode === "a") {
+            if (dy <= 10) return;
+            j.splitCollapsed = "";
+            j.splitPct = (Math.min(Math.max(90 + dy, 90), totalH - 96) / totalH) * 100;
+            applyJoinSplit();
+            return;
+          }
+          if (startMode === "b") {
+            if (dy >= -10) return;
+            j.splitCollapsed = "";
+            j.splitPct = (Math.min(Math.max(totalH - 96 + dy, 90), totalH - 96) / totalH) * 100;
+            applyJoinSplit();
+            return;
+          }
+          j.splitPct = (Math.min(Math.max(startTopH + dy, 90), totalH - 96) / totalH) * 100;
+          applyJoinSplit();
+        };
+        const onUp = () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          window.removeEventListener("pointercancel", onUp);
+          splitHandleEl.classList.remove("is-dragging");
+          document.body.classList.remove("is-resizing-row");
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onUp);
+      });
+      applyJoinSplit();
+    }
+
+    // Render joined result grid (or joined tables Structure & Keys view)
+    const resWrap = container.querySelector("[data-jn-results]");
+    const pagerEl = container.querySelector("[data-jn-pager]");
+    let joinTotalPages = 1;
+
+    const renderJoinStructureCards = () => {
+      if (!resWrap) return;
+      if (pagerEl) pagerEl.hidden = true;
+      const involved = [
+        { alias: "A", table: j.leftTable, keyCol: j.leftCol, badgeCls: "fk" },
+        { alias: "B", table: j.rightTable, keyCol: j.rightCol, badgeCls: "fk-in" },
+      ];
+      (j.extraJoins || []).forEach((h, idx) => {
+        if (h.toTable) involved.push({ alias: (letters[idx] || `T${idx + 3}`).toUpperCase(), table: h.toTable, keyCol: h.toCol, badgeCls: "ai" });
+      });
+      const cardsHtml = involved
+        .map((item) => {
+          const tblObj = getJoinTableObj(j, item.table);
+          const cols = tblObj?.columns || [];
+          const tblEdges = edges.filter((e) => e.fromTable === item.table || e.toTable === item.table);
+          const fkMap = new Map();
+          tblEdges.forEach((e) => {
+            if (e.fromTable === item.table) fkMap.set(String(e.fromColumn || "").toLowerCase(), e);
+          });
+          const rows = cols
+            .map((c) => {
+              const fk = fkMap.get(String(c.name || "").toLowerCase());
+              const isJoinKey = c.name === item.keyCol;
+              return `<tr>
+                <td class="struct-mono">
+                  <strong>${esc(c.name)}</strong>
+                  ${c.isPrimaryKey ? `<span class="key-badge pk">PK</span>` : ""}
+                  ${fk ? `<span class="key-badge fk">FK</span>` : ""}
+                  ${isJoinKey ? `<span class="key-badge uq">JOIN KEY</span>` : ""}
+                </td>
+                <td class="struct-mono">${esc(c.dataType || "")}</td>
+                <td>${c.nullable ? `<span class="struct-muted">YES</span>` : `<strong>NO</strong>`}</td>
+                <td class="struct-mono struct-muted">${fk ? `→ ${esc(fk.toTable)}.${esc(fk.toColumn)}` : "—"}</td>
+              </tr>`;
+            })
+            .join("");
+          return `<div class="tbl-struct-section">
+            <div class="tbl-struct-sec-head">
+              <span><span class="key-badge ${item.badgeCls}">${esc(item.alias)}</span> ${esc(item.table)}</span>
+              <span class="sec-count">${cols.length} col(s)</span>
+            </div>
+            <div class="tbl-struct-sec-body flush">
+              <table class="struct-table">
+                <thead><tr><th>Column</th><th>Type</th><th>Null</th><th>FK Reference</th></tr></thead>
+                <tbody>${rows || `<tr><td colspan="4" class="struct-muted">No columns</td></tr>`}</tbody>
+              </table>
+            </div>
+          </div>`;
+        })
+        .join("");
+      resWrap.innerHTML = `<div class="join-schema-grid">${cardsHtml}</div>`;
+    };
+
+    const renderJoinResultsOnly = () => {
+      if (!resWrap) return;
+      if (j.resultView === "structure") {
+        renderJoinStructureCards();
+        return;
+      }
+      if (j.result && j.result.isQuery) {
+        const stats = renderSqlTableInto(resWrap, j.result, {
+          filterText: j.filter || "",
+          page: j.page || 1,
+          pageSize: j.pageSize !== undefined ? j.pageSize : 50,
+          dbName: tab.db,
+          tableName: "",
+          readOnlyShow: true,
+          colWidths: j.colWidths || null,
+        });
+        j.page = stats.page;
+        joinTotalPages = stats.totalPages;
+        if (pagerEl) {
+          pagerEl.hidden = false;
+          const infoEl = pagerEl.querySelector("[data-jn-pinfo]");
+          const totalRaw = j.result.rows.length;
+          if (infoEl) {
+            if (stats.total === 0) {
+              infoEl.textContent = totalRaw === 0 ? "0 row(s)" : `0 matching rows (filtered from ${totalRaw.toLocaleString()})`;
+            } else {
+              const filteredTag = stats.total !== totalRaw ? ` (filtered from ${totalRaw.toLocaleString()})` : "";
+              infoEl.textContent = `Showing ${stats.startIdx + 1}–${stats.endIdx} of ${stats.total.toLocaleString()}${filteredTag} · Page ${stats.page}/${stats.totalPages}`;
+            }
+          }
+          const loadMaxBtn = pagerEl.querySelector("[data-jn-load-max]");
+          if (loadMaxBtn) {
+            const capped = j.result.truncated || (Number(j.limit || 0) > 0 && totalRaw >= Number(j.limit));
+            loadMaxBtn.hidden = !capped;
+          }
+          const firstBtn = pagerEl.querySelector('[data-jn-page="first"]');
+          const prevBtn = pagerEl.querySelector('[data-jn-page="prev"]');
+          const nextBtn = pagerEl.querySelector('[data-jn-page="next"]');
+          const lastBtn = pagerEl.querySelector('[data-jn-page="last"]');
+          if (firstBtn) firstBtn.disabled = stats.page <= 1;
+          if (prevBtn) prevBtn.disabled = stats.page <= 1;
+          if (nextBtn) nextBtn.disabled = stats.page >= stats.totalPages;
+          if (lastBtn) lastBtn.disabled = stats.page >= stats.totalPages;
+
+          const pnums = pagerEl.querySelector("[data-jn-pnums]");
+          if (pnums) {
+            pnums.innerHTML = buildPageRange(stats.page, stats.totalPages)
+              .map((it) =>
+                it === "..."
+                  ? `<span class="pager-ellipsis">…</span>`
+                  : `<button type="button" class="btn xs pager-btn ${it === stats.page ? "active" : ""}" data-jn-page-num="${it}">${it}</button>`
+              )
+              .join("");
+          }
+          const jWrap = pagerEl.querySelector("[data-jn-pjump-wrap]");
+          const jInp = pagerEl.querySelector("[data-jn-pjump]");
+          if (jWrap && jInp) {
+            jWrap.hidden = stats.totalPages <= 5;
+            jInp.max = String(stats.totalPages);
+            jInp.value = String(stats.page);
+          }
+        }
+      } else if (!j.running && !j.runError) {
+        resWrap.innerHTML = `<div class="empty-note">Pick a join type above and click <strong>▶ Run Join</strong> to inspect matching &amp; unmatched rows.</div>`;
+        if (pagerEl) pagerEl.hidden = true;
+      } else if (j.running) {
+        resWrap.innerHTML = `<div class="empty-note">Executing ${esc(j.joinType)} JOIN...</div>`;
+        if (pagerEl) pagerEl.hidden = true;
+      }
+    };
+    renderJoinResultsOnly();
+
+    // Wire resizable columns + Show Row modal on Join Results
+    if (resWrap) {
+      wireColResizerOn(resWrap, (colsKey, widths) => {
+        j.colWidths = { colsKey, widths };
+      });
+      resWrap.addEventListener("click", (e) => {
+        const btn = e.target.closest('[data-row-act="show"]');
+        if (!btn || !j.result) return;
+        openShowRowModal(Number(btn.dataset.rowIdx), {
+          result: j.result,
+          title: `${j.joinType} JOIN (${j.leftTable} ⋈ ${j.rightTable})`,
+          readOnly: true,
+        });
+      });
+      resWrap.addEventListener("dblclick", (e) => {
+        if (e.target.closest(".col-resizer")) return;
+        const tr = e.target.closest("tbody tr[data-row-idx]");
+        if (!tr || !j.result) return;
+        openShowRowModal(Number(tr.dataset.rowIdx), {
+          result: j.result,
+          title: `${j.joinType} JOIN (${j.leftTable} ⋈ ${j.rightTable})`,
+          readOnly: true,
+        });
+      });
+    }
+
+    container.querySelectorAll("[data-jn-view]").forEach((btn) => {
+      btn.onclick = () => {
+        const mode = btn.dataset.jnView === "structure" ? "structure" : "data";
+        if (j.resultView === mode) return;
+        j.resultView = mode;
+        refreshJoinViewForTab(tab);
+      };
+    });
+
+    // Wire interactions cleanly via container delegation
+    const syncTitleAndRun = (autoExec = true) => {
+      if (j.leftTable && j.rightTable) tab.title = `🔗 ${j.leftTable} ⋈ ${j.rightTable}`;
+      renderSqlTabs();
+      refreshJoinViewForTab(tab);
+      if (autoExec && j.leftTable && j.rightTable) runJoinBuilderQuery(tab);
+    };
+
+    container.querySelectorAll("[data-jn-type]").forEach((btn) => {
+      btn.onclick = () => {
+        j.joinType = btn.dataset.jnType;
+        syncTitleAndRun(true);
+      };
+    });
+
+    container.querySelectorAll("[data-jn-act]").forEach((btn) => {
+      btn.onclick = async () => {
+        const act = btn.dataset.jnAct;
+        if (act === "run") {
+          await runJoinBuilderQuery(tab);
+        } else if (act === "show-all") {
+          j.limit = 0;
+          j.resultView = "data";
+          syncTitleAndRun(true);
+        } else if (act === "export-csv") {
+          if (!j.result?.isQuery || !j.result.columns?.length) return;
+          const csvEsc = (v) => {
+            if (v === null || v === undefined) return "";
+            const s = String(v);
+            return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+          };
+          const lines = [
+            j.result.columns.map(csvEsc).join(","),
+            ...j.result.rows.map((r) => r.map(csvEsc).join(",")),
+          ];
+          const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${j.leftTable || "join"}_${j.joinType.toLowerCase()}_${j.rightTable || "result"}.csv`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          toast(`Exported ${j.result.rows.length} joined row(s) as CSV`, "ok");
+        } else if (act === "toggle-map") {
+          j.showMap = !j.showMap;
+          refreshJoinViewForTab(tab);
+        } else if (act === "swap") {
+          [j.leftTable, j.rightTable] = [j.rightTable, j.leftTable];
+          [j.leftCol, j.rightCol] = [j.rightCol, j.leftCol];
+          syncTitleAndRun(true);
+        } else if (act === "add-hop") {
+          const used = new Set([j.leftTable, j.rightTable, ...(j.extraJoins || []).map((h) => h.toTable)]);
+          const candidateEdge = edges.find((e) => (used.has(e.fromTable) && !used.has(e.toTable)) || (used.has(e.toTable) && !used.has(e.fromTable)));
+          let nextTable = tables.find((t) => !used.has(t.name))?.name || tables[0]?.name || "";
+          let fromAlias = "b";
+          let fromCol = pickDefaultJoinColumn(rightTbl);
+          let toCol = pickDefaultJoinColumn(getJoinTableObj(j, nextTable));
+          if (candidateEdge) {
+            if (used.has(candidateEdge.fromTable)) {
+              nextTable = candidateEdge.toTable;
+              fromAlias = candidateEdge.fromTable === j.leftTable ? "a" : "b";
+              fromCol = candidateEdge.fromColumn;
+              toCol = candidateEdge.toColumn;
+            } else {
+              nextTable = candidateEdge.fromTable;
+              fromAlias = candidateEdge.toTable === j.leftTable ? "a" : "b";
+              fromCol = candidateEdge.toColumn;
+              toCol = candidateEdge.fromColumn;
+            }
+          }
+          j.extraJoins.push({ type: "LEFT", fromAlias, fromCol, toTable: nextTable, toCol });
+          syncTitleAndRun(false);
+        } else if (act === "copy-sql") {
+          const b = buildJoinSql(tab);
+          if (b.sql) {
+            await copyText(b.sql);
+            toast("Copied JOIN SQL to clipboard", "ok");
+          }
+        } else if (act === "open-sql") {
+          const b = buildJoinSql(tab);
+          if (b.sql) {
+            const qTab = createSqlTabObj({
+              engine: tab.engine,
+              db: tab.db,
+              title: `${j.joinType} ${j.leftTable}+${j.rightTable}`,
+              sql: b.sql,
+            });
+            state.sqlTabs.push(qTab);
+            applyTabToDom(qTab, { syncSidebar: true });
+            await runSqlQuery(false, false, qTab.id);
+          }
+        } else if (act === "diagram") {
+          await openDatabaseDiagramTab({ engine: tab.engine, db: tab.db, focusTable: j.leftTable });
+        }
+      };
+    });
+
+    container.querySelectorAll("[data-jn-field]").forEach((sel) => {
+      sel.onchange = () => {
+        const f = sel.dataset.jnField;
+        if (f === "limit") {
+          j.limit = Number(sel.value) || 0;
+          syncTitleAndRun(true);
+          return;
+        }
+        j[f] = sel.value;
+        if (f === "leftTable" || f === "rightTable") {
+          const matched = findJoinEdgeBetween(edges, j.leftTable, j.rightTable);
+          if (matched) {
+            j.leftCol = matched.leftCol;
+            j.rightCol = matched.rightCol;
+          } else {
+            if (f === "leftTable") j.leftCol = pickDefaultJoinColumn(getJoinTableObj(j, j.leftTable));
+            if (f === "rightTable") j.rightCol = pickDefaultJoinColumn(getJoinTableObj(j, j.rightTable), [j.leftCol, `${diagramTableKey(j.leftTable)}_id`, "id"]);
+          }
+        }
+        syncTitleAndRun(true);
+      };
+    });
+
+    container.querySelectorAll("[data-jn-rel]").forEach((btn) => {
+      btn.onclick = () => {
+        const rl = relatedLinks[Number(btn.dataset.jnRel)];
+        if (!rl) return;
+        j.rightTable = rl.rightTable;
+        j.leftCol = rl.leftCol;
+        j.rightCol = rl.rightCol;
+        syncTitleAndRun(true);
+      };
+    });
+
+    // Chained extra join rows
+    container.querySelectorAll(".join-hop-row").forEach((rowEl) => {
+      const idx = Number(rowEl.dataset.hopIdx);
+      const hop = j.extraJoins[idx];
+      if (!hop) return;
+      rowEl.querySelectorAll("[data-hop-field]").forEach((sel) => {
+        sel.onchange = () => {
+          hop[sel.dataset.hopField] = sel.value;
+          if (sel.dataset.hopField === "toTable") {
+            hop.toCol = pickDefaultJoinColumn(getJoinTableObj(j, hop.toTable), ["id"]);
+          }
+          syncTitleAndRun(false);
+        };
+      });
+      const rmBtn = rowEl.querySelector("[data-hop-rm]");
+      if (rmBtn) {
+        rmBtn.onclick = () => {
+          j.extraJoins.splice(idx, 1);
+          syncTitleAndRun(true);
+        };
+      }
+    });
+
+    // Interactive Venn regions directly on the SVG Map
+    container.querySelectorAll("[data-jm-venn]").forEach((el) => {
+      el.onclick = () => {
+        const part = el.dataset.jmVenn;
+        const cur = j.joinType;
+        if (part === "inner") {
+          j.joinType = "INNER";
+        } else if (part === "left") {
+          if (cur === "RIGHT") j.joinType = "FULL";
+          else if (cur === "FULL") j.joinType = "RIGHT";
+          else if (cur === "LEFT") j.joinType = "INNER";
+          else j.joinType = "LEFT";
+        } else if (part === "right") {
+          if (cur === "LEFT") j.joinType = "FULL";
+          else if (cur === "FULL") j.joinType = "LEFT";
+          else if (cur === "RIGHT") j.joinType = "INNER";
+          else j.joinType = "RIGHT";
+        }
+        syncTitleAndRun(true);
+      };
+    });
+
+    // Click any column on Entity Card A / B / C to switch its join key visually
+    container.querySelectorAll("[data-jm-pick-alias]").forEach((el) => {
+      el.onclick = () => {
+        const alias = el.dataset.jmPickAlias;
+        const col = el.dataset.jmPickCol;
+        if (alias === "a") j.leftCol = col;
+        else if (alias === "b") j.rightCol = col;
+        else {
+          const hopIdx = letters.indexOf(alias);
+          if (hopIdx >= 0 && j.extraJoins[hopIdx]) j.extraJoins[hopIdx].toCol = col;
+        }
+        syncTitleAndRun(true);
+      };
+    });
+
+    // Filter, Per-Page & Full Pagination inside joined result pane
+    const filterInp = container.querySelector("[data-jn-filter]");
+    if (filterInp) {
+      let tmr = null;
+      filterInp.addEventListener("input", () => {
+        clearTimeout(tmr);
+        tmr = setTimeout(() => {
+          j.filter = filterInp.value;
+          j.page = 1;
+          renderJoinResultsOnly();
+        }, 120);
+      });
+    }
+    const pageSizeSel = container.querySelector("[data-jn-pagesize]");
+    if (pageSizeSel) {
+      pageSizeSel.onchange = () => {
+        j.pageSize = Number(pageSizeSel.value) || 0;
+        j.page = 1;
+        renderJoinResultsOnly();
+      };
+    }
+    if (pagerEl) {
+      pagerEl.addEventListener("click", (e) => {
+        const numBtn = e.target.closest("[data-jn-page-num]");
+        if (numBtn) {
+          j.page = Number(numBtn.dataset.jnPageNum) || 1;
+          renderJoinResultsOnly();
+          return;
+        }
+        const navBtn = e.target.closest("[data-jn-page]");
+        if (!navBtn) return;
+        const act = navBtn.dataset.jnPage;
+        if (act === "first") j.page = 1;
+        else if (act === "prev") j.page = Math.max(1, (j.page || 1) - 1);
+        else if (act === "next") j.page = Math.min(joinTotalPages, (j.page || 1) + 1);
+        else if (act === "last") j.page = joinTotalPages;
+        renderJoinResultsOnly();
+      });
+      const jInp = pagerEl.querySelector("[data-jn-pjump]");
+      if (jInp) {
+        jInp.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            j.page = Math.min(Math.max(1, Number(jInp.value) || 1), joinTotalPages);
+            renderJoinResultsOnly();
+          }
+        });
+      }
+    }
+  }
+
   function pickBestDbEngine() {
     if (String(state.dbEngine || "").startsWith("cloud:")) {
       const id = state.dbEngine.slice(6);
@@ -3180,6 +4465,7 @@
         <td>
           <button type="button" class="entity-link-btn" data-goto-entity="${esc(fk.toTable)}" data-goto-mode="structure" title="Inspect parent entity ${esc(fk.toTable)}">→ ${esc(fk.toTable)}.${esc(fk.toColumn)}</button>
           <button type="button" class="entity-mini-btn" data-goto-entity="${esc(fk.toTable)}" data-goto-mode="rows" title="Open ${esc(fk.toTable)} rows">📊 Rows</button>
+          <button type="button" class="entity-mini-btn" data-struct-join-left="${esc(table)}" data-struct-join-lcol="${esc(fk.fromColumn)}" data-struct-join-right="${esc(fk.toTable)}" data-struct-join-rcol="${esc(fk.toColumn)}" title="Open Visual Join Map (${esc(table)} ⋈ ${esc(fk.toTable)})">🔗 Join</button>
         </td>
         <td class="struct-mono">${esc(fk.updateRule || "NO ACTION")}</td>
         <td class="struct-mono">${esc(fk.deleteRule || "NO ACTION")}</td>
@@ -3193,6 +4479,7 @@
         <td>
           <button type="button" class="entity-link-btn incoming" data-goto-entity="${esc(fk.fromTable)}" data-goto-mode="structure" title="Inspect child entity ${esc(fk.fromTable)}">← ${esc(fk.fromTable)}.${esc(fk.fromColumn)}</button>
           <button type="button" class="entity-mini-btn" data-goto-entity="${esc(fk.fromTable)}" data-goto-mode="rows" title="Open ${esc(fk.fromTable)} rows">📊 Rows</button>
+          <button type="button" class="entity-mini-btn" data-struct-join-left="${esc(table)}" data-struct-join-lcol="${esc(fk.toColumn)}" data-struct-join-right="${esc(fk.fromTable)}" data-struct-join-rcol="${esc(fk.fromColumn)}" title="Open Visual Join Map (${esc(table)} ⋈ ${esc(fk.fromTable)})">🔗 Join</button>
         </td>
         <td class="struct-mono"><strong>${esc(fk.toColumn)}</strong></td>
         <td class="struct-mono">${esc(fk.constraintName || "—")}</td>
@@ -3234,6 +4521,7 @@
         </div>
         <div class="tbl-struct-actions">
           <button type="button" class="btn xs" data-struct-act="refresh" title="Reload table metadata from server">↻ Refresh</button>
+          <button type="button" class="btn xs" data-struct-act="join" title="Open Visual SQL Join Builder &amp; Interactive Join Map">🔗 Join Map</button>
           <button type="button" class="btn xs" data-struct-act="diagram" title="Open ER diagram focused on this table">🗺️ ER Diagram</button>
           ${ddlText ? `<button type="button" class="btn xs" data-struct-act="copy-ddl" title="Copy CREATE TABLE SQL">📋 Copy DDL</button>` : ""}
           ${ddlText ? `<button type="button" class="btn xs" data-struct-act="edit-ddl" title="Put CREATE TABLE SQL into the SQL editor">📝 Load DDL</button>` : ""}
@@ -3370,7 +4658,7 @@
 
   function setSqlResultViewMode(mode) {
     const tab = getActiveSqlTab();
-    if (!tab || tab.kind === "diagram" || !tab.table) return;
+    if (!tab || tab.kind === "diagram" || tab.kind === "join" || !tab.table) return;
     const next = mode === "structure" ? "structure" : "rows";
     if (state.sqlViewMode === next && tab.viewMode === next) return;
     tab.viewMode = next;
@@ -4014,13 +5302,14 @@
     }
   }
 
-  function renderSqlTableInto(wrap, res, { filterText = "", page = 1, pageSize = 50, dbName = "", tableName = "", colWidths = null } = {}) {
+  function renderSqlTableInto(wrap, res, { filterText = "", page = 1, pageSize = 50, dbName = "", tableName = "", readOnlyShow = false, colWidths = null } = {}) {
     if (!res || !res.columns.length) {
       wrap.innerHTML = `<div class="empty-note">Empty result set</div>`;
       return { total: 0, page: 1, totalPages: 1, pageSize: pageSize || 50, startIdx: 0, endIdx: 0 };
     }
     const filter = String(filterText || "").trim().toLowerCase();
     const canRowCrud = !!tableName;
+    const hasActCol = canRowCrud || !!readOnlyShow;
     const indexedRows = [];
     for (let idx = 0; idx < res.rows.length; idx++) {
       const row = res.rows[idx];
@@ -4039,9 +5328,9 @@
     const endIdx = Math.min(startIdx + ps, total);
     const visible = indexedRows.slice(startIdx, endIdx);
 
-    const colsKey = `${dbName || ""}|${tableName || ""}|${canRowCrud ? "1:" : "0:"}${res.columns.join("\x00")}`;
-    const colOffset = canRowCrud ? 1 : 0;
-    const actHead = canRowCrud ? `<th class="row-acts-col">Actions</th>` : "";
+    const colsKey = `${dbName || ""}|${tableName || ""}|${hasActCol ? "1:" : "0:"}${res.columns.join("\x00")}`;
+    const colOffset = hasActCol ? 1 : 0;
+    const actHead = hasActCol ? `<th class="row-acts-col">Actions</th>` : "";
     const thead = `<thead><tr>${actHead}${res.columns
       .map(
         (c, ci) =>
@@ -4056,6 +5345,10 @@
               <button type="button" class="row-btn show" data-row-act="show" data-row-idx="${idx}" title="Show full row details">Show</button>
               <button type="button" class="row-btn edit" data-row-act="edit" data-row-idx="${idx}" title="Edit this row">Edit</button>
               <button type="button" class="row-btn del" data-row-act="delete" data-row-idx="${idx}" title="Delete this row">Delete</button>
+            </div></td>`
+        : readOnlyShow
+        ? `<td class="row-acts-col"><div class="row-acts">
+              <button type="button" class="row-btn show" data-row-act="show" data-row-idx="${idx}" title="Show full joined row details">Show</button>
             </div></td>`
         : "";
       let cells = "";
@@ -4130,8 +5423,7 @@
     return textMeasureCtx.measureText(String(text || "")).width;
   }
 
-  function wireSqlColResizer() {
-    const wrap = $("sqlResults");
+  function wireColResizerOn(wrap, onSaveWidths) {
     if (!wrap || wrap.dataset.colResizeWired) return;
     wrap.dataset.colResizeWired = "1";
 
@@ -4165,7 +5457,7 @@
         window.removeEventListener("pointercancel", onUp);
         handle.classList.remove("active");
         document.body.classList.remove("is-resizing-col");
-        state.sqlColWidths = { colsKey: table.dataset.colsKey || "", widths: widths.slice() };
+        if (onSaveWidths) onSaveWidths(table.dataset.colsKey || "", widths.slice());
       };
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
@@ -4198,7 +5490,13 @@
       const widths = captureTableColWidths(table);
       widths[colIdx] = Math.abs(widths[colIdx] - fitW) <= 3 && widths[colIdx] > 180 ? 180 : fitW;
       applyTableColWidths(table, widths);
-      state.sqlColWidths = { colsKey: table.dataset.colsKey || "", widths: widths.slice() };
+      if (onSaveWidths) onSaveWidths(table.dataset.colsKey || "", widths.slice());
+    });
+  }
+
+  function wireSqlColResizer() {
+    wireColResizerOn($("sqlResults"), (colsKey, widths) => {
+      state.sqlColWidths = { colsKey, widths };
     });
   }
 
@@ -4530,11 +5828,13 @@
     return { keys, hasPK };
   }
 
-  function openShowRowModal(rowIdx) {
-    const res = state.sqlLastResult;
+  function openShowRowModal(rowIdx, opts = {}) {
+    const res = opts.result || state.sqlLastResult;
     const row = res?.rows?.[rowIdx];
     if (!row) return;
-    $("modalRowShowTitle").textContent = `Show Row — ${state.sqlTable} (#${rowIdx + 1})`;
+    const titleLabel = opts.title || state.sqlTable || "Query Result";
+    const readOnly = !!opts.readOnly;
+    $("modalRowShowTitle").textContent = `Show Row — ${titleLabel} (#${rowIdx + 1})`;
     const jsonObj = {};
     $("rowShowFields").innerHTML = res.columns
       .map((col, ci) => {
@@ -4566,14 +5866,20 @@
       await copyText(JSON.stringify(jsonObj, null, 2));
       toast("Copied row JSON", "ok");
     };
-    $("btnRowShowEdit").onclick = () => {
-      $("modalRowShow").hidden = true;
-      openRowFormModal("edit", rowIdx);
-    };
-    $("btnRowShowDelete").onclick = async () => {
-      $("modalRowShow").hidden = true;
-      await deleteSqlRow(rowIdx);
-    };
+    if ($("btnRowShowEdit")) {
+      $("btnRowShowEdit").hidden = readOnly;
+      $("btnRowShowEdit").onclick = () => {
+        $("modalRowShow").hidden = true;
+        openRowFormModal("edit", rowIdx);
+      };
+    }
+    if ($("btnRowShowDelete")) {
+      $("btnRowShowDelete").hidden = readOnly;
+      $("btnRowShowDelete").onclick = async () => {
+        $("modalRowShow").hidden = true;
+        await deleteSqlRow(rowIdx);
+      };
+    }
     $("modalRowShow").hidden = false;
   }
 
@@ -6459,6 +7765,11 @@ try {
       }
       showDbContextMenu(e.clientX, e.clientY, `Database: ${dbName}`, [
         {
+          icon: "🔗",
+          label: "Visual Join Builder & Map (INNER / LEFT / RIGHT / FULL)",
+          onClick: () => openJoinBuilderTab({ engine: state.dbEngine, db: dbName }),
+        },
+        {
           icon: "🗺️",
           label: "New Database Diagram",
           onClick: () => openDatabaseDiagramTab({ engine: state.dbEngine, db: dbName }),
@@ -6563,6 +7874,11 @@ try {
           onClick: () => openTableStructure(tblObj),
         },
         {
+          icon: "🔗",
+          label: "Visual Join Builder & Map (INNER / LEFT / RIGHT / FULL)",
+          onClick: () => openJoinBuilderTab({ engine: state.dbEngine, db: state.sqlDb, leftTable: tblObj.name }),
+        },
+        {
           icon: isExpanded ? "📁" : "📂",
           label: isExpanded ? "Collapse in Sidebar" : "Expand in Sidebar",
           onClick: () => toggleTableTreeExpand(tblObj),
@@ -6635,7 +7951,7 @@ try {
         const tabEl = e.target.closest("[data-sqltab-id]");
         if (!tabEl) return;
         const tab = getSqlTab(tabEl.dataset.sqltabId);
-        if (!tab || tab.kind === "diagram") return;
+        if (!tab || tab.kind === "diagram" || tab.kind === "join") return;
         e.preventDefault();
         e.stopPropagation();
         if (tab.id !== state.activeSqlTabId) {
@@ -6654,6 +7970,11 @@ try {
               icon: "🔑",
               label: "Structure, Foreign Keys & Properties",
               onClick: () => setSqlResultViewMode("structure"),
+            },
+            {
+              icon: "🔗",
+              label: "Visual Join Builder & Map",
+              onClick: () => openJoinBuilderTab({ engine: tab.engine, db: tab.db || state.sqlDb, leftTable: tab.table }),
             },
             {
               icon: "📋",
@@ -6884,6 +8205,20 @@ try {
     });
 
     $("sqlResults").addEventListener("click", async (e) => {
+      const joinBtn = e.target.closest("[data-struct-join-left]");
+      if (joinBtn) {
+        e.stopPropagation();
+        const tab = getActiveSqlTab();
+        await openJoinBuilderTab({
+          engine: tab?.engine || state.dbEngine,
+          db: tab?.db || state.sqlDb,
+          leftTable: joinBtn.dataset.structJoinLeft || "",
+          leftCol: joinBtn.dataset.structJoinLcol || "",
+          rightTable: joinBtn.dataset.structJoinRight || "",
+          rightCol: joinBtn.dataset.structJoinRcol || "",
+        });
+        return;
+      }
       const gotoBtn = e.target.closest("[data-goto-entity]");
       if (gotoBtn) {
         e.stopPropagation();
@@ -6899,6 +8234,8 @@ try {
         const details = sqlTableDetailsCache.get(sqlTableKey(tab.engine, tab.db || state.sqlDb, tab.table));
         if (act === "refresh") {
           await renderSqlStructureView(tab, true);
+        } else if (act === "join") {
+          await openJoinBuilderTab({ engine: tab.engine, db: tab.db || state.sqlDb, leftTable: tab.table });
         } else if (act === "diagram") {
           openDatabaseDiagramTab({ engine: tab.engine, db: tab.db || state.sqlDb, focusTable: tab.table });
         } else if (act === "copy-ddl") {

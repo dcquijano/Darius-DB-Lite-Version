@@ -673,6 +673,9 @@ func (a *apacheEngine) Prepare(ctx context.Context, p *Paths, inst Installation,
 	if err := os.MkdirAll(p.Www, 0o755); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(p.Logs, 0o755); err != nil {
+		return err
+	}
 	ensureWwwIndex(p.Www)
 	return nil
 }
@@ -686,11 +689,15 @@ func (a *apacheEngine) Start(p *Paths, inst Installation, s EngineSettings) (*St
 		if !HasVCRedistX64() && !dirHasVCRuntime(filepath.Dir(httpd)) {
 			return nil, missingVCRedistError(a.Name())
 		}
+		// Use uppercase -C so SRVROOT, WWWROOT, LOGROOT, and PidFile are defined
+		// BEFORE Apache parses etc/apache/httpd.conf (lowercase -c runs after).
 		cmd := exec.Command(httpd,
-			"-f", a.ConfigFile(p, inst),
-			"-c", fmt.Sprintf(`Define SRVROOT "%s"`, filepath.ToSlash(inst.Dir)),
-			"-c", fmt.Sprintf(`Define WWWROOT "%s"`, filepath.ToSlash(p.Www)),
-			"-c", fmt.Sprintf(`Define LOGROOT "%s"`, filepath.ToSlash(p.Logs)),
+			"-d", filepath.ToSlash(inst.Dir),
+			"-f", filepath.ToSlash(a.ConfigFile(p, inst)),
+			"-C", fmt.Sprintf(`Define SRVROOT "%s"`, filepath.ToSlash(inst.Dir)),
+			"-C", fmt.Sprintf(`Define WWWROOT "%s"`, filepath.ToSlash(p.Www)),
+			"-C", fmt.Sprintf(`Define LOGROOT "%s"`, filepath.ToSlash(p.Logs)),
+			"-C", fmt.Sprintf(`PidFile "%s"`, filepath.ToSlash(filepath.Join(p.Logs, "httpd.pid"))),
 			"-c", fmt.Sprintf("Listen 127.0.0.1:%d", s.Port),
 			"-DFOREGROUND",
 		)

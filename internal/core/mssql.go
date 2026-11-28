@@ -1392,11 +1392,15 @@ ORDER BY 2, fk.name, fkc.constraint_column_id;`
 
 func mssqlGetTableDetails(s EngineSettings, dbName, schema, table string) (*TableDetails, error) {
 	escObj := strings.ReplaceAll("["+strings.ReplaceAll(schema, "]", "]]")+"].["+strings.ReplaceAll(table, "]", "]]")+"]", "'", "''")
+	displayTable := table
+	if schema != "" && !strings.EqualFold(schema, "dbo") {
+		displayTable = schema + "." + table
+	}
 	out := &TableDetails{
 		Engine:              "mssql",
 		Database:            dbName,
 		Schema:              schema,
-		Table:               table,
+		Table:               displayTable,
 		Kind:                "BASE TABLE",
 		Columns:             []TableColumnDetail{},
 		PrimaryKey:          []string{},
@@ -1467,10 +1471,11 @@ ORDER BY c.column_id;`, escObj)
 		})
 	}
 
-	// 2. Outgoing foreign keys (parent_object_id = @obj)
-	fkSelect := `SET NOCOUNT ON;
+	// 2. Outgoing + Incoming foreign keys in a single query
+	fkQ := fmt.Sprintf(`SET NOCOUNT ON;
 DECLARE @obj INT = OBJECT_ID(N'%s');
-SELECT fk.name,
+SELECT CASE WHEN fkc.parent_object_id = @obj THEN 'OUT' ELSE 'IN' END,
+       fk.name,
        CASE WHEN ps.name = 'dbo' THEN po.name ELSE ps.name + '.' + po.name END,
        pc.name,
        CASE WHEN rs.name = 'dbo' THEN ro.name ELSE rs.name + '.' + ro.name END,
@@ -1484,44 +1489,29 @@ INNER JOIN sys.schemas ps ON ps.schema_id = po.schema_id
 INNER JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
 INNER JOIN sys.objects ro ON ro.object_id = fkc.referenced_object_id
 INNER JOIN sys.schemas rs ON rs.schema_id = ro.schema_id
-INNER JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id`
+INNER JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
+WHERE fkc.parent_object_id = @obj OR fkc.referenced_object_id = @obj
+ORDER BY fk.name, fkc.constraint_column_id;`, escObj)
 
-	if outFkRes, ferr := mssqlRunQuery(s, dbName, fmt.Sprintf(fkSelect+`
-WHERE fkc.parent_object_id = @obj
-ORDER BY fk.name, fkc.constraint_column_id;`, escObj)); ferr == nil {
-		for _, r := range outFkRes.Rows {
-			if len(r) < 5 {
+	if fkRes, ferr := mssqlRunQuery(s, dbName, fkQ); ferr == nil {
+		for _, r := range fkRes.Rows {
+			if len(r) < 6 {
 				continue
 			}
-			out.OutgoingForeignKeys = append(out.OutgoingForeignKeys, ForeignKeyInfo{
-				ConstraintName: valAt(r, 0),
-				FromTable:      valAt(r, 1),
-				FromColumn:     valAt(r, 2),
-				ToTable:        valAt(r, 3),
-				ToColumn:       valAt(r, 4),
-				UpdateRule:     valAt(r, 5),
-				DeleteRule:     valAt(r, 6),
-			})
-		}
-	}
-
-	// 3. Incoming foreign keys (referenced_object_id = @obj)
-	if inFkRes, ferr := mssqlRunQuery(s, dbName, fmt.Sprintf(fkSelect+`
-WHERE fkc.referenced_object_id = @obj
-ORDER BY 2, fk.name, fkc.constraint_column_id;`, escObj)); ferr == nil {
-		for _, r := range inFkRes.Rows {
-			if len(r) < 5 {
-				continue
+			fk := ForeignKeyInfo{
+				ConstraintName: valAt(r, 1),
+				FromTable:      valAt(r, 2),
+				FromColumn:     valAt(r, 3),
+				ToTable:        valAt(r, 4),
+				ToColumn:       valAt(r, 5),
+				UpdateRule:     valAt(r, 6),
+				DeleteRule:     valAt(r, 7),
 			}
-			out.IncomingForeignKeys = append(out.IncomingForeignKeys, ForeignKeyInfo{
-				ConstraintName: valAt(r, 0),
-				FromTable:      valAt(r, 1),
-				FromColumn:     valAt(r, 2),
-				ToTable:        valAt(r, 3),
-				ToColumn:       valAt(r, 4),
-				UpdateRule:     valAt(r, 5),
-				DeleteRule:     valAt(r, 6),
-			})
+			if valAt(r, 0) == "OUT" {
+				out.OutgoingForeignKeys = append(out.OutgoingForeignKeys, fk)
+			} else {
+				out.IncomingForeignKeys = append(out.IncomingForeignKeys, fk)
+			}
 		}
 	}
 

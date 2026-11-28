@@ -2948,21 +2948,6 @@
     return p;
   }
 
-  function insertIdentifierAtSqlCursor(ident) {
-    const ed = $("sqlEditor");
-    if (!ed || !ident) return;
-    const start = ed.selectionStart ?? ed.value.length;
-    const end = ed.selectionEnd ?? start;
-    const before = ed.value.slice(0, start);
-    const after = ed.value.slice(end);
-    ed.value = before + ident + after;
-    const nextPos = start + ident.length;
-    ed.focus();
-    ed.setSelectionRange(nextPos, nextPos);
-    syncActiveTabFromDom();
-    toast(`Inserted "${ident}" into SQL editor`, "ok");
-  }
-
   async function toggleTableTreeExpand(tableObj, forceState = null) {
     if (!tableObj || !state.sqlDb) return;
     const eng = state.dbEngine;
@@ -2978,14 +2963,12 @@
     if (nextOpen && !sqlTableDetailsCache.has(key)) {
       try {
         await ensureTableDetails(eng, db, tableObj.name, false);
-        if (state.dbEngine === eng && state.sqlDb === db && sqlExpandedTables.has(key)) {
-          renderSqlTableList();
-        }
       } catch (e) {
-        if (state.dbEngine === eng && state.sqlDb === db && sqlExpandedTables.has(key)) {
-          sqlTableDetailsCache.set(key, { _error: errMsg(e) });
-          renderSqlTableList();
-        }
+        toast(`Could not load details for ${tableObj.name}: ${errMsg(e)}`, "err");
+        sqlExpandedTables.delete(key);
+      }
+      if (state.dbEngine === eng && state.sqlDb === db) {
+        renderSqlTableList();
       }
     }
   }
@@ -2994,17 +2977,14 @@
     const key = sqlTableKey(engine, db, tableObj.name);
     const details = sqlTableDetailsCache.get(key);
     if (!details) {
-      return `<div class="tree-children"><div class="tree-loading">Loading columns, keys &amp; indexes…</div></div>`;
-    }
-    if (details._error) {
-      return `<div class="tree-children"><div class="tree-leaf is-muted" title="${esc(details._error)}">Failed to load: ${esc(details._error)}</div></div>`;
+      return `<div class="tree-children"><div class="tree-loading">Loading columns &amp; foreign keys…</div></div>`;
     }
     const cols = details.columns || [];
     const outFks = details.outgoingForeignKeys || [];
     const inFks = details.incomingForeignKeys || [];
     const idxs = details.indexes || [];
     const pkCols = details.primaryKey || [];
-    const keyCount = (pkCols.length ? 1 : 0) + outFks.length + inFks.length;
+    const keyCount = pkCols.length + outFks.length + inFks.length;
 
     const colsSubKey = `${key}|cols`;
     const keysSubKey = `${key}|keys`;
@@ -3023,18 +3003,27 @@
       ? cols
           .map((c) => {
             const fk = outFkMap.get(String(c.name || "").toLowerCase());
-            const badges = [];
-            if (c.isPrimaryKey) badges.push(`<span class="key-badge pk" title="Primary Key">PK</span>`);
-            if (c.isForeignKey || fk) {
-              const fkTip = fk ? `Foreign Key → ${fk.toTable}.${fk.toColumn}` : "Foreign Key";
-              badges.push(`<span class="key-badge fk" title="${esc(fkTip)}">FK</span>`);
+            const badge = c.isPrimaryKey
+              ? `<span class="key-badge pk" title="Primary Key">PK</span>`
+              : fk || c.isForeignKey
+              ? `<span class="key-badge fk" title="Foreign Key">FK</span>`
+              : c.isUnique
+              ? `<span class="key-badge uq" title="Unique">UQ</span>`
+              : "";
+            const meta = fk ? `→ ${fk.toTable}.${fk.toColumn}` : c.dataType || "";
+            if (fk) {
+              const fkTip = `Foreign Key: ${c.name} → ${fk.toTable}.${fk.toColumn} (${fk.constraintName || ""}) — Click to inspect ${fk.toTable}`;
+              return `<div class="tree-leaf is-fk" data-tree-goto-table="${esc(fk.toTable)}" title="${esc(fkTip)}">
+                ${badge}
+                <span class="tree-leaf-name">${esc(c.name)}</span>
+                <span class="tree-leaf-type">${esc(meta)}</span>
+              </div>`;
             }
-            if (c.isUnique && !c.isPrimaryKey) badges.push(`<span class="key-badge uq" title="Unique">UQ</span>`);
-            const tip = `${c.name} ${c.dataType}${c.nullable ? " NULL" : " NOT NULL"}${fk ? ` → ${fk.toTable}.${fk.toColumn}` : ""} (Click to insert in SQL editor)`;
-            return `<div class="tree-leaf" data-tree-col-name="${esc(c.name)}" title="${esc(tip)}">
-              ${badges.join("")}
+            const tip = `${c.name} · ${c.dataType || ""}${c.nullable ? " · NULL" : " · NOT NULL"} (Click to open Structure & Keys)`;
+            return `<div class="tree-leaf" data-tree-open-structure="${esc(tableObj.name)}" title="${esc(tip)}">
+              ${badge}
               <span class="tree-leaf-name">${esc(c.name)}</span>
-              <span class="tree-leaf-type">${esc(c.dataType)}</span>
+              <span class="tree-leaf-type">${esc(meta)}</span>
             </div>`;
           })
           .join("")
@@ -3042,26 +3031,28 @@
 
     const keyItems = [];
     if (pkCols.length) {
-      keyItems.push(`<div class="tree-leaf" data-tree-open-structure="${esc(tableObj.name)}" title="Primary Key (${esc(pkCols.join(", "))})">
+      keyItems.push(`<div class="tree-leaf" data-tree-open-structure="${esc(tableObj.name)}" title="Primary Key: ${esc(pkCols.join(", "))}">
         <span class="key-badge pk">PK</span>
         <span class="tree-leaf-name">${esc(pkCols.join(", "))}</span>
       </div>`);
     }
     outFks.forEach((fk) => {
-      const tip = `Outgoing FK (${fk.constraintName}): ${fk.fromColumn} → ${fk.toTable}.${fk.toColumn}${fk.deleteRule ? ` · ON DELETE ${fk.deleteRule}` : ""} (Click to jump to ${fk.toTable})`;
+      const tip = `FK ${fk.constraintName || ""}: ${fk.fromColumn} → ${fk.toTable}.${fk.toColumn}${fk.deleteRule ? ` · ON DELETE ${fk.deleteRule}` : ""} (Click to inspect ${fk.toTable})`;
       keyItems.push(`<div class="tree-leaf is-fk" data-tree-goto-table="${esc(fk.toTable)}" title="${esc(tip)}">
-        <span class="key-badge fk">FK↗</span>
-        <span class="tree-leaf-name">${esc(fk.fromColumn)} → ${esc(fk.toTable)}.${esc(fk.toColumn)}</span>
+        <span class="key-badge fk">FK</span>
+        <span class="tree-leaf-name">${esc(fk.fromColumn)}</span>
+        <span class="tree-leaf-type">→ ${esc(fk.toTable)}.${esc(fk.toColumn)}</span>
       </div>`);
     });
     inFks.forEach((fk) => {
-      const tip = `Incoming FK (${fk.constraintName}): ${fk.fromTable}.${fk.fromColumn} → ${fk.toColumn} (Click to jump to ${fk.fromTable})`;
+      const tip = `Referenced by ${fk.fromTable}.${fk.fromColumn} → ${fk.toColumn} (Click to inspect ${fk.fromTable})`;
       keyItems.push(`<div class="tree-leaf is-fk-in" data-tree-goto-table="${esc(fk.fromTable)}" title="${esc(tip)}">
-        <span class="key-badge fk-in">REF↙</span>
-        <span class="tree-leaf-name">${esc(fk.fromTable)}.${esc(fk.fromColumn)}</span>
+        <span class="key-badge fk-in">IN</span>
+        <span class="tree-leaf-name">${esc(fk.fromTable)}</span>
+        <span class="tree-leaf-type">.${esc(fk.fromColumn)}</span>
       </div>`);
     });
-    const keysHtml = keyItems.length ? keyItems.join("") : `<div class="tree-leaf is-muted">No keys or foreign keys</div>`;
+    const keysHtml = keyItems.length ? keyItems.join("") : `<div class="tree-leaf is-muted">No keys / foreign keys</div>`;
 
     const idxsHtml = idxs.length
       ? idxs
@@ -3070,12 +3061,12 @@
               ? `<span class="key-badge pk">PK</span>`
               : ix.isUnique
               ? `<span class="key-badge uq">UQ</span>`
-              : `<span class="key-badge idx">IDX</span>`;
+              : `<span class="key-badge idx">IX</span>`;
             const colsStr = (ix.columns || []).join(", ");
             return `<div class="tree-leaf" data-tree-open-structure="${esc(tableObj.name)}" title="${esc(ix.name)} (${esc(colsStr)})">
               ${badge}
               <span class="tree-leaf-name">${esc(ix.name)}</span>
-              <span class="tree-leaf-type">${esc(colsStr)}</span>
+              <span class="tree-leaf-type">${esc((ix.columns || []).join(","))}</span>
             </div>`;
           })
           .join("")
@@ -3083,37 +3074,38 @@
 
     return `<div class="tree-children">
       <div class="tree-sub-group">
-        <button type="button" class="tree-sub-head ${colsOpen ? "open" : ""}" data-toggle-tree-sub="${esc(colsSubKey)}">
-          <span class="tree-sub-arrow">▸</span><span>Columns</span><span class="tree-sub-count">${cols.length}</span>
+        <button type="button" class="tree-sub-head" data-toggle-tree-sub="${esc(colsSubKey)}">
+          <span>${colsOpen ? "▾" : "▸"} Columns</span><span class="tree-sub-count">${cols.length}</span>
         </button>
         ${colsOpen ? `<div class="tree-sub-items">${colsHtml}</div>` : ""}
       </div>
       <div class="tree-sub-group">
-        <button type="button" class="tree-sub-head ${keysOpen ? "open" : ""}" data-toggle-tree-sub="${esc(keysSubKey)}">
-          <span class="tree-sub-arrow">▸</span><span>Keys &amp; Relations</span><span class="tree-sub-count">${keyCount}</span>
+        <button type="button" class="tree-sub-head" data-toggle-tree-sub="${esc(keysSubKey)}">
+          <span>${keysOpen ? "▾" : "▸"} Keys &amp; Relations</span><span class="tree-sub-count">${keyCount}</span>
         </button>
         ${keysOpen ? `<div class="tree-sub-items">${keysHtml}</div>` : ""}
       </div>
       <div class="tree-sub-group">
-        <button type="button" class="tree-sub-head ${idxsOpen ? "open" : ""}" data-toggle-tree-sub="${esc(idxsSubKey)}">
-          <span class="tree-sub-arrow">▸</span><span>Indexes</span><span class="tree-sub-count">${idxs.length}</span>
+        <button type="button" class="tree-sub-head" data-toggle-tree-sub="${esc(idxsSubKey)}">
+          <span>${idxsOpen ? "▾" : "▸"} Indexes</span><span class="tree-sub-count">${idxs.length}</span>
         </button>
         ${idxsOpen ? `<div class="tree-sub-items">${idxsHtml}</div>` : ""}
       </div>
-      <button type="button" class="tree-open-struct-btn" data-tree-open-structure="${esc(tableObj.name)}">🔑 Inspect Properties, FKs &amp; DDL →</button>
+      <button type="button" class="tree-open-struct-btn" data-tree-open-structure="${esc(tableObj.name)}" title="Open full Columns, Foreign Keys, Indexes, Properties &amp; DDL inspector">⚙️ Properties &amp; DDL →</button>
     </div>`;
   }
 
   function renderTableStructureInto(wrap, details, { engine = "", db = "", table = "" } = {}) {
     if (!wrap) return;
     if (!details) {
-      wrap.innerHTML = `<div class="empty-note">Loading structure, foreign keys &amp; properties for ${esc(table)}…</div>`;
+      wrap.innerHTML = `<div class="empty-note">Loading columns, foreign keys, indexes &amp; properties for ${esc(table)}…</div>`;
       return;
     }
     const cols = details.columns || [];
     const outFks = details.outgoingForeignKeys || [];
     const inFks = details.incomingForeignKeys || [];
     const idxs = details.indexes || [];
+    const pkCols = details.primaryKey || [];
     const props = details.properties || {};
     const isView = String(details.kind || "").toUpperCase().includes("VIEW");
 
@@ -3125,119 +3117,106 @@
     });
 
     const rowCountStr = Number.isFinite(Number(props.rowCount)) ? Number(props.rowCount).toLocaleString() : "0";
-    const totalBytes = (Number(props.dataBytes) || 0) + (Number(props.indexBytes) || 0);
+    const dataBytes = Number(props.dataBytes) || 0;
+    const idxBytes = Number(props.indexBytes) || 0;
+    const totalBytes = dataBytes + idxBytes;
 
-    const outFkHtml = outFks.length
-      ? `<div class="fk-list">${outFks
-          .map((fk) => {
-            const rules = [];
-            if (fk.updateRule) rules.push(`ON UPDATE ${fk.updateRule}`);
-            if (fk.deleteRule) rules.push(`ON DELETE ${fk.deleteRule}`);
-            return `<div class="fk-row">
-              <div class="fk-row-main">
-                <span class="key-badge fk">FK</span>
-                <span class="fk-col-chip">${esc(fk.fromColumn)}</span>
-                <span class="fk-arrow">→</span>
-                <button type="button" class="entity-link-btn" data-goto-entity="${esc(fk.toTable)}" data-goto-mode="structure" title="Inspect ${esc(fk.toTable)} structure &amp; keys">
-                  ${esc(fk.toTable)}.${esc(fk.toColumn)}
-                </button>
-                <button type="button" class="entity-mini-btn" data-goto-entity="${esc(fk.toTable)}" data-goto-mode="rows" title="View rows in ${esc(fk.toTable)}">Rows</button>
-              </div>
-              <div class="fk-row-meta">
-                <span>${esc(fk.constraintName)}</span>
-                ${rules.length ? `<span>· ${esc(rules.join(" · "))}</span>` : ""}
-              </div>
-            </div>`;
-          })
-          .join("")}</div>`
-      : `<div class="empty-note" style="padding:12px">No outgoing foreign keys (this ${isView ? "view" : "table"} does not reference parent tables).</div>`;
+    const propsInlineHtml = [
+      details.kind ? `<span>Type: <strong>${esc(details.kind)}</strong></span>` : "",
+      props.storageEngine ? `<span>Engine: <strong>${esc(props.storageEngine)}</strong></span>` : "",
+      props.collation ? `<span>Collation: <strong class="struct-mono">${esc(props.collation)}</strong></span>` : "",
+      !isView ? `<span>Approx Rows: <strong>${rowCountStr}</strong></span>` : "",
+      !isView && totalBytes > 0
+        ? `<span>Size: <strong>${esc(formatBytes(totalBytes))}</strong> (${esc(formatBytes(dataBytes))} data · ${esc(formatBytes(idxBytes))} idx)</span>`
+        : "",
+      props.autoIncrement ? `<span>Auto Inc: <strong>${esc(props.autoIncrement)}</strong></span>` : "",
+      props.owner ? `<span>Owner: <strong>${esc(props.owner)}</strong></span>` : "",
+      props.createdAt ? `<span>Created: <strong>${esc(props.createdAt)}</strong></span>` : "",
+      props.updatedAt ? `<span>Updated: <strong>${esc(props.updatedAt)}</strong></span>` : "",
+      props.comment ? `<span>Comment: <strong>${esc(props.comment)}</strong></span>` : "",
+    ]
+      .filter(Boolean)
+      .join("");
 
-    const inFkHtml = inFks.length
-      ? `<div class="fk-list">${inFks
-          .map((fk) => {
-            const rules = [];
-            if (fk.updateRule) rules.push(`ON UPDATE ${fk.updateRule}`);
-            if (fk.deleteRule) rules.push(`ON DELETE ${fk.deleteRule}`);
-            return `<div class="fk-row">
-              <div class="fk-row-main">
-                <span class="key-badge fk-in">REF</span>
-                <button type="button" class="entity-link-btn incoming" data-goto-entity="${esc(fk.fromTable)}" data-goto-mode="structure" title="Inspect referencing entity ${esc(fk.fromTable)}">
-                  ${esc(fk.fromTable)}.${esc(fk.fromColumn)}
-                </button>
-                <button type="button" class="entity-mini-btn" data-goto-entity="${esc(fk.fromTable)}" data-goto-mode="rows" title="View rows in ${esc(fk.fromTable)}">Rows</button>
-                <span class="fk-arrow">→</span>
-                <span class="fk-col-chip">${esc(fk.toColumn)}</span>
-              </div>
-              <div class="fk-row-meta">
-                <span>${esc(fk.constraintName)}</span>
-                ${rules.length ? `<span>· ${esc(rules.join(" · "))}</span>` : ""}
-              </div>
-            </div>`;
-          })
-          .join("")}</div>`
-      : `<div class="empty-note" style="padding:12px">No other tables reference ${esc(details.table || table)}.</div>`;
+    const colRowsHtml = cols
+      .map((c, idx) => {
+        const fkList = outFkByCol.get(String(c.name || "").toLowerCase()) || [];
+        const badges = [
+          c.isPrimaryKey ? `<span class="key-badge pk" title="Primary Key">PK</span>` : "",
+          c.isForeignKey || fkList.length ? `<span class="key-badge fk" title="Foreign Key">FK</span>` : "",
+          c.isUnique && !c.isPrimaryKey ? `<span class="key-badge uq" title="Unique">UQ</span>` : "",
+          c.isAutoIncrement ? `<span class="key-badge ai" title="Auto Increment / Identity">AI</span>` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const refCell = fkList.length
+          ? fkList
+              .map(
+                (fk) =>
+                  `<button type="button" class="entity-link-btn" data-goto-entity="${esc(fk.toTable)}" data-goto-mode="structure" title="Click to inspect ${esc(fk.toTable)} (${esc(fk.constraintName || "")})">→ ${esc(fk.toTable)}.${esc(fk.toColumn)}</button>`
+              )
+              .join(" ")
+          : `<span class="struct-muted">—</span>`;
+        const defCell =
+          c.defaultVal !== undefined && c.defaultVal !== null
+            ? `<span class="struct-mono">${esc(c.defaultVal)}</span>`
+            : `<span class="struct-muted">NULL</span>`;
+        return `<tr>
+          <td class="struct-muted">${idx + 1}</td>
+          <td class="struct-mono"><strong>${esc(c.name)}</strong> ${badges}</td>
+          <td class="struct-mono">${esc(c.dataType || "")}</td>
+          <td>${c.nullable ? `<span class="struct-muted">YES</span>` : `<strong>NO</strong>`}</td>
+          <td>${defCell}</td>
+          <td>${refCell}</td>
+        </tr>`;
+      })
+      .join("");
 
-    const colRowsHtml = cols.length
-      ? cols
-          .map((c, idx) => {
-            const fkList = outFkByCol.get(String(c.name || "").toLowerCase()) || [];
-            const badges = [];
-            if (c.isPrimaryKey) badges.push(`<span class="key-badge pk">PK</span>`);
-            if (c.isForeignKey || fkList.length) badges.push(`<span class="key-badge fk">FK</span>`);
-            if (c.isUnique && !c.isPrimaryKey) badges.push(`<span class="key-badge uq">UQ</span>`);
-            if (c.isAutoIncrement) badges.push(`<span class="key-badge ai">AI</span>`);
-            fkList.forEach((fk) => {
-              badges.push(`<button type="button" class="entity-link-btn" style="padding:1px 6px;font-size:10.5px" data-goto-entity="${esc(fk.toTable)}" data-goto-mode="structure" title="Jump to related entity ${esc(fk.toTable)}">→ ${esc(fk.toTable)}.${esc(fk.toColumn)}</button>`);
-            });
-            const defCell = c.defaultVal === null || c.defaultVal === undefined
-              ? `<span class="null-val">NULL</span>`
-              : `<span class="struct-mono">${esc(c.defaultVal)}</span>`;
-            const extraParts = [c.extra, c.collation && !isView ? c.collation : "", c.comment].filter(Boolean);
-            return `<tr>
-              <td class="struct-mono" style="color:var(--text-muted)">${idx + 1}</td>
-              <td class="struct-mono" style="font-weight:600">${esc(c.name)}</td>
-              <td class="struct-mono">${esc(c.dataType)}</td>
-              <td><div class="struct-keys-cell">${badges.join("") || `<span style="color:var(--text-muted)">—</span>`}</div></td>
-              <td>${c.nullable ? `<span style="color:var(--text-muted)">YES</span>` : `<span style="font-weight:600">NOT NULL</span>`}</td>
-              <td>${defCell}</td>
-              <td style="color:var(--text-muted)">${esc(extraParts.join(" · ") || "—")}</td>
-            </tr>`;
-          })
-          .join("")
-      : `<tr><td colspan="7" class="empty-note">No columns found</td></tr>`;
+    const outFkRowsHtml = outFks
+      .map(
+        (fk) => `<tr>
+        <td class="struct-mono">${esc(fk.constraintName || "—")}</td>
+        <td class="struct-mono"><strong>${esc(fk.fromColumn)}</strong></td>
+        <td>
+          <button type="button" class="entity-link-btn" data-goto-entity="${esc(fk.toTable)}" data-goto-mode="structure" title="Inspect parent entity ${esc(fk.toTable)}">→ ${esc(fk.toTable)}.${esc(fk.toColumn)}</button>
+          <button type="button" class="entity-mini-btn" data-goto-entity="${esc(fk.toTable)}" data-goto-mode="rows" title="Open ${esc(fk.toTable)} rows">📊 Rows</button>
+        </td>
+        <td class="struct-mono">${esc(fk.updateRule || "NO ACTION")}</td>
+        <td class="struct-mono">${esc(fk.deleteRule || "NO ACTION")}</td>
+      </tr>`
+      )
+      .join("");
 
-    const idxRowsHtml = idxs.length
-      ? idxs
-          .map((ix) => {
-            const flags = [];
-            if (ix.isPrimary) flags.push(`<span class="key-badge pk">PRIMARY</span>`);
-            if (ix.isUnique && !ix.isPrimary) flags.push(`<span class="key-badge uq">UNIQUE</span>`);
-            if (ix.indexType) flags.push(`<span class="key-badge idx">${esc(ix.indexType)}</span>`);
-            if (!flags.length) flags.push(`<span class="key-badge idx">INDEX</span>`);
-            return `<tr>
-              <td class="struct-mono" style="font-weight:600">${esc(ix.name)}</td>
-              <td><div class="struct-keys-cell">${flags.join("")}</div></td>
-              <td class="struct-mono">${esc((ix.columns || []).join(", ") || "—")}</td>
-            </tr>`;
-          })
-          .join("")
-      : `<tr><td colspan="3" class="empty-note">No indexes defined</td></tr>`;
+    const inFkRowsHtml = inFks
+      .map(
+        (fk) => `<tr>
+        <td>
+          <button type="button" class="entity-link-btn incoming" data-goto-entity="${esc(fk.fromTable)}" data-goto-mode="structure" title="Inspect child entity ${esc(fk.fromTable)}">← ${esc(fk.fromTable)}.${esc(fk.fromColumn)}</button>
+          <button type="button" class="entity-mini-btn" data-goto-entity="${esc(fk.fromTable)}" data-goto-mode="rows" title="Open ${esc(fk.fromTable)} rows">📊 Rows</button>
+        </td>
+        <td class="struct-mono"><strong>${esc(fk.toColumn)}</strong></td>
+        <td class="struct-mono">${esc(fk.constraintName || "—")}</td>
+        <td class="struct-mono">${esc(fk.updateRule || "NO ACTION")}</td>
+        <td class="struct-mono">${esc(fk.deleteRule || "NO ACTION")}</td>
+      </tr>`
+      )
+      .join("");
 
-    const propCards = [
-      { label: "Type", val: details.kind || "BASE TABLE" },
-      { label: "Schema", val: details.schema || db || "—" },
-      props.storageEngine ? { label: "Storage Engine", val: props.storageEngine } : null,
-      props.collation ? { label: "Collation", val: props.collation } : null,
-      !isView ? { label: "Est. Rows", val: rowCountStr } : null,
-      !isView ? { label: "Data Size", val: formatBytes(props.dataBytes || 0) } : null,
-      !isView ? { label: "Index Size", val: formatBytes(props.indexBytes || 0) } : null,
-      !isView && totalBytes > 0 ? { label: "Total Size", val: formatBytes(totalBytes) } : null,
-      props.autoIncrement ? { label: "Auto Increment", val: props.autoIncrement } : null,
-      props.owner ? { label: "Owner", val: props.owner } : null,
-      props.createdAt ? { label: "Created", val: props.createdAt } : null,
-      props.updatedAt ? { label: "Updated", val: props.updatedAt } : null,
-      props.comment ? { label: "Comment", val: props.comment } : null,
-    ].filter(Boolean);
+    const idxRowsHtml = idxs
+      .map((ix) => {
+        const badge = ix.isPrimary
+          ? `<span class="key-badge pk">PRIMARY</span>`
+          : ix.isUnique
+          ? `<span class="key-badge uq">UNIQUE</span>`
+          : `<span class="key-badge idx">INDEX</span>`;
+        return `<tr>
+          <td class="struct-mono"><strong>${esc(ix.name)}</strong></td>
+          <td>${badge}</td>
+          <td class="struct-mono">${esc((ix.columns || []).join(", ") || "—")}</td>
+          <td class="struct-mono struct-muted">${esc(ix.indexType || "—")}</td>
+        </tr>`;
+      })
+      .join("");
 
     const ddlText = (details.createDdl || "").trim();
 
@@ -3245,94 +3224,93 @@
       <div class="tbl-struct-header">
         <div>
           <div class="tbl-struct-title-row">
-            <span class="tbl-struct-name">${esc(details.table || table)}</span>
+            <h4 class="tbl-struct-name">${esc(details.table || table)}</h4>
             <span class="type-tag">${esc(details.kind || "BASE TABLE")}</span>
-            <span class="chip">${esc(engine || details.engine)} / ${esc(db || details.database)}</span>
+            ${pkCols.length ? `<span class="key-badge pk">PK: ${esc(pkCols.join(", "))}</span>` : ""}
+            ${outFks.length ? `<span class="key-badge fk">${outFks.length} FK${outFks.length === 1 ? "" : "s"}</span>` : ""}
+            ${inFks.length ? `<span class="key-badge fk-in">${inFks.length} Ref By</span>` : ""}
           </div>
-          <div class="tbl-struct-stats">
-            ${cols.length} column${cols.length === 1 ? "" : "s"} ·
-            ${outFks.length} outgoing FK${outFks.length === 1 ? "" : "s"} ·
-            ${inFks.length} incoming FK${inFks.length === 1 ? "" : "s"} ·
-            ${idxs.length} index${idxs.length === 1 ? "" : "es"}${!isView ? ` · ~${rowCountStr} rows` : ""}
-          </div>
+          <div class="tbl-struct-props">${propsInlineHtml}</div>
         </div>
         <div class="tbl-struct-actions">
           <button type="button" class="btn xs" data-struct-act="refresh" title="Reload table metadata from server">↻ Refresh</button>
-          <button type="button" class="btn xs" data-struct-act="diagram" title="Open ER Diagram focused on this table">🗺️ ER Diagram</button>
-          ${ddlText ? `<button type="button" class="btn xs" data-struct-act="copy-ddl" title="Copy CREATE TABLE DDL">📋 Copy DDL</button>` : ""}
-          <button type="button" class="btn xs primary" data-struct-act="view-rows" title="Switch back to table rows">📊 View Rows</button>
+          <button type="button" class="btn xs" data-struct-act="diagram" title="Open ER diagram focused on this table">🗺️ ER Diagram</button>
+          ${ddlText ? `<button type="button" class="btn xs" data-struct-act="copy-ddl" title="Copy CREATE TABLE SQL">📋 Copy DDL</button>` : ""}
+          ${ddlText ? `<button type="button" class="btn xs" data-struct-act="edit-ddl" title="Put CREATE TABLE SQL into the SQL editor">📝 Load DDL</button>` : ""}
         </div>
       </div>
 
       <div class="tbl-struct-section">
         <div class="tbl-struct-sec-head">
-          <span>🔗 Foreign Keys &amp; Related Entities</span>
-          <span style="font-size:11px;font-weight:500;color:var(--text-muted)">Click any entity to jump straight to it</span>
+          <span>🧱 Columns</span>
+          <span class="sec-count">${cols.length}</span>
         </div>
-        <div class="tbl-struct-sec-body">
-          <div class="fk-split-grid">
-            <div class="fk-group-box">
-              <div class="fk-group-head">
-                <span>↗ Outgoing References (Parent Entities)</span>
-                <span class="tree-sub-count">${outFks.length}</span>
+        ${
+          cols.length
+            ? `<div class="tbl-struct-sec-body flush"><table class="struct-table">
+                <thead><tr><th>#</th><th>Column</th><th>Type</th><th>Nullable</th><th>Default</th><th>References</th></tr></thead>
+                <tbody>${colRowsHtml}</tbody>
+              </table></div>`
+            : `<div class="tbl-struct-empty">No columns found.</div>`
+        }
+      </div>
+
+      <div class="tbl-struct-section">
+        <div class="tbl-struct-sec-head">
+          <span>🔗 Foreign Keys (Outgoing → Parent Entities)</span>
+          <span class="sec-count">${outFks.length}</span>
+        </div>
+        ${
+          outFks.length
+            ? `<div class="tbl-struct-sec-body flush"><table class="struct-table">
+                <thead><tr><th>Constraint</th><th>Column</th><th>Referenced Entity &amp; Column</th><th>ON UPDATE</th><th>ON DELETE</th></tr></thead>
+                <tbody>${outFkRowsHtml}</tbody>
+              </table></div>`
+            : `<div class="tbl-struct-empty">No outgoing foreign key constraints on this table.</div>`
+        }
+      </div>
+
+      <div class="tbl-struct-section">
+        <div class="tbl-struct-sec-head">
+          <span>↩️ Referenced By (Incoming ← Child Entities)</span>
+          <span class="sec-count">${inFks.length}</span>
+        </div>
+        ${
+          inFks.length
+            ? `<div class="tbl-struct-sec-body flush"><table class="struct-table">
+                <thead><tr><th>Child Entity &amp; Column</th><th>Local Column</th><th>Constraint</th><th>ON UPDATE</th><th>ON DELETE</th></tr></thead>
+                <tbody>${inFkRowsHtml}</tbody>
+              </table></div>`
+            : `<div class="tbl-struct-empty">No other tables reference this table via a foreign key.</div>`
+        }
+      </div>
+
+      <div class="tbl-struct-section">
+        <div class="tbl-struct-sec-head">
+          <span>⚡ Indexes</span>
+          <span class="sec-count">${idxs.length}</span>
+        </div>
+        ${
+          idxs.length
+            ? `<div class="tbl-struct-sec-body flush"><table class="struct-table">
+                <thead><tr><th>Index Name</th><th>Kind</th><th>Columns</th><th>Type</th></tr></thead>
+                <tbody>${idxRowsHtml}</tbody>
+              </table></div>`
+            : `<div class="tbl-struct-empty">No indexes found.</div>`
+        }
+      </div>
+
+      ${
+        ddlText
+          ? `<div class="tbl-struct-section">
+              <div class="tbl-struct-sec-head">
+                <span>📜 Table Definition (DDL)</span>
+                <button type="button" class="btn xs ghost" data-struct-act="copy-ddl">📋 Copy</button>
               </div>
-              ${outFkHtml}
-            </div>
-            <div class="fk-group-box">
-              <div class="fk-group-head">
-                <span>↙ Referenced By (Child Entities)</span>
-                <span class="tree-sub-count">${inFks.length}</span>
-              </div>
-              ${inFkHtml}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="tbl-struct-section">
-        <div class="tbl-struct-sec-head">
-          <span>🧱 Columns (${cols.length})</span>
-          ${(details.primaryKey || []).length ? `<span class="struct-mono" style="font-size:11px;color:#f59e0b">PK: ${esc(details.primaryKey.join(", "))}</span>` : ""}
-        </div>
-        <div class="tbl-struct-sec-body flush">
-          <table class="struct-table">
-            <thead>
-              <tr><th>#</th><th>Column</th><th>Type</th><th>Keys &amp; Relations</th><th>Nullable</th><th>Default</th><th>Extra / Comment</th></tr>
-            </thead>
-            <tbody>${colRowsHtml}</tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="tbl-struct-section">
-        <div class="tbl-struct-sec-head"><span>⚡ Indexes (${idxs.length})</span></div>
-        <div class="tbl-struct-sec-body flush">
-          <table class="struct-table">
-            <thead><tr><th>Index Name</th><th>Flags / Type</th><th>Columns</th></tr></thead>
-            <tbody>${idxRowsHtml}</tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="tbl-struct-section">
-        <div class="tbl-struct-sec-head"><span>⚙️ Table Properties</span></div>
-        <div class="tbl-struct-sec-body">
-          <div class="prop-grid">
-            ${propCards.map((p) => `<div class="prop-card"><span class="prop-label">${esc(p.label)}</span><span class="prop-val" title="${esc(p.val)}">${esc(p.val)}</span></div>`).join("")}
-          </div>
-        </div>
-      </div>
-
-      ${ddlText ? `<div class="tbl-struct-section">
-        <div class="tbl-struct-sec-head">
-          <span>📜 CREATE ${isView ? "VIEW" : "TABLE"} DDL</span>
-          <div style="display:flex;gap:6px">
-            <button type="button" class="btn xs" data-struct-act="copy-ddl">📋 Copy DDL</button>
-            <button type="button" class="btn xs" data-struct-act="edit-ddl">📝 Open in SQL Editor</button>
-          </div>
-        </div>
-        <pre class="ddl-code-box">${esc(ddlText)}</pre>
-      </div>` : ""}
+              <pre class="ddl-code-box">${esc(ddlText)}</pre>
+            </div>`
+          : ""
+      }
     </div>`;
     wrap.scrollTop = 0;
   }
@@ -3346,13 +3324,16 @@
     if (!wrap) return;
     hideSqlPager();
 
+    const formatMeta = (d) =>
+      `${reqTable} · ${(d.columns || []).length} col(s) · ${(d.outgoingForeignKeys || []).length} FK(s) · ${(d.incomingForeignKeys || []).length} ref by · ${(d.indexes || []).length} index(es)`;
+
     const cached = !force ? sqlTableDetailsCache.get(sqlTableKey(reqEngine, reqDb, reqTable)) : null;
-    if (cached && !cached._error) {
+    if (cached) {
       renderTableStructureInto(wrap, cached, { engine: reqEngine, db: reqDb, table: reqTable });
       const meta = $("sqlMeta");
       if (meta && state.activeSqlTabId === tab.id) {
         meta.parentElement.className = "result-meta-bar";
-        meta.textContent = `Structure · ${reqTable} (${(cached.columns || []).length} cols, ${(cached.outgoingForeignKeys || []).length} out FK, ${(cached.incomingForeignKeys || []).length} in FK)`;
+        meta.textContent = formatMeta(cached);
       }
       return;
     }
@@ -3361,7 +3342,7 @@
     const meta = $("sqlMeta");
     if (meta && state.activeSqlTabId === tab.id) {
       meta.parentElement.className = "result-meta-bar";
-      meta.textContent = `Loading structure for ${reqTable}…`;
+      meta.textContent = `Loading structure & foreign keys for ${reqTable}…`;
     }
 
     try {
@@ -3370,9 +3351,9 @@
         return;
       }
       renderTableStructureInto(wrap, details, { engine: reqEngine, db: reqDb, table: reqTable });
-      if (meta) {
+      if (meta && details) {
         meta.parentElement.className = "result-meta-bar";
-        meta.textContent = `Structure · ${reqTable} (${(details.columns || []).length} cols, ${(details.outgoingForeignKeys || []).length} out FK, ${(details.incomingForeignKeys || []).length} in FK)`;
+        meta.textContent = formatMeta(details);
       }
       if (sqlExpandedTables.has(sqlTableKey(reqEngine, reqDb, reqTable))) {
         renderSqlTableList();
@@ -3742,6 +3723,7 @@
       list.innerHTML = `<div class="empty-note">No tables</div>`;
       return;
     }
+    const prevScrollTop = list.scrollTop;
     const curTab = getActiveSqlTab();
     const activeMatchDb = !curTab || !curTab.db || curTab.db === state.sqlDb;
     list.innerHTML = state.sqlTables
@@ -3753,8 +3735,8 @@
         const tKey = sqlTableKey(state.dbEngine, state.sqlDb, t.name);
         const isExpanded = sqlExpandedTables.has(tKey);
         return `<div class="tree-node" data-table-node-idx="${idx}">
-          <div class="tree-item has-twisty ${isActive ? "active" : ""}" data-table-idx="${idx}" title="${safeName} (${safeKind}) · Click ▸ to expand Columns/FKs/Indexes · Right-click for Properties &amp; DDL">
-            <button type="button" class="tree-twisty ${isExpanded ? "open" : ""}" data-toggle-table-tree="${idx}" title="${isExpanded ? "Collapse" : "Expand"} Columns, Foreign Keys &amp; Indexes">▸</button>
+          <div class="tree-item has-twisty ${isActive ? "active" : ""}" data-table-idx="${idx}" title="${safeName} (${safeKind}) — Click for rows · Click ▸ for columns &amp; foreign keys · Right-click for options">
+            <button type="button" class="tree-twisty ${isExpanded ? "open" : ""}" data-toggle-table-tree="${idx}" title="${isExpanded ? "Collapse" : "Expand"} Columns, Foreign Keys &amp; Indexes">${isExpanded ? "▾" : "▸"}</button>
             <span class="tree-label">${safeName}</span>
             ${isView ? `<span class="type-tag">VIEW</span>` : `<button class="tree-del" data-drop-table="${safeName}" title="Drop table">✕</button>`}
           </div>
@@ -3762,6 +3744,7 @@
         </div>`;
       })
       .join("");
+    list.scrollTop = prevScrollTop;
   }
 
   function hideSqlPager() {
@@ -6550,12 +6533,6 @@ try {
         e.stopPropagation();
         const tblObj = findTableObjByName(openStruct.dataset.treeOpenStructure);
         if (tblObj) await openTableStructure(tblObj);
-        return;
-      }
-      const colLeaf = e.target.closest("[data-tree-col-name]");
-      if (colLeaf) {
-        e.stopPropagation();
-        insertIdentifierAtSqlCursor(colLeaf.dataset.treeColName);
         return;
       }
       const dropBtn = e.target.closest("[data-drop-table]");

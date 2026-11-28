@@ -984,11 +984,15 @@ func tableDetailsOnceWithPool(engine string, s EngineSettings, dbName, schema, t
 		return nil, err
 	}
 
+	displayTable := table
+	if engine == "postgresql" && schema != "" && schema != "public" {
+		displayTable = schema + "." + table
+	}
 	out := &TableDetails{
 		Engine:              engine,
 		Database:            dbName,
 		Schema:              schema,
-		Table:               table,
+		Table:               displayTable,
 		Kind:                "BASE TABLE",
 		Columns:             []TableColumnDetail{},
 		PrimaryKey:          []string{},
@@ -1257,6 +1261,7 @@ func tableDetailsOnceWithPool(engine string, s EngineSettings, dbName, schema, t
 			var idx TableIndexInfo
 			var colsRaw string
 			if idxRows.Scan(&idx.Name, &idx.IsUnique, &idx.IsPrimary, &idx.IndexType, &colsRaw) == nil {
+				idx.IndexType = strings.ToUpper(strings.TrimSpace(idx.IndexType))
 				if colsRaw != "" {
 					idx.Columns = strings.Split(colsRaw, "\x1f")
 				} else {
@@ -1356,7 +1361,7 @@ func buildSyntheticCreateTableDDL(d *TableDetails) string {
 		}
 		return quoteIdent(d.Engine, c)
 	}
-	qTbl := qualifiedTable(d.Engine, d.Schema, d.Table)
+	qTbl := qualifiedTable(d.Engine, d.Schema, strings.TrimPrefix(d.Table, d.Schema+"."))
 	var lines []string
 	for _, col := range d.Columns {
 		var parts []string

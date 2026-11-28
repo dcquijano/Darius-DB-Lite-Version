@@ -2098,6 +2098,19 @@ func TestFinalizeTableDetailsAndSyntheticDDL(t *testing.T) {
 		!strings.Contains(ms.CreateDDL, "REFERENCES [dbo].[drivers] ([id]) ON DELETE CASCADE") {
 		t.Fatalf("unexpected MS SQL synthetic DDL:\n%s", ms.CreateDDL)
 	}
+
+	// Non-default schema display name (schema.table) must not double-qualify in synthetic DDL
+	pgSchema := &TableDetails{
+		Engine:   "postgresql",
+		Database: "fleet",
+		Schema:   "analytics",
+		Table:    "analytics.trip_events",
+		Columns:  []TableColumnDetail{{Name: "id", DataType: "bigint", Nullable: false, IsPrimaryKey: true}},
+	}
+	finalizeTableDetails(pgSchema)
+	if !strings.Contains(pgSchema.CreateDDL, `CREATE TABLE "analytics"."trip_events"`) {
+		t.Fatalf("expected clean schema qualification without duplication, got:\n%s", pgSchema.CreateDDL)
+	}
 }
 
 
